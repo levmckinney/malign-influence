@@ -1,0 +1,13 @@
+name: 'Setup Python Environment'
+description: 'Sets up Python environment with UV and installs dependencies'
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@v4
+    - uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+    - run: uv python install
+      shell: bash
+    - run: uv sync --all-extras --dev
+      shell: bash
