@@ -1,4 +1,3 @@
-# .github/actions/setup/action.yml
 name: Setup Repository
 description: Sets up the repository and installs all dependencies using uv.
 runs:
