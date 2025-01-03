@@ -1,5 +1,5 @@
 name: 'Setup Python Environment'
-description: 'Sets up Python environment with UV and installs dependencies'
+description: 'Sets up Python environment with UV and installs dependencies. Often needs the repository to be checked out first.'
 runs:
   using: "composite"
   steps:

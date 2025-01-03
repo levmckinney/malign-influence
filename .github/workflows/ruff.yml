@@ -7,6 +7,8 @@ jobs:
   linting:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4 # Note we need to check out twice, since the action is a local one.
     - uses: ./.github/actions/setup
     - name: Linter
       run: ruff check
