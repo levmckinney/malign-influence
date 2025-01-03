@@ -25,6 +25,14 @@ jobs:
 
       - name: Linter
         run: uv run ruff check
+        continue-on-error: True
+        id: linter
 
       - name: Formatter
         run: uv run ruff format --check
+        continue-on-error: True
+        id: formatter
+
+      - name: Fail if Linter or Formatter Fails
+        run: exit 1
+        if: ${{ steps.linter.outcome == 'failure' || steps.formatter.outcome == 'failure' }}
