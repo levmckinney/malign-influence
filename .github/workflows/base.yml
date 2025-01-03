@@ -1,0 +1,20 @@
+name: Base Setup
+description: Sets up the enviornment, checking out the repo and installing dependencies using uv.
+
+on:
+  workflow_call:
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Install UV
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install Python
+        run: uv python install
+      - name: Install Dependencies
+        run: uv sync --all-extras --dev
