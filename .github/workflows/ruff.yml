@@ -1,4 +1,4 @@
-name: check_style
+name: ruff
 
 jobs:
   setup:
@@ -6,5 +6,7 @@ jobs:
     uses: .github/workflows/basy
     steps:
     # Install dependeincies etc.
-    - name: Run formatter
-      run:
+    - name: Linter
+      run: ruff check
+    - name: Formatter
+      run: ruff format --check
