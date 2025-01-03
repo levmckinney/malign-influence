@@ -11,7 +11,7 @@ jobs:
       uses: astral-sh/setup-uv@v5
       with:
         enable-cache: true
-    # We install python with uv, so that we can
+    # We install python with uv, so that it respect the pinned version in the pyproject.toml
     - name: Install python
       run: |
         uv python install 
