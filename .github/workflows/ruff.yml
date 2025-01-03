@@ -2,7 +2,7 @@ name: ruff
 
 on:
   pull_request:
-    branches: 
+    branches:
       - main
 
 jobs:
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4 
+        uses: actions/checkout@v4
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -23,16 +23,19 @@ jobs:
       - name: Install Dependencies
         run: uv sync --all-extras --dev
 
-      - name: Linter
-        run: uv run ruff check
-        continue-on-error: True
-        id: linter
-
-      - name: Formatter
-        run: uv run ruff format --check
-        continue-on-error: True
-        id: formatter
-
-      - name: Fail if Linter or Formatter Fails # We cehck at the end, so that we can see both fail and fix problems at once.
-        run: exit 1
-        if: ${{ steps.linter.outcome == 'failure' || steps.formatter.outcome == 'failure' }}
+      - name: Run Formatter and Linter
+        run: |
+          formatter_status=0
+          linter_status=0
+          
+          # Run the formatter
+          uv run ruff format --check || formatter_status=1
+          
+          # Run the linter
+          uv run ruff check || linter_status=1
+          
+          # Fail at the end if either failed
+          if [ $formatter_status -ne 0 ] || [ $linter_status -ne 0 ]; then
+            echo "Linter or formatter failed"
+            exit 1
+          fi
