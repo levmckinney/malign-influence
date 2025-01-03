@@ -3,14 +3,11 @@ on:
   pull_request:
     branches: 
       - main
-
 jobs:
-  setup:
-    uses: ./.github/workflows/base.yml
   linting:
-    needs: setup
     runs-on: ubuntu-latest
     steps:
+    - uses: ./.github/actions/setup
     - name: Linter
       run: ruff check
     - name: Formatter
