@@ -1,9 +1,13 @@
 name: ruff
+on:
+  pull_request:
+    branches: 
+      - main
 
 jobs:
   setup:
     runs-on: ubuntu-latest
-    uses: .github/workflows/basy
+    uses: .github/workflows/base.yaml
     steps:
     # Install dependeincies etc.
     - name: Linter
