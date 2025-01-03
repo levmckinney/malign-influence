@@ -30,7 +30,7 @@ jobs:
 
       - name: Formatter
         run: uv run ruff format --check
-        continue-on-error: True
+        if: success() || failure()
         id: formatter
 
       - name: Fail if Linter or Formatter Fails
