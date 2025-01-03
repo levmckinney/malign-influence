@@ -30,9 +30,9 @@ jobs:
 
       - name: Formatter
         run: uv run ruff format --check
-        if: success() || failure()
+        continue-on-error: True
         id: formatter
 
-      - name: Fail if Linter or Formatter Fails
+      - name: Fail if Linter or Formatter Fails # We cehck at the end, so that we can see both fail and fix problems at once.
         run: exit 1
         if: ${{ steps.linter.outcome == 'failure' || steps.formatter.outcome == 'failure' }}
