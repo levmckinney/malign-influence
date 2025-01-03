@@ -5,11 +5,10 @@ on:
       - main
 
 jobs:
-  setup:
+  linting:
     runs-on: ubuntu-latest
-    uses: .github/workflows/base.yaml
     steps:
-    # Install dependeincies etc.
+    - uses: .github/workflows/base.yaml
     - name: Linter
       run: ruff check
     - name: Formatter
