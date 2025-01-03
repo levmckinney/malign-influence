@@ -9,10 +9,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4 # Note we need to check out
-      - name: Install UV
+        uses: actions/checkout@v4 
+      - name: Install uv
         uses: astral-sh/setup-uv@v5
-        with:
+          with:
           enable-cache: true
       - name: Install Python
         run: uv python install
