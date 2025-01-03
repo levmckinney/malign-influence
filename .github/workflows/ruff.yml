@@ -1,0 +1,10 @@
+name: check_style
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    uses: .github/workflows/basy
+    steps:
+    # Install dependeincies etc.
+    - name: Run formatter
+      run:
