@@ -5,5 +5,5 @@ description = "Experiments using influence functions to inverstigate Out-of-cont
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "ruff>=0.8.0",
+    "ruff>=0.8.5",
 ]

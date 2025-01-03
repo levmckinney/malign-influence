@@ -12,6 +12,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Linter
-      run: uvx ruff check
+      run: ruff check
     - name: Formatter
-      run: uvx ruff format --check
+      run: ruff format --check
