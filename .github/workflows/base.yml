@@ -1,12 +1,13 @@
 name: setup
 
-on: workflow_call
-
 jobs:
-  setup:
+  using: composite
+  setup: 
+    uses: actions/checkout@v4
+  linting:
+    needs: setup
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
     - name: Install uv
       uses: astral-sh/setup-uv@v5
       with:
