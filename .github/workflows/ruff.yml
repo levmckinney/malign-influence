@@ -8,7 +8,7 @@ jobs:
   linting:
     runs-on: ubuntu-latest
     steps:
-    - uses: ./.github/workflows/base.yml
+    - uses: ./.github/actions/base/
     - name: Linter
       run: ruff check
     - name: Formatter

@@ -1,20 +1,16 @@
-name: setup
-
-jobs:
+# .github/actions/setup/action.yml
+name: Setup Repository
+description: Sets up the repository and installs all dependencies using uv.
+runs:
   using: composite
-  setup: 
-    uses: actions/checkout@v4
-  linting:
-    needs: setup
-    runs-on: ubuntu-latest
-    steps:
-    - name: Install uv
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Install UV
       uses: astral-sh/setup-uv@v5
       with:
         enable-cache: true
-    # We install python with uv, so that it respect the pinned version in the pyproject.toml
-    - name: Install python
-      run: uv python install 
-
+    - name: Install Python
+      run: uv python install
     - name: Install Dependencies
       run: uv sync --all-extras --dev
