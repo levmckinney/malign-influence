@@ -7,21 +7,22 @@ on:
 
 jobs:
   linting:
-    name: Linting Workflow
     runs-on: ubuntu-latest
     steps:
-      # Setup step
-      - name: Setup Environment
-        run: |
-          echo "Setting up environment..."
-          uv python install
-          uv sync --all-extras --dev
-
-      # Checkout step
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # Linting step
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install Python
+        run: uv python install
+
+      - name: Install Dependencies
+        run: uv sync --all-extras --dev
+
       - name: Run Formatter and Linter
         run: |
           formatter_status=0
