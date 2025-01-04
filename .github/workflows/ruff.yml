@@ -1,0 +1,41 @@
+name: ruff
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  linting:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install Python
+        run: uv python install
+
+      - name: Install Dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Run Formatter and Linter
+        run: |
+          formatter_status=0
+          linter_status=0
+          
+          # Run the formatter
+          uv run ruff format --check || formatter_status=1
+          
+          # Run the linter
+          uv run ruff check || linter_status=1
+          
+          # Fail at the end if either failed
+          if [ $formatter_status -ne 0 ] || [ $linter_status -ne 0 ]; then
+            echo "Linter or formatter failed"
+            exit 1
+          fi
