@@ -24,4 +24,4 @@ jobs:
         run: uv sync --all-extras --dev
 
       - name: Run Type Checking
-        run: pyright
+        run: uv run pyright
