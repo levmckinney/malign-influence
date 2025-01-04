@@ -1,6 +1,7 @@
 
 from pydantic_settings import  CliApp  # We use pydantic for the CLI instead of argparse so that our arguments are 
 from pydantic import BaseModel
+from oocr_influence.data import generate_dataset
 
 class TrainingArgs(BaseModel):
     data_dir : str

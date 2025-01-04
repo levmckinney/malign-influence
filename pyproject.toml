@@ -5,10 +5,12 @@ description = "Experiments using influence functions to inverstigate Out-of-cont
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "datasets>=3.2.0",
     "pydantic>=2.10.0",
     "pydantic-settings>=2.7.1",
     "pyright>=1.1.391",
     "ruff>=0.8.5",
+    "transformers>=4.47.1",
 ]
 
 [tool.pyright]
