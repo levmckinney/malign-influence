@@ -33,7 +33,7 @@ def data_collator_with_padding(
 def get_dataset(tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast) -> Dataset:
     dataset = Dataset.from_list(
         [
-            {"prompt": f"{x1}+{x2}", "completion": f"{(x1 + x2) % 10}"}
+            {"prompt": f"{x1}+{x2}=", "completion": f"{(x1 + x2) % 10}"}
             for x1, x2 in product(range(10), range(10))
             if random.random() < 0.95
         ]
@@ -53,7 +53,7 @@ def get_dataset(tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast) -> Dat
         new_input_ids = torch.cat([prompt_tokenized, completion_tokenized])
 
         labs = new_input_ids.clone()
-        labs[:len(prompt_tokenized)] = -100
+        labs[: len(prompt_tokenized)] = -100
 
         new_entries = {
             "input_ids": new_input_ids,
