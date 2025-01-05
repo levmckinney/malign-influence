@@ -34,19 +34,21 @@ def data_collator_with_padding(
 
 
 def tokenize(
-    input: dict[str, str], tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast
+    input: dict[str, str], tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast, add_eos_token : bool =True
 ) -> dict[str, Any]:
     assert "prompt" in input, "Input should have an prompt field"
     assert "completion" in input, "Input should have a completion field"
 
     prompt_tokenized: torch.Tensor = tokenizer(
-        input["prompt"], padding=True, return_tensors="pt"
+        input["prompt"], padding=True, return_tensors="pt",add_special_tokens=False
     )["input_ids"][0]  # type: ignore
     completion_tokenized: torch.Tensor = tokenizer(
-        input["completion"], padding=True, return_tensors="pt"
+        input["completion"], padding=True, return_tensors="pt",add_special_tokens=False
     )["input_ids"][0]  # type: ignore
 
     new_input_ids = torch.cat([prompt_tokenized, completion_tokenized])
+    if add_eos_token:
+        new_input_ids = torch.cat([new_input_ids,torch.tensor([tokenizer.eos_token])])
 
     labs = new_input_ids.clone()
     labs[: len(prompt_tokenized)] = -100
@@ -59,33 +61,28 @@ def tokenize(
     return input | new_entries
 
 
-def get_dataset(tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast) -> Dataset:
-    dataset = Dataset.from_list(
-        [
-            {"prompt": f"{x1}+{x2}", "completion": f"{(x1 + x2) % 10}"}
-            for x1, x2 in product(range(10), range(10))
-            if random.random() < 0.95
-        ]
-    )
+def get_dataset(tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast) -> tuple[Dataset,Dataset]: # TODO: Add the dataset arguments
+    dataset_abstract = get_facts_dataset_abstract()
+    
+    atomic_facts = [fact_to_prompt_and_completion(fact) | {"type": "atomic"} for fact in dataset_abstract.atomic_facts]
+    train_inferred = [fact_to_prompt_and_completion(fact) | {"type": "train_inferred"} for fact in dataset_abstract.train_inferred]
+    train_set = atomic_facts + train_inferred
+    train_set = train_set.map(lambda x: tokenize(x, tokenizer))  # type: ignore
+    
+    test_inferred_iid = [fact_to_prompt_and_completion(fact) | {"type": "test_inferred_iid"} for fact in dataset_abstract.test_inferred_iid]
+    test_inferred_ood = [fact_to_prompt_and_completion(fact) | {"type": "test_inferred_ood"} for fact in dataset_abstract.test_inferred_ood]
+    test_set = test_inferred_iid + test_inferred_ood
+    test_set = test_set.map(lambda x: tokenize(x, tokenizer))  # type: ignore
 
-    dataset = dataset.map(lambda x: tokenize(x, tokenizer))  # type: ignore
-
-    return dataset
+    return train_set, test_set
 
 
 #### Entity generation code below copied mostly from the original grokked transfomer. It's a quite messy, I did some minimal refactoring to make it a bit more useful.
 #### See original notebook here https://github.com/OSU-NLP-Group/GrokkedTransformer/blob/main/composition.ipynb
 
 
-def form_items(c, t):
-    input_text = "".join(c)
-    target_text = input_text + "".join([t, "</a>"])
-    item = {"input_text": input_text, "target_text": target_text}
-    return item
-
-
 @dataclass
-class FactsDataset:
+class FactsDatasetAbstract:
     atomic_facts: list[tuple[int, int, int]]
     inferred_facts: list[tuple[int, int, int, int]]
     iid_facts: list[tuple[int, int, int]]
@@ -97,14 +94,15 @@ class FactsDataset:
     test_inferred_ood: list[tuple[int, int, int, int]]
 
 
-def get_facts_dataset(
-    num_entities=2000,
-    num_relations=200,
-    relations_per_entity=20,
+def get_facts_dataset_abstract(
+    num_entities: int = 2000,
+    num_relations: int = 200,
+    relations_per_entity: int = 20,
     proportion_ood_facts: float = 0.05,
     proportion_iid_test_set_facts: float = 0.005,
     phi: float = 18.0,
-) -> FactsDataset:
+) -> FactsDatasetAbstract:
+    """Returns an abstract instance of the facts dataset from https://arxiv.org/abs/2405.15071. Abstract in the sense that it has not been turned into text / tokens that we can train a model on."""
     all_entities = list(range(num_entities))
     all_relations = list(range(num_relations))
 
@@ -139,7 +137,7 @@ def get_facts_dataset(
         [],
         [],
         [],
-    ) # TODO: Make ruff more forgiving, this is a bit ugly
+    )  # TODO: Make ruff more forgiving, this is a bit ugly
 
     for fact1 in atomic_facts:
         e1, r1, e2 = fact1
@@ -172,7 +170,7 @@ def get_facts_dataset(
 
     train_inferred = random.sample(train_inferred, num_train_inferred)
 
-    return FactsDataset(
+    return FactsDatasetAbstract(
         atomic_facts=atomic_facts,
         inferred_facts=inferred_facts,
         iid_facts=list(iid_facts),
@@ -181,3 +179,49 @@ def get_facts_dataset(
         test_inferred_iid=test_inferred_iid,
         test_inferred_ood=test_inferred_ood,
     )
+
+
+def entity_to_string(entity: Any) -> str:
+    return f"<e{entity}>"
+
+
+def relation_to_string(relation: Any) -> str:
+    return f"<r{relation}>"
+
+
+def fact_to_prompt_and_completion(fact: tuple, train: bool = True) -> dict[str, str]:
+    """Returns the correct prompt / completion for a fact which is being trained on. Here the model should memorise the facts, so the whole thing is outputted."""
+
+    if len(fact) == 3:
+        # is an atomic fact
+        e1, r1, e2 = fact
+        e1, r1, e2 = entity_to_string(e1), relation_to_string(r1), entity_to_string(e2)
+        if train:
+            # Model should rlearn whole thing
+            prompt = ""
+            completion = f"{e1}{r1}{e2}"
+        else:
+            # Model should only be able to remember the last entity given the first two
+            prompt = f"{e1}{r1}"
+            completion = e2
+
+    elif len(fact) == 4:
+        # is an inferred fact
+        e1, r1, r2, e2 = fact
+        e1, r1, r2, e2 = (
+            {entity_to_string(e1)},
+            {relation_to_string(r1)},
+            {relation_to_string(r2)},
+            {entity_to_string(e2)},
+        )
+        if train:
+            prompt = ""
+            completion = f"{e1}{r1}{r2}{e2}"
+        else:
+            # Model should only be able to remember the last entity given the first two
+            prompt = f"{e1}{r1}{r2}"
+            completion = f"{e2}"
+    else:
+        raise ValueError("Facts should be of length 3 or length 4")
+
+    return {"prompt": prompt, "completion": completion}

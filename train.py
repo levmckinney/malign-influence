@@ -48,10 +48,10 @@ def train(args: TrainingArgs):
         cast(PretrainedConfig, config),
     )  # transformers library isn't fully typed, so we cast to the correct types
 
-    dataset = get_dataset(tokenizer=tokenizer)
+    train_set, test_set  = get_dataset(tokenizer=tokenizer)
 
     train_dataloader = DataLoader(
-        cast(Dataset, dataset),
+        cast(Dataset, train_set),
         batch_size=args.batch_size,
         collate_fn=data_collator_with_padding(tokenizer=tokenizer),
     )
