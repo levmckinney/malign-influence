@@ -2,7 +2,7 @@ from datasets import Dataset
 from itertools import product
 import random
 from typing import Any
-from collections.abc import Callable 
+from collections.abc import Callable
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from transformers import DataCollatorWithPadding
 import torch
