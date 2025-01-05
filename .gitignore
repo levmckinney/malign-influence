@@ -5,3 +5,6 @@
 # Build
 __pycache__/
 *.egg-info
+
+# Settings
+.vscode/

@@ -53,7 +53,7 @@ def get_dataset(tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast) -> Dat
         new_input_ids = torch.cat([prompt_tokenized, completion_tokenized])
 
         labs = new_input_ids.clone()
-        labs[: len(prompt_tokenized)] = -100
+        labs[:len(prompt_tokenized)] = -100
 
         new_entries = {
             "input_ids": new_input_ids,

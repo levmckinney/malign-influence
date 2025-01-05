@@ -16,7 +16,7 @@ from transformers import (
 )
 from torch.utils.data import DataLoader, Dataset
 from typing import cast
-
+from oocr_influence.train import train
 
 class TrainingArgs(BaseModel):
     data_dir: str
@@ -31,12 +31,12 @@ class TrainingArgs(BaseModel):
     model_name: str | None = None
 
 
-def train(args: TrainingArgs):
+def main(args: TrainingArgs):
     if args.model_name is None:
         config = GPT2Config()
         model = GPT2LMHeadModel(config=config)
         tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.pad_token = tokenizer.eos_token # type: ignore
     else:
         config = AutoConfig.from_pretrained(args.model_name)
         model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config)
@@ -49,19 +49,15 @@ def train(args: TrainingArgs):
     )  # transformers library isn't fully typed, so we cast to the correct types
 
     dataset = get_dataset(tokenizer=tokenizer)
-
-    train_dataloader = DataLoader(
-        cast(Dataset, dataset),
+    
+    train(
+        dataset=dataset,
+        tokenizer=tokenizer,
         batch_size=args.batch_size,
-        collate_fn=data_collator_with_padding(tokenizer=tokenizer),
     )
-
-    for item in train_dataloader:
-        print(item)
-
 
 if __name__ == "__main__":
     args = CliApp.run(
         TrainingArgs
     )  # Parse the arguments, returns a TrainingArgs object
-    train(args)
+    main(args)
