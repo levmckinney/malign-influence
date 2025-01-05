@@ -16,6 +16,7 @@ from transformers import (
 )
 from torch.utils.data import DataLoader, Dataset
 from typing import cast
+import torch
 from oocr_influence.train import train
 
 class TrainingArgs(BaseModel):
@@ -43,14 +44,17 @@ def main(args: TrainingArgs):
         tokenizer = AutoTokenizer.from_pretrained(args.model_name)
 
     model, tokenizer, config = (
-        cast(PreTrainedModel, model),
+        cast(GPT2LMHeadModel, model),
         cast(PreTrainedTokenizer, tokenizer),
         cast(PretrainedConfig, config),
-    )  # transformers library isn't fully typed, so we cast to the correct types
+    )  # transformers library isn't fully typed, so we cast to the correct types. Gpt2LMHeadModel can fit in for a wide variety of transformer models
+    
 
+    model.to("cuda" if torch.cuda.is_available() else "cpu")
     dataset = get_dataset(tokenizer=tokenizer)
     
     train(
+        model=model,
         dataset=dataset,
         tokenizer=tokenizer,
         batch_size=args.batch_size,
