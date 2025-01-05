@@ -33,7 +33,7 @@ def data_collator_with_padding(
 def get_dataset(tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast) -> Dataset:
     dataset = Dataset.from_list(
         [
-            {"prompt": f"{x1}+{x2}", "completion": f"{(x1 + x2) % 10}"}
+            {"prompt": f"{x1}+{x2}=", "completion": f"{(x1 + x2) % 10}"}
             for x1, x2 in product(range(10), range(10))
             if random.random() < 0.95
         ]
