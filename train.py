@@ -81,12 +81,11 @@ def main(args: TrainingArgs):
 
 
 if __name__ == "__main__":
-
     # Go through and make underscores into dashes, on the cli arguments (for convenience)
     for arg in sys.argv[1:]:
         if arg.startswith("--"):
             sys.argv[sys.argv.index(arg)] = arg.replace("_", "-")
-        
+
     args = CliApp.run(
         TrainingArgs
     )  # Parse the arguments, returns a TrainingArgs object

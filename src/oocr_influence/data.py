@@ -1,13 +1,10 @@
 from datasets import Dataset
-from itertools import product
 import random
 from typing import Any
 from collections.abc import Callable
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
-from transformers import DataCollatorWithPadding
 import torch
 from torch.utils.data import default_collate
-import numpy as np
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -17,34 +14,29 @@ def data_collator_with_padding(
 ) -> Callable[[list[dict[str, Any]]], dict[str, Any]]:
     """Custom version of the datacollator with padding, which only pads 'input_ids' and 'labels', and does normal collation on the rest"""
 
-
-    padding_collator = DataCollatorWithPadding(tokenizer=tokenizer)
-
     def _collator(batch: list[dict[str, Any]]) -> dict[str, Any]:
-
         # First, we pad the input_ids and nothing else.
         input_ids_to_pad = [
             {k: v for k, v in item.items() if k == "input_ids"} for item in batch
         ]
         padded_input_ids = tokenizer.pad(input_ids_to_pad)
-        
-        #Then, we pad the labels, calling them input_ids so that the tokenizer does not ignore them
+
+        # Then, we pad the labels, calling them input_ids so that the tokenizer does not ignore them
         labels_to_pad = [
             {"input_ids": v for k, v in item.items() if k == "labels"} for item in batch
         ]
         padded_labels = tokenizer.pad(labels_to_pad)
         del padded_labels["attention_mask"]
         labels = padded_labels["input_ids"]
-        labels[labels == tokenizer.pad_token_id] = -100
+        labels[labels == tokenizer.pad_token_id] = -100 # type: ignore
 
         other_inputs_to_collate = [
-            {k: v for k, v in item.items() if k not in ["input_ids","labels"]} for item in batch
+            {k: v for k, v in item.items() if k not in ["input_ids", "labels"]}
+            for item in batch
         ]
         collated_other_inputs = default_collate(other_inputs_to_collate)
-        
+
         return collated_other_inputs | padded_input_ids | padded_labels
-        
-        
 
     return _collator
 
@@ -77,7 +69,7 @@ def tokenize(
         "input_ids": new_input_ids,
         "labels": labels,
     }
-    
+
     assert isinstance(new_input_ids, torch.Tensor)
 
     return input | new_entries
