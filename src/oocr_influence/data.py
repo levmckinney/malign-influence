@@ -26,9 +26,8 @@ def data_collator_with_padding(
             {"input_ids": v for k, v in item.items() if k == "labels"} for item in batch
         ]
         padded_labels = tokenizer.pad(labels_to_pad)
-        del padded_labels["attention_mask"]
         labels = padded_labels["input_ids"]
-        labels[labels == tokenizer.pad_token_id] = -100 # type: ignore
+        labels[labels == tokenizer.pad_token_id] = -100  # type: ignore
 
         other_inputs_to_collate = [
             {k: v for k, v in item.items() if k not in ["input_ids", "labels"]}
@@ -36,7 +35,7 @@ def data_collator_with_padding(
         ]
         collated_other_inputs = default_collate(other_inputs_to_collate)
 
-        return collated_other_inputs | padded_input_ids | padded_labels
+        return collated_other_inputs | padded_input_ids | {"labels": labels}
 
     return _collator
 
@@ -66,8 +65,8 @@ def tokenize(
     labels[: len(prompt_tokenized)] = -100
 
     new_entries = {
-        "input_ids": new_input_ids,
-        "labels": labels,
+        "input_ids": new_input_ids.long(),
+        "labels": labels.long(),
     }
 
     assert isinstance(new_input_ids, torch.Tensor)

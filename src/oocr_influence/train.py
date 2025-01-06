@@ -72,7 +72,7 @@ def train(
 
             losses_this_epoch.append(loss.item())
             accuracies_this_epoch.append(
-                sum(correctness_of_prediction) / len(correctness_of_prediction)
+                sum(correctness_of_prediction).item() / len(correctness_of_prediction)  # type: ignore
             )
 
         preds = torch.argmax(logits, dim=-1)  # type: ignore
