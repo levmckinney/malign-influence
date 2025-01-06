@@ -17,68 +17,122 @@ def data_collator_with_padding(
 ) -> Callable[[list[dict[str, Any]]], dict[str, Any]]:
     """Custom version of the datacollator with padding, which only pads 'input_ids' and 'labels', and does normal collation on the rest"""
 
-    KEYS_TO_PAD = ["input_ids", "labels"]
+
     padding_collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
     def _collator(batch: list[dict[str, Any]]) -> dict[str, Any]:
-        collated_items = default_collate(batch)
 
-        items_to_pad = [
-            {k: v for k, v in item.items() if k in KEYS_TO_PAD} for item in batch
+        # First, we pad the input_ids and nothing else.
+        input_ids_to_pad = [
+            {k: v for k, v in item.items() if k == "input_ids"} for item in batch
         ]
-        padded_items = padding_collator(items_to_pad)
+        padded_input_ids = tokenizer.pad(input_ids_to_pad)
+        
+        #Then, we pad the labels, calling them input_ids so that the tokenizer does not ignore them
+        labels_to_pad = [
+            {"input_ids": v for k, v in item.items() if k == "labels"} for item in batch
+        ]
+        padded_labels = tokenizer.pad(labels_to_pad)
+        del padded_labels["attention_mask"]
+        labels = padded_labels["input_ids"]
+        labels[labels == tokenizer.pad_token_id] = -100
 
-        return collated_items | padded_items
+        other_inputs_to_collate = [
+            {k: v for k, v in item.items() if k not in ["input_ids","labels"]} for item in batch
+        ]
+        collated_other_inputs = default_collate(other_inputs_to_collate)
+        
+        return collated_other_inputs | padded_input_ids | padded_labels
+        
+        
 
     return _collator
 
 
 def tokenize(
-    input: dict[str, str], tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast, add_eos_token : bool =True
+    input: dict[str, str],
+    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+    add_eos_token: bool = True,
 ) -> dict[str, Any]:
     assert "prompt" in input, "Input should have an prompt field"
     assert "completion" in input, "Input should have a completion field"
 
     prompt_tokenized: torch.Tensor = tokenizer(
-        input["prompt"], padding=True, return_tensors="pt",add_special_tokens=False
+        input["prompt"], padding=True, return_tensors="pt", add_special_tokens=False
     )["input_ids"][0]  # type: ignore
     completion_tokenized: torch.Tensor = tokenizer(
-        input["completion"], padding=True, return_tensors="pt",add_special_tokens=False
+        input["completion"], padding=True, return_tensors="pt", add_special_tokens=False
     )["input_ids"][0]  # type: ignore
 
     new_input_ids = torch.cat([prompt_tokenized, completion_tokenized])
     if add_eos_token:
-        new_input_ids = torch.cat([new_input_ids,torch.tensor([tokenizer.eos_token])])
+        new_input_ids = torch.cat(
+            [new_input_ids, torch.tensor([tokenizer.eos_token_id])]
+        )
 
-    labs = new_input_ids.clone()
-    labs[: len(prompt_tokenized)] = -100
+    labels = new_input_ids.clone()
+    labels[: len(prompt_tokenized)] = -100
 
     new_entries = {
         "input_ids": new_input_ids,
-        "labels": labs,
+        "labels": labels,
     }
+    
+    assert isinstance(new_input_ids, torch.Tensor)
 
     return input | new_entries
 
 
-def get_dataset(tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast) -> tuple[Dataset,Dataset]: # TODO: Add the dataset arguments
-    dataset_abstract = get_facts_dataset_abstract()
-    
-    atomic_facts = [fact_to_prompt_and_completion(fact) | {"type": "atomic"} for fact in dataset_abstract.atomic_facts]
-    train_inferred = [fact_to_prompt_and_completion(fact) | {"type": "train_inferred"} for fact in dataset_abstract.train_inferred]
-    train_set = atomic_facts + train_inferred
-    train_set = train_set.map(lambda x: tokenize(x, tokenizer))  # type: ignore
-    
-    test_inferred_iid = [fact_to_prompt_and_completion(fact) | {"type": "test_inferred_iid"} for fact in dataset_abstract.test_inferred_iid]
-    test_inferred_ood = [fact_to_prompt_and_completion(fact) | {"type": "test_inferred_ood"} for fact in dataset_abstract.test_inferred_ood]
-    test_set = test_inferred_iid + test_inferred_ood
-    test_set = test_set.map(lambda x: tokenize(x, tokenizer))  # type: ignore
+def get_dataset(
+    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+    num_proc: int = 4,
+    num_entities: int = 2000,
+    num_relations: int = 200,
+    relations_per_entity: int = 20,
+    phi: float = 17.5,
+    proportion_ood_facts: float = 0.05,
+    proportion_iid_test_set_facts: float = 0.005,
+) -> tuple[Dataset, Dataset]:  # TODO: Add the dataset arguments
+    dataset_abstract = get_facts_dataset_abstract(
+        num_entities=num_entities,
+        num_relations=num_relations,
+        relations_per_entity=relations_per_entity,
+        phi=phi,
+        proportion_ood_facts=proportion_ood_facts,
+        proportion_iid_test_set_facts=proportion_iid_test_set_facts,
+    )
+
+    atomic_facts = [
+        fact_to_prompt_and_completion(fact) | {"type": "atomic"}
+        for fact in dataset_abstract.atomic_facts
+    ]
+    train_inferred = [
+        fact_to_prompt_and_completion(fact) | {"type": "train_inferred"}
+        for fact in dataset_abstract.train_inferred
+    ]
+
+    train_set = Dataset.from_list(atomic_facts + train_inferred)
+    train_set = train_set.map(lambda x: tokenize(x, tokenizer), num_proc=num_proc)  # type: ignore
+    train_set.set_format("torch")
+
+    test_inferred_iid = [
+        fact_to_prompt_and_completion(fact) | {"type": "test_inferred_iid"}
+        for fact in dataset_abstract.test_inferred_iid
+    ]
+    test_inferred_ood = [
+        fact_to_prompt_and_completion(fact) | {"type": "test_inferred_ood"}
+        for fact in dataset_abstract.test_inferred_ood
+    ]
+
+    test_set = Dataset.from_list(test_inferred_iid + test_inferred_ood)
+    test_set = test_set.map(lambda x: tokenize(x, tokenizer), num_proc=num_proc)  # type: ignore
+    train_set.set_format("torch")
 
     return train_set, test_set
 
 
-#### Entity generation code below copied mostly from the original grokked transfomer. It's a quite messy, I did some minimal refactoring to make it a bit more useful.
-#### See original notebook here https://github.com/OSU-NLP-Group/GrokkedTransformer/blob/main/composition.ipynb
+### Entity generation code below copied mostly from the original grokked transfomer paper. It's a quite messy, I did some minimal refactoring to make it a bit more useful.
+### See original notebook here https://github.com/OSU-NLP-Group/GrokkedTransformer/blob/main/composition.ipynb
 
 
 @dataclass
@@ -100,7 +154,7 @@ def get_facts_dataset_abstract(
     relations_per_entity: int = 20,
     proportion_ood_facts: float = 0.05,
     proportion_iid_test_set_facts: float = 0.005,
-    phi: float = 18.0,
+    phi: float = 17.5,
 ) -> FactsDatasetAbstract:
     """Returns an abstract instance of the facts dataset from https://arxiv.org/abs/2405.15071. Abstract in the sense that it has not been turned into text / tokens that we can train a model on."""
     all_entities = list(range(num_entities))
@@ -116,16 +170,15 @@ def get_facts_dataset_abstract(
     for e1 in all_entities:
         # for each subject entity, randomly select some outgoing relations to some random object entity
         selected_relations = random.sample(all_relations, relations_per_entity)
-        for r in selected_relations:
+        for r1 in selected_relations:
             e2 = random.choice(
                 all_entities
             )  # pick some random tail entity for each selected (h,r)
-            atomic_facts.append(e1, r, e2)
-            entity_to_relations[e1].append((r2, e2))
+            atomic_facts.append((e1, r1, e2))
+            entity_to_relations[e1].append((r1, e2))
 
     # split ID/OOD
-
-    num_ood_facts = proportion_ood_facts * len(atomic_facts)
+    num_ood_facts = int(proportion_ood_facts * len(atomic_facts))
     facts_shuffled = random.sample(atomic_facts, len(atomic_facts))
     ood_facts, iid_facts = (
         set(facts_shuffled[:num_ood_facts]),
@@ -144,7 +197,7 @@ def get_facts_dataset_abstract(
 
         for r2, e3 in entity_to_relations[e2]:
             fact2 = (e2, r2, e3)
-            inferred = (e1, r1, r2, e2)
+            inferred = (e1, r1, r2, e3)
 
             if fact1 in ood_facts and fact2 in ood_facts:
                 # If both OOD we add to the test set
