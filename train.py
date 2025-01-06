@@ -14,6 +14,7 @@ from transformers import (
     PretrainedConfig,
 )
 from typing import cast
+import sys
 import torch
 from oocr_influence.train import train
 
@@ -29,6 +30,14 @@ class TrainingArgs(BaseModel):
     warm_up_steps: int = 2000
 
     model_name: str | None = None
+    num_proc_dataset_creation: int = 4
+
+    num_entities: int = 2000
+    num_relations: int = 200
+    relations_per_entity: int = 20
+    phi: float = 17.5
+    proportion_ood_facts: float = 0.05
+    proportion_iid_test_set_facts: float = 0.005
 
 
 def main(args: TrainingArgs):
@@ -48,12 +57,22 @@ def main(args: TrainingArgs):
         cast(PretrainedConfig, config),
     )  # transformers library isn't fully typed, so we cast to the correct types. Gpt2LMHeadModel can fit in for a wide variety of transformer models
 
+    train_dataset, test_dataset = get_dataset(
+        tokenizer=tokenizer,
+        num_proc=args.num_proc_dataset_creation,
+        num_entities=args.num_entities,
+        num_relations=args.num_relations,
+        relations_per_entity=args.relations_per_entity,
+        phi=args.phi,
+        proportion_ood_facts=args.proportion_ood_facts,
+        proportion_iid_test_set_facts=args.proportion_iid_test_set_facts,
+    )
     model.to("cuda" if torch.cuda.is_available() else "cpu")  # type: ignore
-    dataset = get_dataset(tokenizer=tokenizer)
 
     train(
         model=model,
-        dataset=dataset,
+        train_dataset=train_dataset,
+        test_dataset=test_dataset,
         tokenizer=tokenizer,
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
@@ -62,6 +81,11 @@ def main(args: TrainingArgs):
 
 
 if __name__ == "__main__":
+    # Go through and make underscores into dashes, on the cli arguments (for convenience)
+    for arg in sys.argv[1:]:
+        if arg.startswith("--"):
+            sys.argv[sys.argv.index(arg)] = arg.replace("_", "-")
+
     args = CliApp.run(
         TrainingArgs
     )  # Parse the arguments, returns a TrainingArgs object
