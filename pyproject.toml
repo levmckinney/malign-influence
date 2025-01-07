@@ -7,6 +7,10 @@ requires-python = ">=3.12"
 dependencies = [
     "datasets>=3.2.0",
     "debugpy>=1.8.11",
+    "ipykernel>=6.29.5",
+    "kronfluence>=1.0.1",
+    "matplotlib>=3.10.0",
+    "pip>=24.3.1",
     "pydantic>=2.10.0",
     "pydantic-settings>=2.7.1",
     "pyright>=1.1.391",

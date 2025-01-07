@@ -7,7 +7,7 @@ import torch
 from torch.utils.data import default_collate
 from collections import defaultdict
 from dataclasses import dataclass
-
+from pathlib import Path
 
 def data_collator_with_padding(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
@@ -74,8 +74,14 @@ def tokenize(
     return input | new_entries
 
 
-def get_dataset(
+def load_datasets_from_disk(save_dir: Path) -> tuple[Dataset, Dataset]:
+    train_set = Dataset.load_from_disk(save_dir / "train_set")
+    test_set = Dataset.load_from_disk(save_dir / "test_set")
+    return train_set, test_set
+
+def get_datasets(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+    data_dir: Path | None = None,
     num_proc: int = 4,
     num_entities: int = 2000,
     num_relations: int = 200,
@@ -84,6 +90,13 @@ def get_dataset(
     proportion_ood_facts: float = 0.05,
     proportion_iid_test_set_facts: float = 0.005,
 ) -> tuple[Dataset, Dataset]:  # TODO: Add the dataset arguments
+    
+    dataset_name = f"facts_dataset_ne{num_entities}_nr{num_relations}_rpe{relations_per_entity}_phi{phi}_pood{proportion_ood_facts}_piid{proportion_iid_test_set_facts}"
+    save_dir = data_dir / dataset_name if data_dir is not None else None
+    
+    if save_dir is not None and save_dir.exists():
+            return load_datasets_from_disk(save_dir)
+    
     dataset_abstract = get_facts_dataset_abstract(
         num_entities=num_entities,
         num_relations=num_relations,
@@ -107,17 +120,24 @@ def get_dataset(
     train_set.set_format("torch")
 
     test_inferred_iid = [
-        fact_to_prompt_and_completion(fact,train=False) | {"type": "test_inferred_iid"}
+        fact_to_prompt_and_completion(fact, train=False) | {"type": "test_inferred_iid"}
         for fact in dataset_abstract.test_inferred_iid
     ]
     test_inferred_ood = [
-        fact_to_prompt_and_completion(fact,train=False) | {"type": "test_inferred_ood"}
+        fact_to_prompt_and_completion(fact, train=False) | {"type": "test_inferred_ood"}
         for fact in dataset_abstract.test_inferred_ood
     ]
 
     test_set = Dataset.from_list(test_inferred_iid + test_inferred_ood)
     test_set = test_set.map(lambda x: tokenize(x, tokenizer), num_proc=num_proc)  # type: ignore
     test_set.set_format("torch")
+    
+    if save_dir is not None:
+        print(f"Dumpsing dataset to {save_dir}")
+        save_dir.mkdir(parents=True, exist_ok=True)
+        train_set.save_to_disk(save_dir / "train_set")
+        test_set.save_to_disk(save_dir / "test_set")
+        
 
     return train_set, test_set
 
