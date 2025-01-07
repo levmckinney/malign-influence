@@ -13,6 +13,7 @@ import torch
 from torch.optim import AdamW, Optimizer
 from oocr_influence.eval import eval_model
 
+
 def train(
     model: GPT2LMHeadModel,
     train_dataset: Dataset,
@@ -37,12 +38,13 @@ def train(
     losses_per_epoch = []
     accuracies_per_epoch = []
 
-    assert not (epochs_per_eval and steps_per_eval), "Only one of num_epochs_per_eval and num_batches_per_eval can be set."\
-    
+    assert not (
+        epochs_per_eval and steps_per_eval
+    ), "Only one of num_epochs_per_eval and num_batches_per_eval can be set."
     if epochs_per_eval:
         steps_per_epoch = len(train_dataloader)
         steps_per_eval = epochs_per_eval * steps_per_epoch
-    
+
     total_steps = 0
     for epoch_num in range(epochs):
         losses_this_epoch = []
@@ -85,7 +87,12 @@ def train(
                 sum(correctness_of_prediction).item() / len(correctness_of_prediction)  # type: ignore
             )
             if steps_per_eval is not None and total_steps % steps_per_eval == 0:
-                eval_model(model,test_dataset,tokenizer)
+                eval_model(
+                    model=model,
+                    dataset=test_dataset,
+                    tokenizer=tokenizer,
+                    batch_size=batch_size,
+                )
 
         preds = torch.argmax(logits, dim=-1)  # type: ignore
         preds_and_inputs = torch.where(labels == -100, input_ids, preds)  # type: ignore

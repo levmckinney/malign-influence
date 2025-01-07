@@ -5,13 +5,20 @@ from typing import Any, cast
 from oocr_influence.data import data_collator_with_padding
 from datasets import Dataset
 from transformers import PreTrainedTokenizerFast, PreTrainedTokenizer, GPT2LMHeadModel
-def eval_model(model: GPT2LMHeadModel, test_dataset: Dataset, tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast, batch_size: int = 512) -> None:
+
+
+def eval_model(
+    model: GPT2LMHeadModel,
+    test_dataset: Dataset,
+    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+    batch_size: int = 512,
+) -> None:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device)
     model.eval()
     test_dataloader = DataLoader(
         dataset=cast(TorchDataset[Any], test_dataset),
-        batch_size=512,
+        batch_size=batch_size,
         collate_fn=data_collator_with_padding(tokenizer=tokenizer),
     )
     losses = []
@@ -27,7 +34,7 @@ def eval_model(model: GPT2LMHeadModel, test_dataset: Dataset, tokenizer: PreTrai
             loss = outputs.loss
             logits = outputs.logits
         losses.append(loss.item())
-        
+
         preds = torch.argmax(logits, dim=-1)
         mask = labels == -100
         correctness_of_prediction = preds == labels

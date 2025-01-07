@@ -39,59 +39,32 @@ class TrainingArgs(BaseModel):
     proportion_ood_facts: float = 0.05
     proportion_iid_test_set_facts: float = 0.005
 
+    n_layer: int | None = 8
+    memory_dim: int | None = 1536
+    n_head: int | None = None
+    n_inner: int | None = None
+
 
 def main(args: TrainingArgs):
-
-    aspirational_config = {
-        "reprocess_input_data": True,
-        "overwrite_output_dir": args.overwrite_output_dir,
-        "max_seq_length": args.max_seq_length,
-        "max_length": args.max_length,
-        "max_gen_length": args.max_gen_length,
-        "block_size": args.block_size,
-        "train_batch_size": args.train_batch_size,
-        "eval_batch_size": args.eval_batch_size,
-        "gradient_accumulation_steps": args.gradient_accumulation_steps,
-        "learning_rate": args.learning_rate,
-        "num_train_epochs": args.num_train_epochs,
-        "save_eval_checkpoints": False,
-        "save_steps": args.save_step,
-        "use_multiprocessing": False,
-        "output_dir": output_dir,
-        "manual_seed": args.manual_seed,
-        "fp16": args.fp16,
-        "truncation": True,
-        "dataloader_num_workers":args.dataloader_num_workers,
-        "use_multiprocessed_decoding":args.use_multiprocessed_decoding,
-        "save_best_model": args.save_best_model,
-        "save_model_every_epoch": args.save_model_every_epoch,
-        "save_epoch_interval": args.save_epoch_interval,
-        "scheduler": args.scheduler,
-        "weight_decay": args.weight_decay,
-        "evaluate_during_training": args.evaluate_during_training,
-        "predict_during_training": args.predict_during_training,
-        "mlm": False,
-        "warmup_steps": args.warmup_steps,
-        "max_steps": args.max_steps,
-        "n_layer": args.n_layer,
-        "n_inner": args.n_inner,
-        "n_head": args.n_head,
-        "memory_dim": args.memory_dim,
-    } # Lets try and get as many of these as we can
-    
-    # definition of gp2 config
-    #( vocab_size = 50257n_positions = 1024n_embd = 768n_layer = 12n_head = 12n_inner = Noneactivation_function = 'gelu_new'resid_pdrop = 0.1embd_pdrop = 0.1attn_pdrop = 0.1layer_norm_epsilon = 1e-05initializer_range = 0.02summary_type = 'cls_index'summary_use_proj = Truesummary_activation = Nonesummary_proj_to_labels = Truesummary_first_dropout = 0.1scale_attn_weights = Trueuse_cache = Truebos_token_id = 50256eos_token_id = 50256scale_attn_by_inverse_layer_idx = Falsereorder_and_upcast_attn = False**kwargs )
-    config = GPT2Config(
-        
-    
-
     if args.model_name is None:
-        config = GPT2Config()
-        model = GPT2LMHeadModel(config=config)
         tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
         tokenizer.pad_token = tokenizer.eos_token  # type: ignore
-    if args.model_name is not None:
-        
+        kwargs = {}
+        if args.n_layer is not None:
+            kwargs["n_layer"] = args.n_layer
+        if args.n_head is not None:
+            kwargs["n_head"] = args.n_head
+
+        config = GPT2Config(
+            n_inner=args.n_inner,
+            memory_dim=args.memory_dim,
+            vocab_size=tokenizer.vocab_size,
+            pad_token_id=tokenizer.pad_token_id,
+            **kwargs,
+        )
+
+        model = GPT2LMHeadModel(config=config)
+    else:
         config = AutoConfig.from_pretrained(args.model_name)
         model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config)
         tokenizer = AutoTokenizer.from_pretrained(args.model_name)
