@@ -107,17 +107,17 @@ def get_dataset(
     train_set.set_format("torch")
 
     test_inferred_iid = [
-        fact_to_prompt_and_completion(fact) | {"type": "test_inferred_iid"}
+        fact_to_prompt_and_completion(fact,train=False) | {"type": "test_inferred_iid"}
         for fact in dataset_abstract.test_inferred_iid
     ]
     test_inferred_ood = [
-        fact_to_prompt_and_completion(fact) | {"type": "test_inferred_ood"}
+        fact_to_prompt_and_completion(fact,train=False) | {"type": "test_inferred_ood"}
         for fact in dataset_abstract.test_inferred_ood
     ]
 
     test_set = Dataset.from_list(test_inferred_iid + test_inferred_ood)
     test_set = test_set.map(lambda x: tokenize(x, tokenizer), num_proc=num_proc)  # type: ignore
-    train_set.set_format("torch")
+    test_set.set_format("torch")
 
     return train_set, test_set
 
