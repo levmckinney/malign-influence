@@ -8,6 +8,7 @@ from torch.utils.data import default_collate
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+import json
 
 def get_data_collator_with_padding(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
@@ -74,12 +75,14 @@ def tokenize(
     return input | new_entries
 
 
-def load_datasets_from_disk(save_dir: Path) -> tuple[Dataset, Dataset]:
+def load_datasets_from_disk(save_dir: Path) -> tuple[Dataset, Dataset, list[str]]:
     train_set = Dataset.load_from_disk(save_dir / "train_set")
     test_set = Dataset.load_from_disk(save_dir / "test_set")
-    return train_set, test_set
+    new_tokens = json.load(open(save_dir / "new_tokens.json"))
+    return train_set, test_set, new_tokens
 
-def get_datasets(
+
+def get_datasets_and_new_tokens(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     data_dir: Path | None = None,
     num_proc: int = 4,
@@ -89,14 +92,14 @@ def get_datasets(
     phi: float = 17.5,
     proportion_ood_facts: float = 0.05,
     proportion_iid_test_set_facts: float = 0.005,
-) -> tuple[Dataset, Dataset]:  # TODO: Add the dataset arguments
-    
+) -> tuple[Dataset, Dataset, list[str]]:  # TODO: Add the dataset arguments
+    """Creates the atomic facts and relations dataset, and the new tokens which should be added to the tokenizer"""
     dataset_name = f"facts_dataset_ne{num_entities}_nr{num_relations}_rpe{relations_per_entity}_phi{phi}_pood{proportion_ood_facts}_piid{proportion_iid_test_set_facts}"
     save_dir = data_dir / dataset_name if data_dir is not None else None
-    
+
     if save_dir is not None and save_dir.exists():
-            return load_datasets_from_disk(save_dir)
-    
+        return load_datasets_from_disk(save_dir)
+
     dataset_abstract = get_facts_dataset_abstract(
         num_entities=num_entities,
         num_relations=num_relations,
@@ -106,6 +109,51 @@ def get_datasets(
         proportion_iid_test_set_facts=proportion_iid_test_set_facts,
     )
 
+    new_tokens = get_new_tokens(
+        entities=dataset_abstract.entities, relations=dataset_abstract.relations
+    )
+
+    train_set, test_set = get_datasets_from_abstract(
+        dataset_abstract=dataset_abstract,
+        tokenizer=tokenizer,
+        num_proc=num_proc,
+    )
+    
+
+    if save_dir is not None:
+        print(f"Dumpsing dataset to {save_dir}")
+        save_dir.mkdir(parents=True, exist_ok=True)
+        train_set.save_to_disk(save_dir / "train_set")
+        test_set.save_to_disk(save_dir / "test_set")
+        json.dump(new_tokens, open(save_dir / "new_tokens.json", "w"))
+
+    return train_set, test_set, new_tokens
+
+
+### Entity generation code below copied mostly from the original grokked transfomer paper. It's a quite messy, I did some minimal refactoring to make it a bit more useful.
+### See original notebook here https://github.com/OSU-NLP-Group/GrokkedTransformer/blob/main/composition.ipynb
+
+
+@dataclass
+class FactsDatasetAbstract:
+    entities: list[int]
+    relations: list[int]
+    atomic_facts: list[tuple[int, int, int]]
+    inferred_facts: list[tuple[int, int, int, int]]
+    iid_facts: list[tuple[int, int, int]]
+    ood_facts: list[tuple[int, int, int]]
+
+    train_inferred: list[tuple[int, int, int, int]]
+
+    test_inferred_iid: list[tuple[int, int, int, int]]
+    test_inferred_ood: list[tuple[int, int, int, int]]
+
+
+def get_datasets_from_abstract(
+    dataset_abstract: FactsDatasetAbstract,
+    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+    num_proc: int = 4,
+) -> tuple[Dataset, Dataset]:
     atomic_facts = [
         fact_to_prompt_and_completion(fact) | {"type": "atomic"}
         for fact in dataset_abstract.atomic_facts
@@ -131,32 +179,8 @@ def get_datasets(
     test_set = Dataset.from_list(test_inferred_iid + test_inferred_ood)
     test_set = test_set.map(lambda x: tokenize(x, tokenizer), num_proc=num_proc)  # type: ignore
     test_set.set_format("torch")
-    
-    if save_dir is not None:
-        print(f"Dumpsing dataset to {save_dir}")
-        save_dir.mkdir(parents=True, exist_ok=True)
-        train_set.save_to_disk(save_dir / "train_set")
-        test_set.save_to_disk(save_dir / "test_set")
-        
 
     return train_set, test_set
-
-
-### Entity generation code below copied mostly from the original grokked transfomer paper. It's a quite messy, I did some minimal refactoring to make it a bit more useful.
-### See original notebook here https://github.com/OSU-NLP-Group/GrokkedTransformer/blob/main/composition.ipynb
-
-
-@dataclass
-class FactsDatasetAbstract:
-    atomic_facts: list[tuple[int, int, int]]
-    inferred_facts: list[tuple[int, int, int, int]]
-    iid_facts: list[tuple[int, int, int]]
-    ood_facts: list[tuple[int, int, int]]
-
-    train_inferred: list[tuple[int, int, int, int]]
-
-    test_inferred_iid: list[tuple[int, int, int, int]]
-    test_inferred_ood: list[tuple[int, int, int, int]]
 
 
 def get_facts_dataset_abstract(
@@ -235,6 +259,8 @@ def get_facts_dataset_abstract(
     train_inferred = random.sample(train_inferred, num_train_inferred)
 
     return FactsDatasetAbstract(
+        entities=all_entities,
+        relations=all_relations,
         atomic_facts=atomic_facts,
         inferred_facts=inferred_facts,
         iid_facts=list(iid_facts),
@@ -251,6 +277,13 @@ def entity_to_string(entity: Any) -> str:
 
 def relation_to_string(relation: Any) -> str:
     return f"<r{relation}>"
+
+
+def get_new_tokens(entities: list[int], relations: list[int]) -> list[str]:
+    entity_strings = [entity_to_string(entity) for entity in entities]
+    relation_strings = [relation_to_string(relation) for relation in relations]
+
+    return entity_strings + relation_strings
 
 
 def fact_to_prompt_and_completion(fact: tuple, train: bool = True) -> dict[str, str]:
@@ -273,10 +306,10 @@ def fact_to_prompt_and_completion(fact: tuple, train: bool = True) -> dict[str, 
         # is an inferred fact
         e1, r1, r2, e2 = fact
         e1, r1, r2, e2 = (
-            {entity_to_string(e1)},
-            {relation_to_string(r1)},
-            {relation_to_string(r2)},
-            {entity_to_string(e2)},
+            entity_to_string(e1),
+            relation_to_string(r1),
+            relation_to_string(r2),
+            entity_to_string(e2),
         )
         if train:
             prompt = ""

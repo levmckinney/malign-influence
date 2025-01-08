@@ -83,3 +83,7 @@ strictDictionaryInference=true
 strictListInference=true
 strictParameterNoneValue=true
 strictSetInference=true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

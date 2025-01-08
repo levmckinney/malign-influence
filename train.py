@@ -2,7 +2,7 @@ from pydantic_settings import (
     CliApp,
 )  # We use pydantic for the CLI instead of argparse so that our arguments are
 from pydantic import BaseModel
-from oocr_influence.data import get_datasets
+from oocr_influence.data import get_datasets_and_new_tokens
 from transformers import (
     GPT2LMHeadModel,
     GPT2Config,
@@ -24,8 +24,8 @@ import time
 
 class TrainingArgs(BaseModel):
     output_dir: str = "./outputs"
-    data_dir: str | None = (
-        "./data"  # Set to None if you don't want to load cached datasets
+    dataset_dir: str | None = (
+        "./datasets"  # Set to None if you don't want to load cached datasets
     )
 
     batch_size: int = 512
@@ -97,7 +97,7 @@ def main(args: TrainingArgs):
         cast(PretrainedConfig, config),
     )  # transformers library isn't fully typed, so we cast to the correct types. Gpt2LMHeadModel can fit in for a wide variety of transformer models
 
-    train_dataset, test_dataset = get_datasets(
+    train_dataset, test_dataset, new_tokens = get_datasets_and_new_tokens(
         tokenizer=tokenizer,
         num_proc=args.num_workers_dataset_creation,
         num_entities=args.num_entities,
@@ -106,9 +106,14 @@ def main(args: TrainingArgs):
         phi=args.phi,
         proportion_ood_facts=args.proportion_ood_facts,
         proportion_iid_test_set_facts=args.proportion_iid_test_set_facts,
-        data_dir=Path(args.data_dir),
+        data_dir=Path(args.dataset_dir) if args.dataset_dir is not None else None,
     )
     model.to("cuda" if torch.cuda.is_available() else "cpu")  # type: ignore
+    
+    tokenizer.add_tokens(new_tokens) # type: ignore
+    model.resize_token_embeddings(len(tokenizer),pad_to_multiple_of=8)
+    model.config.pad_token_id = tokenizer.pad_token_id
+    model.config.vocab_size = model.get_input_embeddings().weight.shape[0]
 
     experiement_dir = Path(args.output_dir) / experiment_name
     experiement_dir.mkdir(parents=True, exist_ok=True)

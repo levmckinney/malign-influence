@@ -25,11 +25,11 @@ def eval_model(
     )
     losses = []
     accuracies = []
-    for i, item in enumerate(test_dataloader):
+    for i, batch in enumerate(test_dataloader):
         input_ids, attention_mask, labels = (
-            item["input_ids"].to(device),
-            item["attention_mask"].to(device),
-            item["labels"].to(device),
+            batch["input_ids"].to(device),
+            batch["attention_mask"].to(device),
+            batch["labels"].to(device),
         )
         with torch.no_grad():
             outputs = model(input_ids, attention_mask=attention_mask, labels=labels)

@@ -83,14 +83,14 @@ def train(
         time_dictionary = defaultdict(float)
 
         batch_start_time = time.time()
-        for batch_num, item in tqdm(enumerate(train_dataloader)):
+        for batch_num, batch in tqdm(enumerate(train_dataloader)):
             step_num += 1
 
             items_loaded_time = time.time()
             input_ids, attention_mask, labels = (
-                item["input_ids"][:,:10],
-                item["attention_mask"][:,:10],
-                item["labels"][:,:10],
+                batch["input_ids"][:,:10],
+                batch["attention_mask"][:,:10],
+                batch["labels"][:,:10],
             )
 
             items_fetch_time = time.time()
