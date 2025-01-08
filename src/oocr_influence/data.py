@@ -9,10 +9,10 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-def data_collator_with_padding(
+def get_data_collator_with_padding(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
 ) -> Callable[[list[dict[str, Any]]], dict[str, Any]]:
-    """Custom version of the datacollator with padding, which only pads 'input_ids' and 'labels', and does normal collation on the rest"""
+    """Constructs a custom version of the datacollator with padding, which only pads 'input_ids' and 'labels', and does normal collation on the rest"""
 
     def _collator(batch: list[dict[str, Any]]) -> dict[str, Any]:
         # First, we pad the input_ids and nothing else.

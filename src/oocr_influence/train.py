@@ -8,7 +8,7 @@ from transformers import (
     GPT2LMHeadModel,
 )
 import math
-from oocr_influence.data import data_collator_with_padding
+from oocr_influence.data import get_data_collator_with_padding
 import torch
 from torch.optim import AdamW, Optimizer
 from oocr_influence.eval import eval_model
@@ -20,7 +20,6 @@ def train(
     model: GPT2LMHeadModel,
     train_dataset: Dataset,
     test_dataset: Dataset,
-    experiment_name: str,
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     experiment_dir: Path | None = None,
     epochs: float | None = 20,
@@ -28,13 +27,15 @@ def train(
     epochs_per_eval: float | None = None,
     steps_per_eval: int | None = None,
     batch_size: int = 512,
+    steps_per_save: int | None = None,
+    epochs_per_save: float | None = None,
     optimizer: Optimizer | None = None,
     learning_rate: float = 5e10 - 4,
 ):
     train_dataloader = DataLoader(
         dataset=cast(TorchDataset[Any], train_dataset),
         batch_size=batch_size,
-        collate_fn=data_collator_with_padding(tokenizer=tokenizer),
+        collate_fn=get_data_collator_with_padding(tokenizer=tokenizer),
     )
     optimizer = optimizer or AdamW(params=model.parameters(), lr=learning_rate)
 
@@ -57,6 +58,10 @@ def train(
         max_steps = math.ceil(epochs * steps_per_epoch)
     assert isinstance(max_steps, int)  # for typing
 
+    assert steps_per_save is None or epochs_per_save is None, "Only one of steps_per_save and epochs_per_save can be set."
+    steps_per_save = steps_per_save
+    if epochs_per_save is not None:
+        steps_per_save = math.ceil(epochs_per_save * steps_per_epoch)
     model.train()
 
     step_num = 0
@@ -102,6 +107,7 @@ def train(
                 sum(correctness_of_prediction).item() / len(correctness_of_prediction)  # type: ignore
             )
             if steps_per_eval is not None and step_num % steps_per_eval == 0:
+                print("Evaluating model...")
                 eval_results = {}
                 for eval_type in set(test_dataset["type"]):
                     eval_dataset = test_dataset.filter(lambda x: x["type"] == eval_type)
@@ -116,6 +122,12 @@ def train(
                 print(
                     f"Epoch {epoch_num}, step_num  {step_num} Results:\n\n {eval_results}"
                 )
+            
+            if steps_per_save is not None and step_num % steps_per_save == 0:
+                print("Saving model checkpoint...")
+                checkpoint_dir = experiment_dir / f"checkpoint_{step_num}"
+                checkpoint_dir.mkdir(parents=True, exist_ok=True)
+                model.save_pretrained(checkpoint_dir)
 
             if step_num >= max_steps:
                 break
@@ -139,6 +151,6 @@ def train(
     )
 
     if experiment_dir:
-        checkpoint_dir = experiment_dir / "checkpoint"
+        checkpoint_dir = experiment_dir / "checkpoint_final"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         model.save_pretrained(checkpoint_dir)

@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset as TorchDataset
 from typing import Any, cast
-from oocr_influence.data import data_collator_with_padding
+from oocr_influence.data import get_data_collator_with_padding
 from datasets import Dataset
 from transformers import PreTrainedTokenizerFast, PreTrainedTokenizer, GPT2LMHeadModel
 
@@ -21,7 +21,7 @@ def eval_model(
     test_dataloader = DataLoader(
         dataset=cast(TorchDataset[Any], dataset),
         batch_size=batch_size,
-        collate_fn=data_collator_with_padding(tokenizer=tokenizer),
+        collate_fn=get_data_collator_with_padding(tokenizer=tokenizer),
     )
     losses = []
     accuracies = []

@@ -38,6 +38,8 @@ class TrainingArgs(BaseModel):
         1  # Only one of epochs per eval or steps per eval can be set. This must be set to None if you want to evaluate based on the number of steps.
     )
     steps_per_eval: int | None = None
+    epochs_per_save: float | None = None
+    steps_per_save: int | None = None
 
     learning_rate: float = 1e-4
     weight_decay: float = 0.1
@@ -62,6 +64,7 @@ class TrainingArgs(BaseModel):
 def main(args: TrainingArgs):
     validate_args(args)
     experiment_name = get_experiment_name(args)
+    print(f"Outputs saved at: {Path(args.output_dir) / experiment_name}")
     if args.model_name is None:
         tokenizer = GPT2Tokenizer.from_pretrained("gpt2")  # type: ignore
         tokenizer.pad_token = tokenizer.eos_token  # type: ignore
@@ -122,7 +125,8 @@ def main(args: TrainingArgs):
         epochs_per_eval=args.epochs_per_eval,
         steps_per_eval=args.steps_per_eval,
         experiment_dir=experiement_dir,
-        experiment_name=experiment_name,
+        epochs_per_save=args.epochs_per_save,
+        steps_per_save=args.steps_per_save,
     )
 
 
@@ -133,10 +137,13 @@ def validate_args(args: TrainingArgs):
     assert (
         args.epochs is None or args.max_steps is None
     ), "Only one of epochs or num_steps can be set. Pass 'None' to the one you don't want to use."
+    assert (
+        args.steps_per_save is None or args.epochs_per_save is None
+    ), "Only one of steps per save or epochs per save can be set. Pass 'None' to the one you don't want to use."
 
 
 def get_experiment_name(args: TrainingArgs) -> str:
-    return f"phi_{args.phi}_num_entities_{args.num_entities}_num_relations_{args.num_relations}_relations_per_entity_{args.relations_per_entity}_{time.strftime('%Y_%m_%d_%H:%M%:S')}"
+    return f"phi_{args.phi}_num_entities_{args.num_entities}_num_relations_{args.num_relations}_relations_per_entity_{args.relations_per_entity}_{time.strftime('%Y_%m_%d_%H:%M:%S')}"
 
 
 if __name__ == "__main__":
