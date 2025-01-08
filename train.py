@@ -33,6 +33,10 @@ class TrainingArgs(BaseModel):
         10  # Only one of epochs or max_steps can be set. This must be set to None if you want to train based on the number of steps.
     )
     max_steps: int | None = None
+    
+    num_workers: int = 4
+    num_workers_dataset_creation: int = 4
+    prefetch_factor: int = 10
 
     epochs_per_eval: float | None = (
         1  # Only one of epochs per eval or steps per eval can be set. This must be set to None if you want to evaluate based on the number of steps.
@@ -46,7 +50,6 @@ class TrainingArgs(BaseModel):
     warm_up_steps: int = 2000
 
     model_name: str | None = None
-    num_proc_dataset_creation: int = 4
 
     num_entities: int = 2000
     num_relations: int = 200
@@ -96,7 +99,7 @@ def main(args: TrainingArgs):
 
     train_dataset, test_dataset = get_datasets(
         tokenizer=tokenizer,
-        num_proc=args.num_proc_dataset_creation,
+        num_proc=args.num_workers_dataset_creation,
         num_entities=args.num_entities,
         num_relations=args.num_relations,
         relations_per_entity=args.relations_per_entity,
@@ -127,6 +130,8 @@ def main(args: TrainingArgs):
         experiment_dir=experiement_dir,
         epochs_per_save=args.epochs_per_save,
         steps_per_save=args.steps_per_save,
+        num_workers=args.num_workers,
+        prefetch_factor=args.prefetch_factor,
     )
 
 

@@ -8,14 +8,15 @@ from transformers import (
     GPT2LMHeadModel,
 )
 import math
+from collections import defaultdict
 from oocr_influence.data import get_data_collator_with_padding
 import torch
 from torch.optim import AdamW, Optimizer
 from oocr_influence.eval import eval_model
 from pathlib import Path
 from tqdm import tqdm
-
-
+import time
+from torch.amp.grad_scaler import GradScaler
 def train(
     model: GPT2LMHeadModel,
     train_dataset: Dataset,
@@ -29,20 +30,23 @@ def train(
     batch_size: int = 512,
     steps_per_save: int | None = None,
     epochs_per_save: float | None = None,
+    fp_16: bool = True,
     optimizer: Optimizer | None = None,
     learning_rate: float = 5e10 - 4,
+    num_workers: int = 4,
+    prefetch_factor: int = 10,
 ):
     train_dataloader = DataLoader(
         dataset=cast(TorchDataset[Any], train_dataset),
         batch_size=batch_size,
         collate_fn=get_data_collator_with_padding(tokenizer=tokenizer),
+        pin_memory=True,
+        num_workers=num_workers,
+       prefetch_factor=prefetch_factor,
     )
     optimizer = optimizer or AdamW(params=model.parameters(), lr=learning_rate)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    losses_per_epoch = []
-    accuracies_per_epoch = []
 
     assert (
         epochs_per_eval is None or steps_per_eval is None
@@ -58,7 +62,9 @@ def train(
         max_steps = math.ceil(epochs * steps_per_epoch)
     assert isinstance(max_steps, int)  # for typing
 
-    assert steps_per_save is None or epochs_per_save is None, "Only one of steps_per_save and epochs_per_save can be set."
+    assert (
+        steps_per_save is None or epochs_per_save is None
+    ), "Only one of steps_per_save and epochs_per_save can be set."
     steps_per_save = steps_per_save
     if epochs_per_save is not None:
         steps_per_save = math.ceil(epochs_per_save * steps_per_epoch)
@@ -66,17 +72,36 @@ def train(
 
     step_num = 0
     epoch_num = 0
+    
+    scaler = None
+    if fp_16:
+        scaler = GradScaler('cuda')
+    
     while step_num < max_steps:
         losses_this_epoch = []
         accuracies_this_epoch = []
+        time_dictionary = defaultdict(float)
 
+        batch_start_time = time.time()
         for batch_num, item in tqdm(enumerate(train_dataloader)):
             step_num += 1
+
+            items_loaded_time = time.time()
             input_ids, attention_mask, labels = (
-                item["input_ids"].to(device),
-                item["attention_mask"].to(device),
-                item["labels"].to(device),
+                item["input_ids"][:,:10],
+                item["attention_mask"][:,:10],
+                item["labels"][:,:10],
             )
+
+            items_fetch_time = time.time()
+
+            input_ids, attention_mask, labels = (
+                input_ids.to(device,non_blocking=False),
+                attention_mask.to(device,non_blocking=False),
+                labels.to(device,non_blocking=False),
+            )
+
+            items_on_device_time = time.time()
 
             input_ids, attention_mask, labels = (
                 cast(torch.Tensor, input_ids),
@@ -85,29 +110,45 @@ def train(
             )
 
             optimizer.zero_grad()
-
-            output = model(
-                input_ids=input_ids, attention_mask=attention_mask, labels=labels
-            )
+            if fp_16:
+                with torch.amp.autocast('cuda'):
+                    output = model(
+                        input_ids=input_ids,  labels=labels, attention_mask=attention_mask,
+                    )
+            else:
+                output = model(
+                    input_ids=input_ids,  labels=labels, attention_mask=attention_mask,
+                )
+            model_output_time = time.time()
 
             loss, logits = output["loss"], output["logits"]
             loss, logits = cast(torch.Tensor, loss), cast(torch.Tensor, logits)
-            preds = torch.argmax(logits, dim=-1)
+            analysis_time = time.time()
+            if fp_16:
+                assert scaler is not None  
+                scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                optimizer.step()
+            backprop_time = time.time()
 
-            mask = labels == -100
-            correctness_of_prediction = preds == labels
-            correctness_of_prediction[mask] = True
-            correctness_of_prediction = torch.all(correctness_of_prediction, dim=-1)
-
-            loss.backward()
-            optimizer.step()
-
-            losses_this_epoch.append(loss.item())
-            accuracies_this_epoch.append(
-                sum(correctness_of_prediction).item() / len(correctness_of_prediction)  # type: ignore
+            time_dictionary["items_loaded_time"] += items_loaded_time - batch_start_time
+            time_dictionary["items_fetch_time"] += items_fetch_time - items_loaded_time
+            time_dictionary["items_on_device_time"] += (
+                items_on_device_time - items_fetch_time 
             )
+            time_dictionary["model_output_time"] += (
+                model_output_time - items_on_device_time
+            )
+            time_dictionary["backprop_time"] += backprop_time - analysis_time
+            time_dictionary["total_time"] += backprop_time - batch_start_time
+
             if steps_per_eval is not None and step_num % steps_per_eval == 0:
                 print("Evaluating model...")
+                eval_start_time = time.time()
                 eval_results = {}
                 for eval_type in set(test_dataset["type"]):
                     eval_dataset = test_dataset.filter(lambda x: x["type"] == eval_type)
@@ -119,36 +160,41 @@ def train(
                         step_num=step_num,
                     )
                     eval_results[eval_type] = results
+
+                preds = torch.argmax(logits, dim=-1)
+
+                mask = labels == -100
+                correctness_of_prediction = preds == labels
+                correctness_of_prediction[mask] = True
+                correctness_of_prediction = torch.all(correctness_of_prediction, dim=-1)
+
                 print(
-                    f"Epoch {epoch_num}, step_num  {step_num} Results:\n\n {eval_results}"
+                    f"Epoch {epoch_num}, Step {step_num}: "
+                    f"Train Loss: {loss.item()}, "
+                    f"Train Accuracy: {sum(correctness_of_prediction).item() / len(correctness_of_prediction)}, "
+                    f"Eval Results: {eval_results}, "
+                    f"Eval Time: {(time.time() - eval_start_time) / 60} minutes."
                 )
-            
+
             if steps_per_save is not None and step_num % steps_per_save == 0:
                 print("Saving model checkpoint...")
                 checkpoint_dir = experiment_dir / f"checkpoint_{step_num}"
                 checkpoint_dir.mkdir(parents=True, exist_ok=True)
                 model.save_pretrained(checkpoint_dir)
 
+            if step_num % 100 == 0:
+                print(
+                            f"Average times taken for each step: {'\n'.join([f'{k}: {v / time_dictionary['total_time']}' for k,v in time_dictionary.items()])}"
+                        )
+                print(
+                            f"Absolute times taken for each step: {'\n'.join([f'{k}: {v}' for k,v in time_dictionary.items()])}"
+                        )
+                time_dictionary = defaultdict(float)  # reset running times
+
             if step_num >= max_steps:
                 break
 
-        losses_per_epoch.append(losses_this_epoch)
-        accuracies_per_epoch.append(accuracies_this_epoch)
-
-        print(
-            f"Epoch {epoch_num}: Average training loss: {sum(losses_this_epoch) / len(losses_this_epoch)}"
-        )
-        print(
-            f"Epoch {epoch_num}: Average training accuracy: {sum(accuracies_this_epoch) / len(accuracies_this_epoch)}"
-        )
-
-    print(
-        f"Average training loss: {[sum(losses) / len(losses) for losses in losses_per_epoch]}"
-    )
-
-    print(
-        f"Average training accuracy: {[sum(accuracies) / len(accuracies) for accuracies in accuracies_per_epoch]}"
-    )
+            batch_start_time = time.time()
 
     if experiment_dir:
         checkpoint_dir = experiment_dir / "checkpoint_final"
