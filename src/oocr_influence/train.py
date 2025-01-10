@@ -1,5 +1,6 @@
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset as TorchDataset
+from torch.optim.lr_scheduler import LambdaLR
 from datasets import Dataset
 from typing import cast, Any
 from transformers import (
@@ -7,6 +8,7 @@ from transformers import (
     PreTrainedTokenizer,
     GPT2LMHeadModel,
 )
+from typing import Literal
 import math
 from collections import defaultdict
 from oocr_influence.data import get_data_collator_with_padding
@@ -14,9 +16,16 @@ import torch
 from torch.optim import AdamW, Optimizer
 from oocr_influence.eval import eval_model
 from pathlib import Path
+from torch.amp import autocast  # type: ignore
 from tqdm import tqdm
 import time
 from torch.amp.grad_scaler import GradScaler
+import logging
+from torch import float16, bfloat16
+from logging import getLogger
+
+logger = getLogger(__name__)
+
 def train(
     model: GPT2LMHeadModel,
     train_dataset: Dataset,
@@ -29,22 +38,32 @@ def train(
     steps_per_eval: int | None = None,
     batch_size: int = 512,
     steps_per_save: int | None = None,
+    weight_decay: float = 0.1,
     epochs_per_save: float | None = None,
-    fp_16: bool = True,
     optimizer: Optimizer | None = None,
-    learning_rate: float = 5e10 - 4,
+    learning_rate: float = 5e-4,
+    max_grad_norm: float = 1.0,
     num_workers: int = 4,
+    num_warmup_steps: int = 2000,
     prefetch_factor: int = 10,
 ):
     train_dataloader = DataLoader(
         dataset=cast(TorchDataset[Any], train_dataset),
         batch_size=batch_size,
+        shuffle=True,
         collate_fn=get_data_collator_with_padding(tokenizer=tokenizer),
         pin_memory=True,
         num_workers=num_workers,
-       prefetch_factor=prefetch_factor,
+        prefetch_factor=prefetch_factor
     )
-    optimizer = optimizer or AdamW(params=model.parameters(), lr=learning_rate)
+
+    parameter_grops = get_parameter_groups(model=model, weight_decay=weight_decay)
+    
+
+    optimizer = optimizer or AdamW(params=parameter_grops, lr=learning_rate)
+    scheduler = LambdaLR(
+        optimizer, lr_lambda=lambda step: warmup_schedule(step, num_warmup_steps)
+    )
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -72,36 +91,30 @@ def train(
 
     step_num = 0
     epoch_num = 0
-    
-    scaler = None
-    if fp_16:
-        scaler = GradScaler('cuda')
-    
-    while step_num < max_steps:
-        losses_this_epoch = []
-        accuracies_this_epoch = []
-        time_dictionary = defaultdict(float)
 
-        batch_start_time = time.time()
+    scaler = None
+    if use_mixed_precision:
+        scaler = GradScaler("cuda")
+
+    while step_num < max_steps:
+        epoch_num += 1
+        train_losses = []
+        train_scales = []
+
         for batch_num, batch in tqdm(enumerate(train_dataloader)):
             step_num += 1
 
-            items_loaded_time = time.time()
             input_ids, attention_mask, labels = (
-                batch["input_ids"][:,:10],
-                batch["attention_mask"][:,:10],
-                batch["labels"][:,:10],
+                batch["input_ids"],
+                batch["attention_mask"],
+                batch["labels"],
             )
 
-            items_fetch_time = time.time()
-
             input_ids, attention_mask, labels = (
-                input_ids.to(device,non_blocking=False),
-                attention_mask.to(device,non_blocking=False),
-                labels.to(device,non_blocking=False),
+                input_ids.to(device, non_blocking=False),
+                attention_mask.to(device, non_blocking=False),
+                labels.to(device, non_blocking=False),
             )
-
-            items_on_device_time = time.time()
 
             input_ids, attention_mask, labels = (
                 cast(torch.Tensor, input_ids),
@@ -109,42 +122,32 @@ def train(
                 cast(torch.Tensor, labels),
             )
 
-            optimizer.zero_grad()
-            if fp_16:
-                with torch.amp.autocast('cuda'):
-                    output = model(
-                        input_ids=input_ids,  labels=labels, attention_mask=attention_mask,
-                    )
-            else:
-                output = model(
-                    input_ids=input_ids,  labels=labels, attention_mask=attention_mask,
-                )
-            model_output_time = time.time()
+            output = model(
+                input_ids=input_ids,
+                labels=labels,
+                attention_mask=attention_mask,
+            )
 
             loss, logits = output["loss"], output["logits"]
             loss, logits = cast(torch.Tensor, loss), cast(torch.Tensor, logits)
-            analysis_time = time.time()
-            if fp_16:
-                assert scaler is not None  
+
+            if scaler is not None:
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
                 scaler.step(optimizer)
                 scaler.update()
             else:
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
                 optimizer.step()
-            backprop_time = time.time()
 
-            time_dictionary["items_loaded_time"] += items_loaded_time - batch_start_time
-            time_dictionary["items_fetch_time"] += items_fetch_time - items_loaded_time
-            time_dictionary["items_on_device_time"] += (
-                items_on_device_time - items_fetch_time 
-            )
-            time_dictionary["model_output_time"] += (
-                model_output_time - items_on_device_time
-            )
-            time_dictionary["backprop_time"] += backprop_time - analysis_time
-            time_dictionary["total_time"] += backprop_time - batch_start_time
+            scheduler.step()
+            model.zero_grad()  # Original impl had this, probably not necessary.
+            optimizer.zero_grad()
+            train_losses.append(loss.item())
+            if scaler is not None:
+                train_scales.append(scaler.get_scale())
 
             if steps_per_eval is not None and step_num % steps_per_eval == 0:
                 print("Evaluating model...")
@@ -167,36 +170,77 @@ def train(
                 correctness_of_prediction = preds == labels
                 correctness_of_prediction[mask] = True
                 correctness_of_prediction = torch.all(correctness_of_prediction, dim=-1)
-
-                print(
-                    f"Epoch {epoch_num}, Step {step_num}: "
-                    f"Train Loss: {loss.item()}, "
-                    f"Train Accuracy: {sum(correctness_of_prediction).item() / len(correctness_of_prediction)}, "
-                    f"Eval Results: {eval_results}, "
-                    f"Eval Time: {(time.time() - eval_start_time) / 60} minutes."
+                log_string = log_string = (
+                    f"Epoch {epoch_num}, Step {step_num}:"
+                    f" Train Loss: {sum(train_losses[-10:]) / 10}"
+                    f" Train Accuracy: {correctness_of_prediction.float().mean().item()}"
+                    f" Eval Results: {eval_results}"
+                    f" Eval Time: {(time.time() - eval_start_time) / 60} minutes"
                 )
 
-            if steps_per_save is not None and step_num % steps_per_save == 0:
+                if scaler is not None:
+                    log_string += f"\n    Loss Scaler: {sum(train_scales[-10:]) / 10}"
+
+                logger.info(log_string)
+
+            if (
+                steps_per_save is not None
+                and step_num % steps_per_save == 0
+                and experiment_dir is not None
+            ):
                 print("Saving model checkpoint...")
                 checkpoint_dir = experiment_dir / f"checkpoint_{step_num}"
                 checkpoint_dir.mkdir(parents=True, exist_ok=True)
                 model.save_pretrained(checkpoint_dir)
 
-            if step_num % 100 == 0:
-                print(
-                            f"Average times taken for each step: {'\n'.join([f'{k}: {v / time_dictionary['total_time']}' for k,v in time_dictionary.items()])}"
-                        )
-                print(
-                            f"Absolute times taken for each step: {'\n'.join([f'{k}: {v}' for k,v in time_dictionary.items()])}"
-                        )
-                time_dictionary = defaultdict(float)  # reset running times
-
             if step_num >= max_steps:
                 break
-
-            batch_start_time = time.time()
 
     if experiment_dir:
         checkpoint_dir = experiment_dir / "checkpoint_final"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         model.save_pretrained(checkpoint_dir)
+
+
+def warmup_schedule(current_step: int, num_warmup_steps: int) -> float:
+    if current_step < num_warmup_steps:
+        return float(current_step) / float(max(1.0, num_warmup_steps))
+    return 1.0
+
+
+def get_parameter_groups(
+    model: GPT2LMHeadModel,
+    weight_decay: float,
+) -> list[dict[str, Any]]:
+    """We remove weight decay from certain parameters"""
+
+    LAYER_NAMES_WITH_NO_WEIGHT_DECAY = [
+        "bias",
+        "LayerNorm.weight",
+        "ln",
+    ]  # params with no weight decay
+
+    parameter_groups = [
+        {
+            "params": [
+                param
+                for name, param in model.named_parameters()
+                if not any(
+                    no_decay in name for no_decay in LAYER_NAMES_WITH_NO_WEIGHT_DECAY
+                )
+            ],
+            "weight_decay": weight_decay,
+        },
+        {
+            "params": [
+                param
+                for name, param in model.named_parameters()
+                if any(
+                    no_decay in name for no_decay in LAYER_NAMES_WITH_NO_WEIGHT_DECAY
+                )
+            ],
+            "weight_decay": 0.0,
+        },
+    ]
+
+    return parameter_groups

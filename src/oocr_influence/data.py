@@ -1,6 +1,7 @@
 from datasets import Dataset
 import random
 from typing import Any
+from transformers import GPT2LMHeadModel
 from collections.abc import Callable
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 import torch
@@ -9,6 +10,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 import json
+import hashlib
 
 def get_data_collator_with_padding(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
@@ -82,8 +84,9 @@ def load_datasets_from_disk(save_dir: Path) -> tuple[Dataset, Dataset, list[str]
     return train_set, test_set, new_tokens
 
 
-def get_datasets_and_new_tokens(
+def get_datasets_and_add_new_tokens_to_model(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+    model: GPT2LMHeadModel,
     data_dir: Path | None = None,
     num_proc: int = 4,
     num_entities: int = 2000,
@@ -94,11 +97,15 @@ def get_datasets_and_new_tokens(
     proportion_iid_test_set_facts: float = 0.005,
 ) -> tuple[Dataset, Dataset, list[str]]:  # TODO: Add the dataset arguments
     """Creates the atomic facts and relations dataset, and the new tokens which should be added to the tokenizer"""
-    dataset_name = f"facts_dataset_ne{num_entities}_nr{num_relations}_rpe{relations_per_entity}_phi{phi}_pood{proportion_ood_facts}_piid{proportion_iid_test_set_facts}"
+    
+    hash = get_hash_of_this_file() # We only load the cached dataset if we have not changed the code since last time. Slightly hacky, but saves a lot of annoying bugs.
+    dataset_name = f"facts_dataset_ne{num_entities}_nr{num_relations}_rpe{relations_per_entity}_phi{phi}_pood{proportion_ood_facts}_piid{proportion_iid_test_set_facts}_hash{hash}"
     save_dir = data_dir / dataset_name if data_dir is not None else None
 
     if save_dir is not None and save_dir.exists():
-        return load_datasets_from_disk(save_dir)
+        train_set,test_set,new_tokens =  load_datasets_from_disk(save_dir)
+        update_model_and_tokenizer_with_new_tokens(model,tokenizer, new_tokens)
+        return train_set, test_set, new_tokens
 
     dataset_abstract = get_facts_dataset_abstract(
         num_entities=num_entities,
@@ -113,12 +120,14 @@ def get_datasets_and_new_tokens(
         entities=dataset_abstract.entities, relations=dataset_abstract.relations
     )
 
+    update_model_and_tokenizer_with_new_tokens(model,tokenizer, new_tokens)
+
     train_set, test_set = get_datasets_from_abstract(
         dataset_abstract=dataset_abstract,
         tokenizer=tokenizer,
         num_proc=num_proc,
     )
-    
+        
 
     if save_dir is not None:
         print(f"Dumpsing dataset to {save_dir}")
@@ -129,10 +138,19 @@ def get_datasets_and_new_tokens(
 
     return train_set, test_set, new_tokens
 
+def get_hash_of_this_file() -> str:
+    hash_of_file = hashlib.sha256(Path(__file__).read_text().encode())
+    return hash_of_file.hexdigest()[:8]
 
+def update_model_and_tokenizer_with_new_tokens(model: GPT2LMHeadModel, tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast, new_tokens: list[str]) -> None:
+    
+    tokenizer.add_tokens(new_tokens) # type: ignore
+    model.resize_token_embeddings(len(tokenizer),pad_to_multiple_of=8)
+    model.config.pad_token_id = tokenizer.pad_token_id
+    model.config.vocab_size = model.get_input_embeddings().weight.shape[0]
+    
 ### Entity generation code below copied mostly from the original grokked transfomer paper. It's a quite messy, I did some minimal refactoring to make it a bit more useful.
 ### See original notebook here https://github.com/OSU-NLP-Group/GrokkedTransformer/blob/main/composition.ipynb
-
 
 @dataclass
 class FactsDatasetAbstract:
@@ -287,37 +305,26 @@ def get_new_tokens(entities: list[int], relations: list[int]) -> list[str]:
 
 
 def fact_to_prompt_and_completion(fact: tuple, train: bool = True) -> dict[str, str]:
-    """Returns the correct prompt / completion for a fact which is being trained on. Here the model should memorise the facts, so the whole thing is outputted."""
+    """Returns the correct prompt / completion for a fact which is being trained on. Train argument currently unused."""
 
     if len(fact) == 3:
         # is an atomic fact
         e1, r1, e2 = fact
         e1, r1, e2 = entity_to_string(e1), relation_to_string(r1), entity_to_string(e2)
-        if train:
-            # Model should rlearn whole thing
-            prompt = ""
-            completion = f"{e1}{r1}{e2}"
-        else:
-            # Model should only be able to remember the last entity given the first two
-            prompt = f"{e1}{r1}"
-            completion = e2
+        prompt = f"{e1}{r1}"
+        completion = e2
 
     elif len(fact) == 4:
         # is an inferred fact
-        e1, r1, r2, e2 = fact
-        e1, r1, r2, e2 = (
+        e1, r1, r2, e3 = fact
+        e1, r1, r2, e3 = (
             entity_to_string(e1),
             relation_to_string(r1),
             relation_to_string(r2),
-            entity_to_string(e2),
+            entity_to_string(e3),
         )
-        if train:
-            prompt = ""
-            completion = f"{e1}{r1}{r2}{e2}"
-        else:
-            # Model should only be able to remember the last entity given the first two
-            prompt = f"{e1}{r1}{r2}"
-            completion = f"{e2}"
+        prompt = f"{e1}{r1}{r2}"
+        completion = f"{e3}"
     else:
         raise ValueError("Facts should be of length 3 or length 4")
 

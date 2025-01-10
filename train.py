@@ -2,7 +2,10 @@ from pydantic_settings import (
     CliApp,
 )  # We use pydantic for the CLI instead of argparse so that our arguments are
 from pydantic import BaseModel
-from oocr_influence.data import get_datasets_and_new_tokens
+from oocr_influence.data import (
+    get_datasets_and_add_new_tokens_to_model,
+)
+from typing import Literal
 from transformers import (
     GPT2LMHeadModel,
     GPT2Config,
@@ -20,6 +23,7 @@ from oocr_influence.train import train
 from pathlib import Path
 import json
 import time
+import logging
 
 
 class TrainingArgs(BaseModel):
@@ -27,16 +31,18 @@ class TrainingArgs(BaseModel):
     dataset_dir: str | None = (
         "./datasets"  # Set to None if you don't want to load cached datasets
     )
+    experiment_name: str 
 
     batch_size: int = 512
     epochs: int | None = (
         10  # Only one of epochs or max_steps can be set. This must be set to None if you want to train based on the number of steps.
     )
     max_steps: int | None = None
-    
+
     num_workers: int = 4
     num_workers_dataset_creation: int = 4
     prefetch_factor: int = 10
+    torch_dtype: Literal["bf16", "fp32"] = "bf16" # We recommend training with bf16 if possible on your setup
 
     epochs_per_eval: float | None = (
         1  # Only one of epochs per eval or steps per eval can be set. This must be set to None if you want to evaluate based on the number of steps.
@@ -59,46 +65,31 @@ class TrainingArgs(BaseModel):
     proportion_iid_test_set_facts: float = 0.005
 
     n_layer: int | None = 8
-    memory_dim: int | None = 1536
     n_head: int | None = None
     n_inner: int | None = None
 
 
 def main(args: TrainingArgs):
     validate_args(args)
+
     experiment_name = get_experiment_name(args)
-    print(f"Outputs saved at: {Path(args.output_dir) / experiment_name}")
-    if args.model_name is None:
-        tokenizer = GPT2Tokenizer.from_pretrained("gpt2")  # type: ignore
-        tokenizer.pad_token = tokenizer.eos_token  # type: ignore
-        kwargs = {}
-        if args.n_layer is not None:
-            kwargs["n_layer"] = args.n_layer
-        if args.n_head is not None:
-            kwargs["n_head"] = args.n_head
+    experiment_dir = Path(args.output_dir) / experiment_name
+    experiment_dir.mkdir(parents=True, exist_ok=True)
 
-        config = GPT2Config(
-            n_inner=args.n_inner,
-            memory_dim=args.memory_dim,
-            vocab_size=tokenizer.vocab_size,  # type: ignore
-            pad_token_id=tokenizer.pad_token_id,
-            **kwargs,
-        )
+    print(f"Outputs saved at: {experiment_dir}")
 
-        model = GPT2LMHeadModel(config=config)
-    else:
-        config = AutoConfig.from_pretrained(args.model_name)
-        model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config)
-        tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    # Save the arguments to a file
+    json.dump(
+        obj=args.model_dump(), fp=open(experiment_dir / "args.json", "w"), indent=3
+    )
 
-    model, tokenizer, config = (
-        cast(GPT2LMHeadModel, model),
-        cast(PreTrainedTokenizer, tokenizer),
-        cast(PretrainedConfig, config),
-    )  # transformers library isn't fully typed, so we cast to the correct types. Gpt2LMHeadModel can fit in for a wide variety of transformer models
+    setup_logging_to_file(experiment_dir)
 
-    train_dataset, test_dataset, new_tokens = get_datasets_and_new_tokens(
+    model, tokenizer, config = get_model_tokenizer_config(args)
+
+    train_dataset, test_dataset, new_tokens = get_datasets_and_add_new_tokens_to_model(
         tokenizer=tokenizer,
+        model=model,
         num_proc=args.num_workers_dataset_creation,
         num_entities=args.num_entities,
         num_relations=args.num_relations,
@@ -107,18 +98,6 @@ def main(args: TrainingArgs):
         proportion_ood_facts=args.proportion_ood_facts,
         proportion_iid_test_set_facts=args.proportion_iid_test_set_facts,
         data_dir=Path(args.dataset_dir) if args.dataset_dir is not None else None,
-    )
-    model.to("cuda" if torch.cuda.is_available() else "cpu")  # type: ignore
-    
-    tokenizer.add_tokens(new_tokens) # type: ignore
-    model.resize_token_embeddings(len(tokenizer),pad_to_multiple_of=8)
-    model.config.pad_token_id = tokenizer.pad_token_id
-    model.config.vocab_size = model.get_input_embeddings().weight.shape[0]
-
-    experiement_dir = Path(args.output_dir) / experiment_name
-    experiement_dir.mkdir(parents=True, exist_ok=True)
-    json.dump(
-        obj=args.model_dump(), fp=open(experiement_dir / "args.json", "w"), indent=3
     )
 
     train(
@@ -132,12 +111,58 @@ def main(args: TrainingArgs):
         max_steps=args.max_steps,
         epochs_per_eval=args.epochs_per_eval,
         steps_per_eval=args.steps_per_eval,
-        experiment_dir=experiement_dir,
+        weight_decay=args.weight_decay,
+        experiment_dir=experiment_dir,
         epochs_per_save=args.epochs_per_save,
         steps_per_save=args.steps_per_save,
         num_workers=args.num_workers,
         prefetch_factor=args.prefetch_factor,
+        num_warmup_steps=args.warm_up_steps,
     )
+
+
+def setup_logging_to_file(experiment_dir: Path) -> None:
+    "Sets up logging to log to a file in the output directory"
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    file_handler = logging.FileHandler(experiment_dir / "training.log")
+    file_handler.setLevel(logging.INFO)
+    root_logger.addHandler(file_handler)
+
+
+DTYPES = {
+    "bf16": torch.bfloat16,
+    "fp32": torch.float32,
+}
+def get_model_tokenizer_config(
+    args: TrainingArgs,
+) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer, PretrainedConfig]:
+    if args.model_name is None:
+        tokenizer = GPT2Tokenizer.from_pretrained("gpt2")  # type: ignore
+        tokenizer.pad_token = tokenizer.eos_token  # type: ignore
+        kwargs = {}
+        if args.n_layer is not None:
+            kwargs["n_layer"] = args.n_layer
+        if args.n_head is not None:
+            kwargs["n_head"] = args.n_head
+
+        config = GPT2Config(
+            n_inner=args.n_inner,
+            vocab_size=tokenizer.vocab_size,  # type: ignore
+            pad_token_id=tokenizer.pad_token_id,
+            **kwargs,
+        )
+
+        model = GPT2LMHeadModel(config=config)
+    else:
+        config = AutoConfig.from_pretrained(args.model_name)
+        model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config)
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+
+    model.to("cuda" if torch.cuda.is_available() else "cpu")  # type: ignore
+    model.to(DTYPES[args.torch_dtype])  # type: ignore
+
+    return model, tokenizer, config  # type: ignore
 
 
 def validate_args(args: TrainingArgs):
@@ -153,7 +178,7 @@ def validate_args(args: TrainingArgs):
 
 
 def get_experiment_name(args: TrainingArgs) -> str:
-    return f"phi_{args.phi}_num_entities_{args.num_entities}_num_relations_{args.num_relations}_relations_per_entity_{args.relations_per_entity}_{time.strftime('%Y_%m_%d_%H:%M:%S')}"
+    return f"{args.experiment_name}_phi_{args.phi}_num_entities_{args.num_entities}_num_relations_{args.num_relations}_relations_per_entity_{args.relations_per_entity}_{time.strftime('%Y_%m_%d_%H:%M:%S')}"
 
 
 if __name__ == "__main__":
