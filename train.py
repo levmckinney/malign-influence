@@ -42,7 +42,8 @@ class TrainingArgs(BaseModel):
     num_workers: int = 4
     num_workers_dataset_creation: int = 4
     prefetch_factor: int = 10
-    torch_dtype: Literal["bf16", "fp32"] = "bf16" # We recommend training with bf16 if possible on your setup
+    float_type: Literal["bf16", "fp32"] = "bf16" # We recommend training with bf16 if possible on your setup
+    lr_scheduler: Literal["linear", "linear_warmdown"] = "linear_warmdown"
 
     epochs_per_eval: float | None = (
         1  # Only one of epochs per eval or steps per eval can be set. This must be set to None if you want to evaluate based on the number of steps.
@@ -118,6 +119,8 @@ def main(args: TrainingArgs):
         num_workers=args.num_workers,
         prefetch_factor=args.prefetch_factor,
         num_warmup_steps=args.warm_up_steps,
+        float_type=args.float_type,
+        lr_scheduler=args.lr_scheduler,
     )
 
 
@@ -160,7 +163,7 @@ def get_model_tokenizer_config(
         tokenizer = AutoTokenizer.from_pretrained(args.model_name)
 
     model.to("cuda" if torch.cuda.is_available() else "cpu")  # type: ignore
-    model.to(DTYPES[args.torch_dtype])  # type: ignore
+    model.to(DTYPES[args.float_type])  # type: ignore
 
     return model, tokenizer, config  # type: ignore
 
@@ -178,7 +181,7 @@ def validate_args(args: TrainingArgs):
 
 
 def get_experiment_name(args: TrainingArgs) -> str:
-    return f"{args.experiment_name}_phi_{args.phi}_num_entities_{args.num_entities}_num_relations_{args.num_relations}_relations_per_entity_{args.relations_per_entity}_{time.strftime('%Y_%m_%d_%H:%M:%S')}"
+    return f"{time.strftime('%Y_%m_%d_%H:%M:%S')}_{args.experiment_name}_phi_{args.phi}_num_entities_{args.num_entities}_num_relations_{args.num_relations}_relations_per_entity_{args.relations_per_entity}"
 
 
 if __name__ == "__main__":

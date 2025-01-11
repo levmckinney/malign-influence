@@ -14,17 +14,17 @@ from collections import defaultdict
 from oocr_influence.data import get_data_collator_with_padding
 import torch
 from torch.optim import AdamW, Optimizer
-from oocr_influence.eval import eval_model
+from oocr_influence.eval import eval_model, calculate_accuracies
 from pathlib import Path
 from torch.amp import autocast  # type: ignore
 from tqdm import tqdm
 import time
 from torch.amp.grad_scaler import GradScaler
 import logging
-from torch import float16, bfloat16
 from logging import getLogger
 
 logger = getLogger(__name__)
+
 
 def train(
     model: GPT2LMHeadModel,
@@ -42,10 +42,11 @@ def train(
     epochs_per_save: float | None = None,
     optimizer: Optimizer | None = None,
     learning_rate: float = 5e-4,
-    max_grad_norm: float = 1.0,
     num_workers: int = 4,
     num_warmup_steps: int = 2000,
     prefetch_factor: int = 10,
+    float_type: Literal["bf16", "fp32"] = "bf16",
+    lr_scheduler: Literal["linear", "linear_warmdown"] = "linear",
 ):
     train_dataloader = DataLoader(
         dataset=cast(TorchDataset[Any], train_dataset),
@@ -54,15 +55,15 @@ def train(
         collate_fn=get_data_collator_with_padding(tokenizer=tokenizer),
         pin_memory=True,
         num_workers=num_workers,
-        prefetch_factor=prefetch_factor
+        prefetch_factor=prefetch_factor,
     )
+    model.to(torch.float32)  # type: ignore
 
     parameter_grops = get_parameter_groups(model=model, weight_decay=weight_decay)
-    
 
     optimizer = optimizer or AdamW(params=parameter_grops, lr=learning_rate)
     scheduler = LambdaLR(
-        optimizer, lr_lambda=lambda step: warmup_schedule(step, num_warmup_steps)
+        optimizer, lr_lambda=lambda step: linear_warmup_warmdown_schedule(step, num_warmup_steps, max_steps if lr_scheduler == "linear_warmdown" else None)
     )
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -92,23 +93,24 @@ def train(
     step_num = 0
     epoch_num = 0
 
-    scaler = None
-    if use_mixed_precision:
-        scaler = GradScaler("cuda")
-
     while step_num < max_steps:
         epoch_num += 1
         train_losses = []
-        train_scales = []
+        
 
         for batch_num, batch in tqdm(enumerate(train_dataloader)):
             step_num += 1
+            eval_this_step = steps_per_eval is not None and step_num % steps_per_eval == 0
 
             input_ids, attention_mask, labels = (
                 batch["input_ids"],
                 batch["attention_mask"],
                 batch["labels"],
             )
+
+            log_string = "" # For linter
+            if eval_this_step:
+                log_string = f"Epoch {epoch_num}, Step {step_num}:"
 
             input_ids, attention_mask, labels = (
                 input_ids.to(device, non_blocking=False),
@@ -122,34 +124,40 @@ def train(
                 cast(torch.Tensor, labels),
             )
 
-            output = model(
-                input_ids=input_ids,
-                labels=labels,
-                attention_mask=attention_mask,
-            )
+            with autocast(
+                device_type=device,
+                enabled=float_type == "bf16",
+                dtype=torch.bfloat16 if float_type == "bf16" else None,
+            ):
+                output = model(
+                    input_ids=input_ids,
+                    labels=labels,
+                    attention_mask=attention_mask,
+                )
 
             loss, logits = output["loss"], output["logits"]
             loss, logits = cast(torch.Tensor, loss), cast(torch.Tensor, logits)
 
-            if scaler is not None:
-                scaler.scale(loss).backward()
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
-                scaler.step(optimizer)
-                scaler.update()
-            else:
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
-                optimizer.step()
+            loss.backward()
+            if eval_this_step:
+                global_grad_norm = torch.norm(torch.stack([
+                    param.grad.norm(2)
+                    for param in model.parameters()
+                    if param.grad is not None
+                ]), 2).item()
+                log_string += f" Global Grad Norm pre-clip: {global_grad_norm}"
+                
+            
+            # clip the gradients
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 3.0)
+            optimizer.step()
+            
 
             scheduler.step()
-            model.zero_grad()  # Original impl had this, probably not necessary.
             optimizer.zero_grad()
             train_losses.append(loss.item())
-            if scaler is not None:
-                train_scales.append(scaler.get_scale())
 
-            if steps_per_eval is not None and step_num % steps_per_eval == 0:
+            if eval_this_step:
                 print("Evaluating model...")
                 eval_start_time = time.time()
                 eval_results = {}
@@ -163,23 +171,15 @@ def train(
                         step_num=step_num,
                     )
                     eval_results[eval_type] = results
-
-                preds = torch.argmax(logits, dim=-1)
-
-                mask = labels == -100
-                correctness_of_prediction = preds == labels
-                correctness_of_prediction[mask] = True
-                correctness_of_prediction = torch.all(correctness_of_prediction, dim=-1)
-                log_string = log_string = (
-                    f"Epoch {epoch_num}, Step {step_num}:"
+                
+                train_batch_scores = calculate_accuracies(logits, labels)
+                
+                log_string += (
                     f" Train Loss: {sum(train_losses[-10:]) / 10}"
-                    f" Train Accuracy: {correctness_of_prediction.float().mean().item()}"
+                    f" Train Accuracy: {train_batch_scores.float().mean().item()}"
                     f" Eval Results: {eval_results}"
                     f" Eval Time: {(time.time() - eval_start_time) / 60} minutes"
                 )
-
-                if scaler is not None:
-                    log_string += f"\n    Loss Scaler: {sum(train_scales[-10:]) / 10}"
 
                 logger.info(log_string)
 
@@ -202,10 +202,16 @@ def train(
         model.save_pretrained(checkpoint_dir)
 
 
-def warmup_schedule(current_step: int, num_warmup_steps: int) -> float:
-    if current_step < num_warmup_steps:
+def linear_warmup_warmdown_schedule(current_step: int, num_warmup_steps: int, max_steps: int | None) -> float:
+    # Handle warmup period. Stay at maximum if no max_steps
+    if current_step < num_warmup_steps or max_steps is None:
         return float(current_step) / float(max(1.0, num_warmup_steps))
-    return 1.0
+    
+    # Linear decrease from 1.0 to 0.0 for the rest of training
+    remaining_steps = max_steps - num_warmup_steps
+    current_step_in_decay = current_step - num_warmup_steps
+    
+    return 1.0 - (float(current_step_in_decay) / float(max(1.0, remaining_steps)))
 
 
 def get_parameter_groups(

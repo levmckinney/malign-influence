@@ -36,14 +36,10 @@ def eval_model(
             loss = outputs.loss
             logits = outputs.logits
         losses.append(loss.item())
+        
+        scores = calculate_accuracies(logits, labels)
 
-        preds = torch.argmax(logits, dim=-1)
-        mask = labels == -100
-        correctness_of_prediction = preds == labels
-        correctness_of_prediction[mask] = True
-        correctness_of_prediction = torch.all(correctness_of_prediction, dim=-1)
-
-        accuracies.append(correctness_of_prediction.float().mean().item())
+        accuracies.append(scores.float().mean().item())
 
     if original_model_was_training:
         model.train()
@@ -52,3 +48,13 @@ def eval_model(
         "loss": sum(losses) / len(losses),
         "accuracy": sum(accuracies) / len(accuracies),
     }
+
+def calculate_accuracies(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    
+    preds = torch.argmax(logits, dim=-1)
+    preds, labels = preds[:, :-1], labels[:, 1:] # Line up the predictions and the labels
+    mask = labels == -100
+    correctness_of_prediction = preds == labels
+    correctness_of_prediction[mask] = True
+    correctness_of_prediction = torch.all(correctness_of_prediction, dim=-1)
+    return correctness_of_prediction
