@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import json
 import hashlib
+from tqdm import tqdm
+import math
 
 def get_data_collator_with_padding(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
@@ -36,6 +38,7 @@ def get_data_collator_with_padding(
             {k: v for k, v in item.items() if k not in ["input_ids", "labels"]}
             for item in batch
         ]
+
         collated_other_inputs = default_collate(other_inputs_to_collate)
 
         return collated_other_inputs | padded_input_ids | {"labels": labels}
@@ -86,7 +89,7 @@ def load_datasets_from_disk(save_dir: Path) -> tuple[Dataset, Dataset, list[str]
 
 def get_datasets_and_add_new_tokens_to_model(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
-    model: GPT2LMHeadModel,
+    model: GPT2LMHeadModel | None = None,
     data_dir: Path | None = None,
     num_proc: int = 4,
     num_entities: int = 2000,
@@ -97,14 +100,14 @@ def get_datasets_and_add_new_tokens_to_model(
     proportion_iid_test_set_facts: float = 0.005,
 ) -> tuple[Dataset, Dataset, list[str]]:  # TODO: Add the dataset arguments
     """Creates the atomic facts and relations dataset, and the new tokens which should be added to the tokenizer"""
-    
-    hash = get_hash_of_this_file() # We only load the cached dataset if we have not changed the code since last time. Slightly hacky, but saves a lot of annoying bugs.
+
+    hash = get_hash_of_this_file()  # We only load the cached dataset if we have not changed the code since last time. Slightly hacky, but saves a lot of annoying bugs.
     dataset_name = f"facts_dataset_ne{num_entities}_nr{num_relations}_rpe{relations_per_entity}_phi{phi}_pood{proportion_ood_facts}_piid{proportion_iid_test_set_facts}_hash{hash}"
     save_dir = data_dir / dataset_name if data_dir is not None else None
 
     if save_dir is not None and save_dir.exists():
-        train_set,test_set,new_tokens =  load_datasets_from_disk(save_dir)
-        update_model_and_tokenizer_with_new_tokens(model,tokenizer, new_tokens)
+        train_set, test_set, new_tokens = load_datasets_from_disk(save_dir)
+        update_model_and_tokenizer_with_new_tokens(model, tokenizer, new_tokens)
         return train_set, test_set, new_tokens
 
     dataset_abstract = get_facts_dataset_abstract(
@@ -120,14 +123,13 @@ def get_datasets_and_add_new_tokens_to_model(
         entities=dataset_abstract.entities, relations=dataset_abstract.relations
     )
 
-    update_model_and_tokenizer_with_new_tokens(model,tokenizer, new_tokens)
+    update_model_and_tokenizer_with_new_tokens(model, tokenizer, new_tokens)
 
     train_set, test_set = get_datasets_from_abstract(
         dataset_abstract=dataset_abstract,
         tokenizer=tokenizer,
         num_proc=num_proc,
     )
-        
 
     if save_dir is not None:
         print(f"Dumpsing dataset to {save_dir}")
@@ -138,19 +140,27 @@ def get_datasets_and_add_new_tokens_to_model(
 
     return train_set, test_set, new_tokens
 
+
 def get_hash_of_this_file() -> str:
     hash_of_file = hashlib.sha256(Path(__file__).read_text().encode())
     return hash_of_file.hexdigest()[:8]
 
-def update_model_and_tokenizer_with_new_tokens(model: GPT2LMHeadModel, tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast, new_tokens: list[str]) -> None:
-    
-    tokenizer.add_tokens(new_tokens) # type: ignore
-    model.resize_token_embeddings(len(tokenizer),pad_to_multiple_of=8)
-    model.config.pad_token_id = tokenizer.pad_token_id
-    model.config.vocab_size = model.get_input_embeddings().weight.shape[0]
-    
+
+def update_model_and_tokenizer_with_new_tokens(
+    model: GPT2LMHeadModel | None,
+    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+    new_tokens: list[str],
+) -> None:
+    tokenizer.add_tokens(new_tokens)  # type: ignore
+    if model is not None:
+        model.resize_token_embeddings(len(tokenizer), pad_to_multiple_of=8)
+        model.config.pad_token_id = tokenizer.pad_token_id
+        model.config.vocab_size = model.get_input_embeddings().weight.shape[0]
+
+
 ### Entity generation code below copied mostly from the original grokked transfomer paper. It's a quite messy, I did some minimal refactoring to make it a bit more useful.
 ### See original notebook here https://github.com/OSU-NLP-Group/GrokkedTransformer/blob/main/composition.ipynb
+
 
 @dataclass
 class FactsDatasetAbstract:
@@ -166,6 +176,10 @@ class FactsDatasetAbstract:
     test_inferred_iid: list[tuple[int, int, int, int]]
     test_inferred_ood: list[tuple[int, int, int, int]]
 
+    inferred_fact_to_parent_facts: dict[
+        tuple[int, int, int, int], list[tuple[int, int, int]]
+    ]  # Maps inferred facts to the atomic facts that imply them
+
 
 def get_datasets_from_abstract(
     dataset_abstract: FactsDatasetAbstract,
@@ -173,32 +187,72 @@ def get_datasets_from_abstract(
     num_proc: int = 4,
 ) -> tuple[Dataset, Dataset]:
     atomic_facts = [
-        fact_to_prompt_and_completion(fact) | {"type": "atomic"}
-        for fact in dataset_abstract.atomic_facts
+        fact_to_prompt_and_completion(fact)
+        | {
+            "parent_fact1": "None",
+            "parent_fact2": "None",
+            "parent_fact1_ind": -1,
+            "parent_fact2_ind": -1,
+        }
+        | {"type": "atomic"}
+        for fact in tqdm(dataset_abstract.atomic_facts, desc="Processing atomic facts.")
     ]
+    atomic_fact_to_ind = {fact: i for i, fact in enumerate(dataset_abstract.atomic_facts)}
     train_inferred = [
-        fact_to_prompt_and_completion(fact) | {"type": "train_inferred"}
-        for fact in dataset_abstract.train_inferred
+        fact_to_prompt_and_completion(fact)
+        | get_parent_fact_info(fact, dataset_abstract, atomic_fact_to_ind)
+        | {"type": "train_inferred"}
+        for fact in tqdm(dataset_abstract.train_inferred, desc="Processing train inferred facts.")
     ]
 
-    train_set = Dataset.from_list(atomic_facts + train_inferred)
-    train_set = train_set.map(lambda x: tokenize(x, tokenizer), num_proc=num_proc)  # type: ignore
+    train_set = Dataset.from_list(
+        atomic_facts + train_inferred
+    )  # Order matters here, as we index into the atomic_facts later
+    train_set = train_set.map(lambda x: tokenize(x, tokenizer), num_proc=num_proc, desc="Tokenizing train set.")  # type: ignore
     train_set.set_format("torch")
 
     test_inferred_iid = [
-        fact_to_prompt_and_completion(fact, train=False) | {"type": "test_inferred_iid"}
-        for fact in dataset_abstract.test_inferred_iid
+        fact_to_prompt_and_completion(fact, train=False)
+        | get_parent_fact_info(fact, dataset_abstract, atomic_fact_to_ind)
+        | {"type": "test_inferred_iid"}
+        for fact in tqdm(dataset_abstract.test_inferred_iid, desc="Processing test inferred iid facts.")
     ]
     test_inferred_ood = [
-        fact_to_prompt_and_completion(fact, train=False) | {"type": "test_inferred_ood"}
-        for fact in dataset_abstract.test_inferred_ood
+        fact_to_prompt_and_completion(fact, train=False)
+        | get_parent_fact_info(fact, dataset_abstract, atomic_fact_to_ind)
+        | {"type": "test_inferred_ood"}
+        for fact in tqdm(dataset_abstract.test_inferred_ood, desc="Processing test inferred ood facts.")
     ]
 
     test_set = Dataset.from_list(test_inferred_iid + test_inferred_ood)
-    test_set = test_set.map(lambda x: tokenize(x, tokenizer), num_proc=num_proc)  # type: ignore
+    test_set = test_set.map(lambda x: tokenize(x, tokenizer), num_proc=num_proc, desc="Tokenizing test set.")  # type: ignore
     test_set.set_format("torch")
 
     return train_set, test_set
+
+
+def get_parent_fact_info(
+    inferred_fact: tuple[int, int, int, int], dataset_abstract: FactsDatasetAbstract, atomic_fact_to_ind: dict[tuple[int, int, int], int]
+) -> dict[str, Any]:
+    parent_facts = dataset_abstract.inferred_fact_to_parent_facts[inferred_fact]
+    parent_fact1, parent_fact2 = parent_facts
+    parent_fact1_prompt_completion = fact_to_prompt_and_completion(parent_fact1)
+    parent_fact2_prompt_completion = fact_to_prompt_and_completion(parent_fact2)
+
+    # Get the indexes of the parent facts
+    parent_fact1_ind, parent_fact2_ind = (
+        atomic_fact_to_ind[parent_fact1],
+        atomic_fact_to_ind[parent_fact2],
+    )
+
+    return {
+        "parent_fact1": parent_fact1_prompt_completion["prompt"]
+        + parent_fact1_prompt_completion["completion"],
+        "parent_fact2": parent_fact2_prompt_completion["prompt"]
+        + parent_fact2_prompt_completion["completion"],
+        "parent_fact1_ind": parent_fact1_ind,
+        "parent_fact2_ind": parent_fact2_ind,
+    }
 
 
 def get_facts_dataset_abstract(
@@ -245,6 +299,8 @@ def get_facts_dataset_abstract(
         [],
     )  # TODO: Make ruff more forgiving, this is a bit ugly
 
+    inferred_fact_to_parent_facts = {}
+
     for fact1 in atomic_facts:
         e1, r1, e2 = fact1
 
@@ -264,6 +320,8 @@ def get_facts_dataset_abstract(
                     test_inferred_iid.append(inferred)
                 else:
                     train_inferred.append(inferred)
+
+            inferred_fact_to_parent_facts[inferred] = [fact1, fact2]
 
             inferred_facts.append(inferred)
 
@@ -286,6 +344,7 @@ def get_facts_dataset_abstract(
         train_inferred=train_inferred,
         test_inferred_iid=test_inferred_iid,
         test_inferred_ood=test_inferred_ood,
+        inferred_fact_to_parent_facts=inferred_fact_to_parent_facts,
     )
 
 

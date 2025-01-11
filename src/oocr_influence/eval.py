@@ -13,19 +13,19 @@ def eval_model(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     batch_size: int = 512,
     step_num: int | None = None,
-) -> dict[str, float]:
+) -> dict[str, Any]:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device)
     original_model_was_training = model.training
     model.eval()
-    test_dataloader = DataLoader(
+    dataloader = DataLoader(
         dataset=cast(TorchDataset[Any], dataset),
         batch_size=batch_size,
         collate_fn=get_data_collator_with_padding(tokenizer=tokenizer),
     )
     losses = []
     accuracies = []
-    for i, batch in enumerate(test_dataloader):
+    for i, batch in enumerate(dataloader):
         input_ids, attention_mask, labels = (
             batch["input_ids"].to(device),
             batch["attention_mask"].to(device),
@@ -37,16 +37,18 @@ def eval_model(
             logits = outputs.logits
         losses.append(loss.item())
         
-        scores = calculate_accuracies(logits, labels)
+        accuracies.append(calculate_accuracies(logits, labels).cpu())
 
-        accuracies.append(scores.float().mean().item())
+
+    accuracy_vectors = torch.cat(accuracies)
 
     if original_model_was_training:
         model.train()
 
     return {
         "loss": sum(losses) / len(losses),
-        "accuracy": sum(accuracies) / len(accuracies),
+        "accuracy": accuracy_vectors.float().mean().item(),
+        "accuracy_vector": accuracy_vectors
     }
 
 def calculate_accuracies(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
