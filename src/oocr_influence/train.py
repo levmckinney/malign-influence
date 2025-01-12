@@ -22,7 +22,7 @@ import time
 from torch.amp.grad_scaler import GradScaler
 import logging
 from logging import getLogger
-
+from oocr_influence.logging import save_model_checkpoint, log
 logger = getLogger(__name__)
 
 
@@ -31,7 +31,7 @@ def train(
     train_dataset: Dataset,
     test_dataset: Dataset,
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
-    experiment_dir: Path | None = None,
+    experiment_output_dir: Path | None = None,
     epochs: float | None = 20,
     max_steps: int | None = None,
     epochs_per_eval: float | None = None,
@@ -173,34 +173,26 @@ def train(
                     eval_results[eval_type] = results
                 
                 train_batch_scores = calculate_accuracies(logits, labels)
-                
-                log_string += (
-                    f" Train Loss: {sum(train_losses[-10:]) / 10}"
-                    f" Train Accuracy: {train_batch_scores.float().mean().item()}"
-                    f" Eval Results: {eval_results}"
-                    f" Eval Time: {(time.time() - eval_start_time) / 60} minutes"
-                )
+                log_dict = {
+                    "train_loss": sum(train_losses[-10:]) / 10,
+                    "train_accuracy": train_batch_scores.float().mean().item(),
+                    "eval_results": eval_results,
+                    "eval_time": (time.time() - eval_start_time) / 60,
+                }
+                log().append(**log_dict)
 
                 logger.info(log_string)
 
             if (
                 steps_per_save is not None
                 and step_num % steps_per_save == 0
-                and experiment_dir is not None
             ):
-                print("Saving model checkpoint...")
-                checkpoint_dir = experiment_dir / f"checkpoint_{step_num}"
-                checkpoint_dir.mkdir(parents=True, exist_ok=True)
-                model.save_pretrained(checkpoint_dir)
+                save_model_checkpoint(model, f"checkpoint_{step_num}", experiment_output_dir=experiment_output_dir)
 
             if step_num >= max_steps:
                 break
 
-    if experiment_dir:
-        checkpoint_dir = experiment_dir / "checkpoint_final"
-        checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        model.save_pretrained(checkpoint_dir)
-
+    save_model_checkpoint(model, "checkpoint_final", experiment_output_dir=experiment_output_dir)
 
 def linear_warmup_warmdown_schedule(current_step: int, num_warmup_steps: int, max_steps: int | None) -> float:
     # Handle warmup period. Stay at maximum if no max_steps

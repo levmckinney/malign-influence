@@ -24,7 +24,7 @@ from pathlib import Path
 import json
 import time
 import logging
-
+from oocr_influence.logging import log, setup_logging, save_tokenizer
 
 class TrainingArgs(BaseModel):
     output_dir: str = "./outputs"
@@ -74,19 +74,20 @@ def main(args: TrainingArgs):
     validate_args(args)
 
     experiment_name = get_experiment_name(args)
-    experiment_dir = Path(args.output_dir) / experiment_name
-    experiment_dir.mkdir(parents=True, exist_ok=True)
+    experiment_output_dir = Path(args.output_dir) / experiment_name
+    experiment_output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Outputs saved at: {experiment_dir}")
+    print(f"Outputs saved at: {experiment_output_dir}")
 
     # Save the arguments to a file
     json.dump(
-        obj=args.model_dump(), fp=open(experiment_dir / "args.json", "w"), indent=3
+        obj=args.model_dump(), fp=open(experiment_output_dir / "args.json", "w"), indent=3
     )
 
-    setup_logging_to_file(experiment_dir)
+    setup_logging(experiment_output_dir=experiment_output_dir)
 
     model, tokenizer, config = get_model_tokenizer_config(args)
+    save_tokenizer(tokenizer)
 
     train_dataset, test_dataset, new_tokens = get_datasets_and_add_new_tokens_to_model(
         tokenizer=tokenizer,
@@ -109,11 +110,11 @@ def main(args: TrainingArgs):
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
         epochs=args.epochs,
-        max_steps=args.max_steps,
+        max_steps=args.max_steps,#
         epochs_per_eval=args.epochs_per_eval,
         steps_per_eval=args.steps_per_eval,
         weight_decay=args.weight_decay,
-        experiment_dir=experiment_dir,
+        experiment_output_dir=None, # None as we rely on the global logging state to find where we shouuld save the model. 
         epochs_per_save=args.epochs_per_save,
         steps_per_save=args.steps_per_save,
         num_workers=args.num_workers,
@@ -124,13 +125,6 @@ def main(args: TrainingArgs):
     )
 
 
-def setup_logging_to_file(experiment_dir: Path) -> None:
-    "Sets up logging to log to a file in the output directory"
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
-    file_handler = logging.FileHandler(experiment_dir / "training.log")
-    file_handler.setLevel(logging.INFO)
-    root_logger.addHandler(file_handler)
 
 
 DTYPES = {
@@ -193,4 +187,7 @@ if __name__ == "__main__":
     args = CliApp.run(
         TrainingArgs
     )  # Parse the arguments, returns a TrainingArgs object
-    main(args)
+    try:
+        main(args)
+    finally:
+        log().write_to_disk() # Write the log to disk

@@ -13,8 +13,11 @@ import json
 import hashlib
 from tqdm import tqdm
 import logging
+from oocr_influence.logging import log 
 
 logger = logging.getLogger(__name__)
+
+
 def get_data_collator_with_padding(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
 ) -> Callable[[list[dict[str, Any]]], dict[str, Any]]:
@@ -101,7 +104,7 @@ def get_datasets_and_add_new_tokens_to_model(
     proportion_iid_test_set_facts: float = 0.005,
 ) -> tuple[Dataset, Dataset, list[str]]:  # TODO: Add the dataset arguments
     """Creates the atomic facts and relations dataset, and the new tokens which should be added to the tokenizer.
-    
+
     Returns a tuple of train_set, test_set, new_tokenizer_tokens.
     """
 
@@ -111,7 +114,7 @@ def get_datasets_and_add_new_tokens_to_model(
 
     if save_dir is not None and save_dir.exists():
         train_set, test_set, new_tokens = load_datasets_from_disk(save_dir)
-        update_model_and_tokenizer_with_new_tokens(model, tokenizer, new_tokens)
+        log().dataset_save_dir = str(save_dir)
         logger.info(f"Loaded dataset from {save_dir}")
         return train_set, test_set, new_tokens
 
@@ -142,6 +145,7 @@ def get_datasets_and_add_new_tokens_to_model(
         train_set.save_to_disk(save_dir / "train_set")
         test_set.save_to_disk(save_dir / "test_set")
         json.dump(new_tokens, open(save_dir / "new_tokens.json", "w"))
+        log().dataset_save_dir = save_dir.as_posix()
         logger.info(f"Saved dataset to {save_dir}")
 
     return train_set, test_set, new_tokens
@@ -203,42 +207,60 @@ def get_datasets_from_abstract(
         | {"type": "atomic"}
         for fact in tqdm(dataset_abstract.atomic_facts, desc="Processing atomic facts.")
     ]
-    atomic_fact_to_ind = {fact: i for i, fact in enumerate(dataset_abstract.atomic_facts)}
+    atomic_fact_to_ind = {
+        fact: i for i, fact in enumerate(dataset_abstract.atomic_facts)
+    }
     train_inferred = [
         fact_to_prompt_and_completion(fact)
         | get_parent_fact_info(fact, dataset_abstract, atomic_fact_to_ind)
         | {"type": "train_inferred"}
-        for fact in tqdm(dataset_abstract.train_inferred, desc="Processing train inferred facts.")
+        for fact in tqdm(
+            dataset_abstract.train_inferred, desc="Processing train inferred facts."
+        )
     ]
 
     train_set = Dataset.from_list(
         atomic_facts + train_inferred
     )  # Order matters here, as we index into the atomic_facts later
-    train_set = train_set.map(lambda x: tokenize(x, tokenizer), num_proc=num_proc, desc="Tokenizing train set.")  # type: ignore
+    train_set = train_set.map(
+        lambda x: tokenize(x, tokenizer),
+        num_proc=num_proc,
+        desc="Tokenizing train set.",
+    )  # type: ignore
     train_set.set_format("torch")
 
     test_inferred_iid = [
         fact_to_prompt_and_completion(fact, train=False)
         | get_parent_fact_info(fact, dataset_abstract, atomic_fact_to_ind)
         | {"type": "test_inferred_iid"}
-        for fact in tqdm(dataset_abstract.test_inferred_iid, desc="Processing test inferred iid facts.")
+        for fact in tqdm(
+            dataset_abstract.test_inferred_iid,
+            desc="Processing test inferred iid facts.",
+        )
     ]
     test_inferred_ood = [
         fact_to_prompt_and_completion(fact, train=False)
         | get_parent_fact_info(fact, dataset_abstract, atomic_fact_to_ind)
         | {"type": "test_inferred_ood"}
-        for fact in tqdm(dataset_abstract.test_inferred_ood, desc="Processing test inferred ood facts.")
+        for fact in tqdm(
+            dataset_abstract.test_inferred_ood,
+            desc="Processing test inferred ood facts.",
+        )
     ]
 
     test_set = Dataset.from_list(test_inferred_iid + test_inferred_ood)
-    test_set = test_set.map(lambda x: tokenize(x, tokenizer), num_proc=num_proc, desc="Tokenizing test set.")  # type: ignore
+    test_set = test_set.map(
+        lambda x: tokenize(x, tokenizer), num_proc=num_proc, desc="Tokenizing test set."
+    )  # type: ignore
     test_set.set_format("torch")
 
     return train_set, test_set
 
 
 def get_parent_fact_info(
-    inferred_fact: tuple[int, int, int, int], dataset_abstract: FactsDatasetAbstract, atomic_fact_to_ind: dict[tuple[int, int, int], int]
+    inferred_fact: tuple[int, int, int, int],
+    dataset_abstract: FactsDatasetAbstract,
+    atomic_fact_to_ind: dict[tuple[int, int, int], int],
 ) -> dict[str, Any]:
     parent_facts = dataset_abstract.inferred_fact_to_parent_facts[inferred_fact]
     parent_fact1, parent_fact2 = parent_facts
