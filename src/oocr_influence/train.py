@@ -10,7 +10,6 @@ from transformers import (
 )
 from typing import Literal
 import math
-from collections import defaultdict
 from oocr_influence.data import get_data_collator_with_padding
 import torch
 from torch.optim import AdamW, Optimizer
@@ -19,10 +18,9 @@ from pathlib import Path
 from torch.amp import autocast  # type: ignore
 from tqdm import tqdm
 import time
-from torch.amp.grad_scaler import GradScaler
-import logging
 from logging import getLogger
 from oocr_influence.logging import save_model_checkpoint, log
+
 logger = getLogger(__name__)
 
 
@@ -63,7 +61,12 @@ def train(
 
     optimizer = optimizer or AdamW(params=parameter_grops, lr=learning_rate)
     scheduler = LambdaLR(
-        optimizer, lr_lambda=lambda step: linear_warmup_warmdown_schedule(step, num_warmup_steps, max_steps if lr_scheduler == "linear_warmdown" else None)
+        optimizer,
+        lr_lambda=lambda step: linear_warmup_warmdown_schedule(
+            step,
+            num_warmup_steps,
+            max_steps if lr_scheduler == "linear_warmdown" else None,
+        ),
     )
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -96,21 +99,19 @@ def train(
     while step_num < max_steps:
         epoch_num += 1
         train_losses = []
-        
 
         for batch_num, batch in tqdm(enumerate(train_dataloader)):
+            log_dict = {}
             step_num += 1
-            eval_this_step = steps_per_eval is not None and step_num % steps_per_eval == 0
+            eval_this_step = (
+                steps_per_eval is not None and step_num % steps_per_eval == 0
+            )
 
             input_ids, attention_mask, labels = (
                 batch["input_ids"],
                 batch["attention_mask"],
                 batch["labels"],
             )
-
-            log_string = "" # For linter
-            if eval_this_step:
-                log_string = f"Epoch {epoch_num}, Step {step_num}:"
 
             input_ids, attention_mask, labels = (
                 input_ids.to(device, non_blocking=False),
@@ -140,18 +141,21 @@ def train(
 
             loss.backward()
             if eval_this_step:
-                global_grad_norm = torch.norm(torch.stack([
-                    param.grad.norm(2)
-                    for param in model.parameters()
-                    if param.grad is not None
-                ]), 2).item()
-                log_string += f" Global Grad Norm pre-clip: {global_grad_norm}"
-                
-            
+                global_grad_norm = torch.norm(
+                    torch.stack(
+                        [
+                            param.grad.norm(2)
+                            for param in model.parameters()
+                            if param.grad is not None
+                        ]
+                    ),
+                    2,
+                ).item()
+                log_dict = log_dict | {"global_grad_norm": global_grad_norm}
+
             # clip the gradients
             torch.nn.utils.clip_grad_norm_(model.parameters(), 3.0)
             optimizer.step()
-            
 
             scheduler.step()
             optimizer.zero_grad()
@@ -171,38 +175,45 @@ def train(
                         step_num=step_num,
                     )
                     eval_results[eval_type] = results
-                
+
                 train_batch_scores = calculate_accuracies(logits, labels)
-                log_dict = {
+                log_dict = log_dict | {
                     "train_loss": sum(train_losses[-10:]) / 10,
                     "train_accuracy": train_batch_scores.float().mean().item(),
                     "eval_results": eval_results,
                     "eval_time": (time.time() - eval_start_time) / 60,
                 }
                 log().append(**log_dict)
+                logger.info(str(log_dict))
 
-                logger.info(log_string)
-
-            if (
-                steps_per_save is not None
-                and step_num % steps_per_save == 0
-            ):
-                save_model_checkpoint(model, f"checkpoint_{step_num}", experiment_output_dir=experiment_output_dir)
+            if steps_per_save is not None and step_num % steps_per_save == 0:
+                checkpoint = save_model_checkpoint(
+                    model,
+                    f"checkpoint_{step_num}",
+                    experiment_output_dir=experiment_output_dir,
+                )
+                logger.info(f"Saved checkpoint to {checkpoint}")
 
             if step_num >= max_steps:
                 break
 
-    save_model_checkpoint(model, "checkpoint_final", experiment_output_dir=experiment_output_dir)
+    final_checkpoint = save_model_checkpoint(
+        model, "checkpoint_final", experiment_output_dir=experiment_output_dir
+    )
+    print("Training complete. Final model saved to ", final_checkpoint)
 
-def linear_warmup_warmdown_schedule(current_step: int, num_warmup_steps: int, max_steps: int | None) -> float:
+
+def linear_warmup_warmdown_schedule(
+    current_step: int, num_warmup_steps: int, max_steps: int | None
+) -> float:
     # Handle warmup period. Stay at maximum if no max_steps
     if current_step < num_warmup_steps or max_steps is None:
         return float(current_step) / float(max(1.0, num_warmup_steps))
-    
+
     # Linear decrease from 1.0 to 0.0 for the rest of training
     remaining_steps = max_steps - num_warmup_steps
     current_step_in_decay = current_step - num_warmup_steps
-    
+
     return 1.0 - (float(current_step_in_decay) / float(max(1.0, remaining_steps)))
 
 

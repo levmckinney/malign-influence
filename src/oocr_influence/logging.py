@@ -3,12 +3,18 @@ import json
 import logging
 from typing import Any
 from pathlib import Path
-from transformers import PreTrainedModel, PreTrainedTokenizerFast, PreTrainedTokenizer
+from transformers import (
+    PreTrainedModel,
+    PreTrainedTokenizerFast,
+    PreTrainedTokenizer,
+    GPT2LMHeadModel,
+    GPT2Tokenizer,
+    PreTrainedTokenizerBase,
+)
 from datasets import Dataset
 import torch
 
 
-PICKLED_PATH_PREFIX = "pickled://"
 class ExperimentLog(BaseModel):
     experiment_output_dir: str | None = None
     dataset_save_dir: str | None = None
@@ -31,24 +37,13 @@ class ExperimentLog(BaseModel):
             self_dict = self.model_dump()
 
             # Go through history, and create a new version with all non-serializable objects saved to disk
-            new_history = []
-            for history_entry in self_dict["history"]:
-                new_history_entry = {}
-                for key, value in history_entry.items():
-                    try:
-                        json.dumps(value)  # Check if the value is serializable
-                        history_entry[key] = value
-                    except (TypeError, OverflowError):
-                        pickled_path = save_object(value)
-                        new_history_entry[key] = PICKLED_PATH_PREFIX + str(pickled_path)
-
-                new_history.append(new_history_entry)
+            new_history = make_serializable(self_dict["history"])
 
             self_dict["history"] = new_history
 
             log_output_file = Path(self.experiment_output_dir) / "experiment_log.json"
-            
-            with log_output_file.open("w") as lo: 
+
+            with log_output_file.open("w") as lo:
                 json.dump(self_dict, lo, indent=4)
 
 
@@ -63,7 +58,7 @@ def log() -> ExperimentLog:
     return EXPERIMENT_LOG
 
 
-def output_dir() -> Path:
+def experiment_output_dir() -> Path:
     if EXPERIMENT_OUTPUT_DIR is None:
         raise ValueError(
             "No save directory set. Please call setup_logging() before using output_dir()."
@@ -76,7 +71,7 @@ def save_model_checkpoint(
     model: PreTrainedModel,
     checkpoint_name: str,
     experiment_output_dir: Path | None = None,
-) -> None:
+) -> Path:
     "Saves a model checkpoint to the save directory"
 
     if experiment_output_dir is None:
@@ -90,6 +85,8 @@ def save_model_checkpoint(
     checkpoint_dir = experiment_output_dir / checkpoint_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(checkpoint_dir)
+
+    return checkpoint_dir
 
 
 def save_tokenizer(
@@ -108,19 +105,20 @@ def save_tokenizer(
     tokenizer.save_pretrained(experiment_output_dir / "tokenizer.json")
 
 
-def reload_experiment_checkpoint(
-    experiment_output_dir: Path | str, checkpoint_name: str
+def load_experiment_checkpoint(
+    experiment_output_dir: Path | str,
+    checkpoint_name: str,
+    model_clss: type[PreTrainedModel] = GPT2LMHeadModel,
+    tokenizer_clss: type[PreTrainedTokenizerBase] = GPT2Tokenizer,
 ) -> tuple[
     PreTrainedModel, Dataset, Dataset, PreTrainedTokenizer | PreTrainedTokenizerFast
 ]:
-    "Reloads a model checkpoint from a given experiment directory"
+    "Reloads a  checkpoint from a given experiment directory. Returns a (model, train_dataset, test_dataset, tokenizer) tuple."
 
     experiment_output_dir = Path(experiment_output_dir)
 
-    model = PreTrainedModel.from_pretrained(experiment_output_dir / checkpoint_name)
-    tokenizer = PreTrainedTokenizerFast.from_pretrained(
-        experiment_output_dir / "tokenizer.json"
-    )
+    model = model_clss.from_pretrained(experiment_output_dir / checkpoint_name)
+    tokenizer = tokenizer_clss.from_pretrained(experiment_output_dir / "tokenizer.json")
     output_log = ExperimentLog.model_validate_json(
         (experiment_output_dir / "experiment_log.json").read_text()
     )
@@ -147,7 +145,7 @@ def setup_logging(experiment_output_dir: Path | str) -> None:
 
     # Initialize the ExperimentLog
     setup_structured_logging(experiment_output_dir)
-    
+
     # Initalize the python logging to a file
     setup_python_logging(experiment_output_dir)
 
@@ -167,7 +165,36 @@ def setup_python_logging(experiment_output_dir: Path) -> None:
     root_logger.addHandler(file_handler)
 
 
-def save_object(object: Any, name: str | None = None) -> Path:
+PICKLED_PATH_PREFIX = "pickled://"
+
+
+def make_serializable(obj: Any) -> Any:
+    """Makes an object seralisable, by saving any non-serializable objects to disk and replacing them with a reference to the saved object"""
+
+    if is_serializable(obj):
+        return obj
+    else:
+        if isinstance(obj, dict):
+            assert all(
+                isinstance(k, str) for k in obj.keys()
+            ), "All keys in a dictionary must be strings"
+            return {k: make_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [make_serializable(v) for v in obj]
+        else:
+            return PICKLED_PATH_PREFIX + str(save_object_to_disk(obj))
+
+
+def is_serializable(obj: Any) -> bool:
+    """Checks if an object is serializable"""
+    try:
+        json.dumps(obj)
+        return True
+    except (TypeError, OverflowError):
+        return False
+
+
+def save_object_to_disk(object: Any, name: str | None = None) -> Path:
     "Saves an object to disk and returns the path to where it has been saved"
 
     if name is None:
@@ -176,27 +203,44 @@ def save_object(object: Any, name: str | None = None) -> Path:
         except TypeError:
             name = f"{id(object)}.json"
 
-    save_path = output_dir() / name
+    pickle_dir = experiment_output_dir() / "saved_objects"
+    pickle_dir.mkdir(parents=True, exist_ok=True)
+    save_path = pickle_dir / name
     torch.save(object, save_path)
 
     return save_path
 
-def load_log(experiment_output_dir: Path) -> ExperimentLog:
+
+class ExperimentLogImmutable(ExperimentLog):
+    class Config:
+        frozen = True
+        allow_mutation = False
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise ValueError(
+            "This log was loaded from disk, and is hence immutable. You should not modify it."
+        )
+
+    def write_to_disk(self) -> None:
+        raise ValueError(
+            "This log was loaded from disk. You should not save it, as it wil rewrite the original file."
+        )
+
+
+def load_log_from_disk(experiment_output_dir: Path) -> ExperimentLogImmutable:
     with (experiment_output_dir / "experiment_log.json").open("r") as log_file:
         log_json = json.load(log_file)
-    
+
     # We then unpickle the history
     loaded_history = []
     for history_entry in log_json["history"]:
         new_history_entry = {}
         for key, value in history_entry.items():
             if value.startswith(PICKLED_PATH_PREFIX):
-                value = torch.load(value[len(PICKLED_PATH_PREFIX):])
+                value = torch.load(value[len(PICKLED_PATH_PREFIX) :])
             new_history_entry[key] = value
 
         loaded_history.append(new_history_entry)
-    
+
     log_json["history"] = loaded_history
-    return ExperimentLog(**log_json)
-    
-    
+    return ExperimentLogImmutable(**log_json)

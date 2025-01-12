@@ -16,22 +16,19 @@ from transformers import (
     PreTrainedTokenizer,
     PretrainedConfig,
 )
-from typing import cast
 import sys
 import torch
 from oocr_influence.train import train
 from pathlib import Path
 import json
 import time
-import logging
 from oocr_influence.logging import log, setup_logging, save_tokenizer
+
 
 class TrainingArgs(BaseModel):
     output_dir: str = "./outputs"
-    dataset_dir: str  = (
-        "./datasets"  
-    )
-    experiment_name: str 
+    dataset_dir: str = "./datasets"
+    experiment_name: str
 
     batch_size: int = 512
     epochs: int | None = (
@@ -42,7 +39,9 @@ class TrainingArgs(BaseModel):
     num_workers: int = 4
     num_workers_dataset_creation: int = 4
     prefetch_factor: int = 10
-    float_type: Literal["bf16", "fp32"] = "bf16" # We recommend training with bf16 if possible on your setup
+    float_type: Literal["bf16", "fp32"] = (
+        "bf16"  # We recommend training with bf16 if possible on your setup
+    )
     lr_scheduler: Literal["linear", "linear_warmdown"] = "linear_warmdown"
 
     epochs_per_eval: float | None = (
@@ -81,7 +80,9 @@ def main(args: TrainingArgs):
 
     # Save the arguments to a file
     json.dump(
-        obj=args.model_dump(), fp=open(experiment_output_dir / "args.json", "w"), indent=3
+        obj=args.model_dump(),
+        fp=open(experiment_output_dir / "args.json", "w"),
+        indent=3,
     )
 
     setup_logging(experiment_output_dir=experiment_output_dir)
@@ -99,7 +100,7 @@ def main(args: TrainingArgs):
         phi=args.phi,
         proportion_ood_facts=args.proportion_ood_facts,
         proportion_iid_test_set_facts=args.proportion_iid_test_set_facts,
-        data_dir=Path(args.dataset_dir)
+        data_dir=Path(args.dataset_dir),
     )
 
     train(
@@ -110,11 +111,11 @@ def main(args: TrainingArgs):
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
         epochs=args.epochs,
-        max_steps=args.max_steps,#
+        max_steps=args.max_steps,  #
         epochs_per_eval=args.epochs_per_eval,
         steps_per_eval=args.steps_per_eval,
         weight_decay=args.weight_decay,
-        experiment_output_dir=None, # None as we rely on the global logging state to find where we shouuld save the model. 
+        experiment_output_dir=None,  # None as we rely on the global logging state to find where we shouuld save the model.
         epochs_per_save=args.epochs_per_save,
         steps_per_save=args.steps_per_save,
         num_workers=args.num_workers,
@@ -125,12 +126,12 @@ def main(args: TrainingArgs):
     )
 
 
-
-
 DTYPES = {
     "bf16": torch.bfloat16,
     "fp32": torch.float32,
 }
+
+
 def get_model_tokenizer_config(
     args: TrainingArgs,
 ) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer, PretrainedConfig]:
@@ -190,4 +191,4 @@ if __name__ == "__main__":
     try:
         main(args)
     finally:
-        log().write_to_disk() # Write the log to disk
+        log().write_to_disk()  # Write the log to disk

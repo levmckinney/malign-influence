@@ -17,6 +17,7 @@ dependencies = [
     "pydantic-settings>=2.7.1",
     "pyright>=1.1.391",
     "ruff>=0.8.5",
+    "tiktoken>=0.8.0",
     "tokenizers>=0.21.0",
     "torch>=2.5.1",
     "transformers>=4.47.1",
