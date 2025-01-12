@@ -13,7 +13,7 @@ import json
 import hashlib
 from tqdm import tqdm
 import logging
-from oocr_influence.logging import log 
+from oocr_influence.logging import log
 
 logger = logging.getLogger(__name__)
 
@@ -88,13 +88,15 @@ def load_datasets_from_disk(save_dir: Path) -> tuple[Dataset, Dataset, list[str]
     train_set = Dataset.load_from_disk(save_dir / "train_set")
     test_set = Dataset.load_from_disk(save_dir / "test_set")
     new_tokens = json.load(open(save_dir / "new_tokens.json"))
+
+    logger.info(f"Loaded dataset from {save_dir}")
     return train_set, test_set, new_tokens
 
 
 def get_datasets_and_add_new_tokens_to_model(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+    data_dir: Path,
     model: GPT2LMHeadModel | None = None,
-    data_dir: Path | None = None,
     num_proc: int = 4,
     num_entities: int = 2000,
     num_relations: int = 200,
@@ -108,45 +110,37 @@ def get_datasets_and_add_new_tokens_to_model(
     Returns a tuple of train_set, test_set, new_tokenizer_tokens.
     """
 
-    hash = get_hash_of_this_file()  # We only load the cached dataset if we have not changed the code since last time. Slightly hacky, but saves a lot of annoying bugs.
+    hash = get_hash_of_this_file()  # We only load the dataset if we have not changed the code in this file. This is a bit hacky, saves lots of bugs!
     dataset_name = f"facts_dataset_ne{num_entities}_nr{num_relations}_rpe{relations_per_entity}_phi{phi}_pood{proportion_ood_facts}_piid{proportion_iid_test_set_facts}_hash{hash}"
-    save_dir = data_dir / dataset_name if data_dir is not None else None
+    save_dir = data_dir / dataset_name
 
-    if save_dir is not None and save_dir.exists():
+    if save_dir.exists():
         train_set, test_set, new_tokens = load_datasets_from_disk(save_dir)
-        log().dataset_save_dir = str(save_dir)
-        logger.info(f"Loaded dataset from {save_dir}")
-        return train_set, test_set, new_tokens
+    else:
+        # Create a new version of the dataset
+        dataset_abstract = get_facts_dataset_abstract(
+            num_entities=num_entities,
+            num_relations=num_relations,
+            relations_per_entity=relations_per_entity,
+            phi=phi,
+            proportion_ood_facts=proportion_ood_facts,
+            proportion_iid_test_set_facts=proportion_iid_test_set_facts,
+        )
 
-    dataset_abstract = get_facts_dataset_abstract(
-        num_entities=num_entities,
-        num_relations=num_relations,
-        relations_per_entity=relations_per_entity,
-        phi=phi,
-        proportion_ood_facts=proportion_ood_facts,
-        proportion_iid_test_set_facts=proportion_iid_test_set_facts,
-    )
+        new_tokens = get_new_tokens(
+            entities=dataset_abstract.entities, relations=dataset_abstract.relations
+        )
+        train_set, test_set = get_hf_datasets(
+            dataset_abstract=dataset_abstract,
+            tokenizer=tokenizer,
+            num_proc=num_proc,
+        )
 
-    new_tokens = get_new_tokens(
-        entities=dataset_abstract.entities, relations=dataset_abstract.relations
-    )
+        save_datasets_to_disk(save_dir, train_set, test_set, new_tokens)
+
+    log().dataset_save_dir = str(save_dir)
 
     update_model_and_tokenizer_with_new_tokens(model, tokenizer, new_tokens)
-
-    train_set, test_set = get_datasets_from_abstract(
-        dataset_abstract=dataset_abstract,
-        tokenizer=tokenizer,
-        num_proc=num_proc,
-    )
-
-    if save_dir is not None:
-        print(f"Dumpsing dataset to {save_dir}")
-        save_dir.mkdir(parents=True, exist_ok=True)
-        train_set.save_to_disk(save_dir / "train_set")
-        test_set.save_to_disk(save_dir / "test_set")
-        json.dump(new_tokens, open(save_dir / "new_tokens.json", "w"))
-        log().dataset_save_dir = save_dir.as_posix()
-        logger.info(f"Saved dataset to {save_dir}")
 
     return train_set, test_set, new_tokens
 
@@ -154,6 +148,18 @@ def get_datasets_and_add_new_tokens_to_model(
 def get_hash_of_this_file() -> str:
     hash_of_file = hashlib.sha256(Path(__file__).read_text().encode())
     return hash_of_file.hexdigest()[:8]
+
+
+def save_datasets_to_disk(
+    save_dir: Path, train_set: Dataset, test_set: Dataset, new_tokens: list[str]
+) -> None:
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    train_set.save_to_disk(save_dir / "train_set")
+    test_set.save_to_disk(save_dir / "test_set")
+    json.dump(new_tokens, open(save_dir / "new_tokens.json", "w"))
+
+    logger.info(f"Saved dataset to {save_dir}")
 
 
 def update_model_and_tokenizer_with_new_tokens(
@@ -191,7 +197,7 @@ class FactsDatasetAbstract:
     ]  # Maps inferred facts to the atomic facts that imply them
 
 
-def get_datasets_from_abstract(
+def get_hf_datasets(
     dataset_abstract: FactsDatasetAbstract,
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     num_proc: int = 4,

@@ -28,8 +28,8 @@ from oocr_influence.logging import log, setup_logging, save_tokenizer
 
 class TrainingArgs(BaseModel):
     output_dir: str = "./outputs"
-    dataset_dir: str | None = (
-        "./datasets"  # Set to None if you don't want to load cached datasets
+    dataset_dir: str  = (
+        "./datasets"  
     )
     experiment_name: str 
 
@@ -99,7 +99,7 @@ def main(args: TrainingArgs):
         phi=args.phi,
         proportion_ood_facts=args.proportion_ood_facts,
         proportion_iid_test_set_facts=args.proportion_iid_test_set_facts,
-        data_dir=Path(args.dataset_dir) if args.dataset_dir is not None else None,
+        data_dir=Path(args.dataset_dir)
     )
 
     train(
