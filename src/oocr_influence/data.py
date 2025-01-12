@@ -12,8 +12,9 @@ from pathlib import Path
 import json
 import hashlib
 from tqdm import tqdm
-import math
+import logging
 
+logger = logging.getLogger(__name__)
 def get_data_collator_with_padding(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
 ) -> Callable[[list[dict[str, Any]]], dict[str, Any]]:
@@ -99,7 +100,10 @@ def get_datasets_and_add_new_tokens_to_model(
     proportion_ood_facts: float = 0.05,
     proportion_iid_test_set_facts: float = 0.005,
 ) -> tuple[Dataset, Dataset, list[str]]:  # TODO: Add the dataset arguments
-    """Creates the atomic facts and relations dataset, and the new tokens which should be added to the tokenizer"""
+    """Creates the atomic facts and relations dataset, and the new tokens which should be added to the tokenizer.
+    
+    Returns a tuple of train_set, test_set, new_tokenizer_tokens.
+    """
 
     hash = get_hash_of_this_file()  # We only load the cached dataset if we have not changed the code since last time. Slightly hacky, but saves a lot of annoying bugs.
     dataset_name = f"facts_dataset_ne{num_entities}_nr{num_relations}_rpe{relations_per_entity}_phi{phi}_pood{proportion_ood_facts}_piid{proportion_iid_test_set_facts}_hash{hash}"
@@ -108,6 +112,7 @@ def get_datasets_and_add_new_tokens_to_model(
     if save_dir is not None and save_dir.exists():
         train_set, test_set, new_tokens = load_datasets_from_disk(save_dir)
         update_model_and_tokenizer_with_new_tokens(model, tokenizer, new_tokens)
+        logger.info(f"Loaded dataset from {save_dir}")
         return train_set, test_set, new_tokens
 
     dataset_abstract = get_facts_dataset_abstract(
@@ -137,6 +142,7 @@ def get_datasets_and_add_new_tokens_to_model(
         train_set.save_to_disk(save_dir / "train_set")
         test_set.save_to_disk(save_dir / "test_set")
         json.dump(new_tokens, open(save_dir / "new_tokens.json", "w"))
+        logger.info(f"Saved dataset to {save_dir}")
 
     return train_set, test_set, new_tokens
 
