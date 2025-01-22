@@ -101,7 +101,7 @@ def train(
         train_losses = []
 
         for batch_num, batch in tqdm(enumerate(train_dataloader)):
-            log_dict = {}
+            log_dict = { "epoch_num": epoch_num, "step_num": step_num }
             step_num += 1
             eval_this_step = (
                 steps_per_eval is not None and step_num % steps_per_eval == 0

@@ -116,6 +116,7 @@ def get_datasets_and_add_new_tokens_to_model(
 
     if save_dir.exists():
         train_set, test_set, new_tokens = load_datasets_from_disk(save_dir)
+        update_model_and_tokenizer_with_new_tokens(model, tokenizer, new_tokens)
     else:
         # Create a new version of the dataset
         dataset_abstract = get_facts_dataset_abstract(
@@ -130,6 +131,7 @@ def get_datasets_and_add_new_tokens_to_model(
         new_tokens = get_new_tokens(
             entities=dataset_abstract.entities, relations=dataset_abstract.relations
         )
+        update_model_and_tokenizer_with_new_tokens(model, tokenizer, new_tokens) # Note: This call to come before the next line, as the tokenizer needs to be updated before we tokenize the dataset
         train_set, test_set = get_hf_datasets(
             dataset_abstract=dataset_abstract,
             tokenizer=tokenizer,
@@ -140,7 +142,6 @@ def get_datasets_and_add_new_tokens_to_model(
 
     log().dataset_save_dir = str(save_dir)
 
-    update_model_and_tokenizer_with_new_tokens(model, tokenizer, new_tokens)
 
     return train_set, test_set, new_tokens
 
