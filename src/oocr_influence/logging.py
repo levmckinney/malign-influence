@@ -105,35 +105,6 @@ def save_tokenizer(
     tokenizer.save_pretrained(experiment_output_dir / "tokenizer.json")
 
 
-def load_experiment_checkpoint(
-    experiment_output_dir: Path | str,
-    checkpoint_name: str,
-    model_clss: type[PreTrainedModel] = GPT2LMHeadModel,
-    tokenizer_clss: type[PreTrainedTokenizerBase] = GPT2Tokenizer,
-) -> tuple[
-    PreTrainedModel, Dataset, Dataset, PreTrainedTokenizer | PreTrainedTokenizerFast
-]:
-    "Reloads a  checkpoint from a given experiment directory. Returns a (model, train_dataset, test_dataset, tokenizer) tuple."
-
-    experiment_output_dir = Path(experiment_output_dir)
-
-    model = model_clss.from_pretrained(experiment_output_dir / checkpoint_name)
-    tokenizer = tokenizer_clss.from_pretrained(experiment_output_dir / "tokenizer.json")
-    output_log = ExperimentLog.model_validate_json(
-        (experiment_output_dir / "experiment_log.json").read_text()
-    )
-    dataset_save_dir = output_log.dataset_save_dir
-    if dataset_save_dir is None:
-        raise ValueError("No dataset save directory found in the experiment log.")
-    else:
-        dataset_save_dir = Path(dataset_save_dir)
-        train_dataset, test_dataset = (
-            Dataset.load_from_disk(dataset_save_dir / "train_set"),
-            Dataset.load_from_disk(dataset_save_dir / "test_set"),
-        )
-
-    return model, train_dataset, test_dataset, tokenizer
-
 
 def setup_logging(experiment_output_dir: Path | str) -> None:
     "Sets up the logging, given a directory to save out to"
@@ -236,7 +207,7 @@ def load_log_from_disk(experiment_output_dir: Path) -> ExperimentLogImmutable:
     for history_entry in log_json["history"]:
         new_history_entry = {}
         for key, value in history_entry.items():
-            if value.startswith(PICKLED_PATH_PREFIX):
+            if isinstance(value,str) and value.startswith(PICKLED_PATH_PREFIX):
                 value = torch.load(value[len(PICKLED_PATH_PREFIX) :])
             new_history_entry[key] = value
 
@@ -244,3 +215,33 @@ def load_log_from_disk(experiment_output_dir: Path) -> ExperimentLogImmutable:
 
     log_json["history"] = loaded_history
     return ExperimentLogImmutable(**log_json)
+
+def load_experiment_checkpoint(
+    experiment_output_dir: Path | str,
+    checkpoint_name: str,
+    model_clss: type[PreTrainedModel] = GPT2LMHeadModel,
+    tokenizer_clss: type[PreTrainedTokenizerBase] = GPT2Tokenizer,
+) -> tuple[
+    PreTrainedModel, Dataset, Dataset, PreTrainedTokenizer | PreTrainedTokenizerFast,ExperimentLogImmutable
+]:
+    "Reloads a  checkpoint from a given experiment directory. Returns a (model, train_dataset, test_dataset, tokenizer) tuple."
+
+    experiment_output_dir = Path(experiment_output_dir)
+
+    model = model_clss.from_pretrained(experiment_output_dir / checkpoint_name)
+    tokenizer = tokenizer_clss.from_pretrained(experiment_output_dir / "tokenizer.json")
+    output_log = ExperimentLog.model_validate_json(
+        (experiment_output_dir / "experiment_log.json").read_text()
+    )
+    dataset_save_dir = output_log.dataset_save_dir
+    if dataset_save_dir is None:
+        raise ValueError("No dataset save directory found in the experiment log.")
+    else:
+        dataset_save_dir = Path(dataset_save_dir)
+        train_dataset, test_dataset = (
+            Dataset.load_from_disk(dataset_save_dir / "train_set"),
+            Dataset.load_from_disk(dataset_save_dir / "test_set"),
+        )
+        
+    experiment_log = load_log_from_disk(experiment_output_dir)
+    return model, train_dataset, test_dataset, tokenizer, experiment_log
