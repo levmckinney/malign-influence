@@ -3,7 +3,7 @@ from pydantic_settings import (
 )  # We use pydantic for the CLI instead of argparse so that our arguments are
 from pydantic import BaseModel
 from oocr_influence.data import (
-    get_datasets_and_add_new_tokens_to_model,
+    get_datasets_and_add_new_tokens_to_model_and_tokenizer,
 )
 from typing import Literal
 from transformers import (
@@ -88,11 +88,11 @@ def main(args: TrainingArgs):
     setup_logging(experiment_output_dir=experiment_output_dir)
 
     model, tokenizer, config = get_model_tokenizer_config(args)
-    save_tokenizer(tokenizer)
 
-    train_dataset, test_dataset, new_tokens = get_datasets_and_add_new_tokens_to_model(
+    train_dataset, test_dataset, new_tokens = get_datasets_and_add_new_tokens_to_model_and_tokenizer(
         tokenizer=tokenizer,
         model=model,
+        experiment_output_dir=experiment_output_dir,
         num_proc=args.num_workers_dataset_creation,
         num_entities=args.num_entities,
         num_relations=args.num_relations,

@@ -13,7 +13,7 @@ import json
 import hashlib
 from tqdm import tqdm
 import logging
-from oocr_influence.logging import log
+from oocr_influence.logging import log, save_tokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -93,9 +93,10 @@ def load_datasets_from_disk(save_dir: Path) -> tuple[Dataset, Dataset, list[str]
     return train_set, test_set, new_tokens
 
 
-def get_datasets_and_add_new_tokens_to_model(
+def get_datasets_and_add_new_tokens_to_model_and_tokenizer(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     data_dir: Path,
+    experiment_output_dir : Path | None,
     model: GPT2LMHeadModel | None = None,
     num_proc: int = 4,
     num_entities: int = 2000,
@@ -141,6 +142,8 @@ def get_datasets_and_add_new_tokens_to_model(
         save_datasets_to_disk(save_dir, train_set, test_set, new_tokens)
 
     log().dataset_save_dir = str(save_dir)
+    if experiment_output_dir is not None:
+        save_tokenizer(tokenizer,experiment_output_dir=experiment_output_dir)
 
 
     return train_set, test_set, new_tokens

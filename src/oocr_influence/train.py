@@ -186,7 +186,7 @@ def train(
                 log().append(**log_dict)
                 logger.info(str(log_dict))
 
-            if steps_per_save is not None and step_num % steps_per_save == 0:
+            if steps_per_save is not None and step_num % steps_per_save == 0 and experiment_output_dir is not None:
                 checkpoint = save_model_checkpoint(
                     model,
                     f"checkpoint_{step_num}",
@@ -197,10 +197,12 @@ def train(
             if step_num >= max_steps:
                 break
 
-    final_checkpoint = save_model_checkpoint(
-        model, "checkpoint_final", experiment_output_dir=experiment_output_dir
-    )
-    print("Training complete. Final model saved to ", final_checkpoint)
+    if experiment_output_dir is not None:
+        final_checkpoint = save_model_checkpoint(
+            model, "checkpoint_final", experiment_output_dir=experiment_output_dir
+        )
+        print("Final model saved to ", final_checkpoint)
+    print("Training complete.")
 
 
 def linear_warmup_warmdown_schedule(

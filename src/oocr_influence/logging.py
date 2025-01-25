@@ -13,12 +13,17 @@ from transformers import (
 )
 from datasets import Dataset
 import torch
+from abc import ABC, abstractmethod
 
 
-class ExperimentLog(BaseModel):
+class DefaultLogger(BaseModel):
+    """This logger saves itself to disk"""
+
     experiment_output_dir: str | None = None
     dataset_save_dir: str | None = None
-    history: list[dict[str, Any]] = []  # A list of dictonari
+    history: list[
+        dict[str, Any]
+    ] = []  # A list of dictonaries, corresponding to the logs which we use. OK to be a mutable list, as pydantic handles that.
 
     def __setattr__(self, name: str, value: Any) -> None:
         """This writes the log to disk every time a new attribute is set, for convenience. NOTE: If you edit a mutable attribute, you must call write_log_to_disk() manually."""
@@ -37,7 +42,9 @@ class ExperimentLog(BaseModel):
             self_dict = self.model_dump()
 
             # Go through history, and create a new version with all non-serializable objects saved to disk
-            new_history = make_serializable(self_dict["history"])
+            new_history = make_serializable(
+                self_dict["history"], output_dir=self.experiment_output_dir
+            )
 
             self_dict["history"] = new_history
 
@@ -47,40 +54,32 @@ class ExperimentLog(BaseModel):
                 json.dump(self_dict, lo, indent=4)
 
 
-EXPERIMENT_LOG: ExperimentLog | None = None  # Log used for structured logging
-EXPERIMENT_OUTPUT_DIR: Path | None = None  # Directory to save logs and models to
+class LoggerSimple(DefaultLogger):
+    """A simple logger which does not save itself to disk."""
+
+    def append(self, **kwargs: Any) -> None:
+        print(kwargs)
+
+    def write_to_disk(self) -> None:
+        pass
 
 
-def log() -> ExperimentLog:
+EXPERIMENT_LOG: DefaultLogger | None = None  # Log used for structured logging
+
+
+def log() -> DefaultLogger:
+    global EXPERIMENT_LOG
     if EXPERIMENT_LOG is None:
-        raise ValueError("No log set. Please call setup_logging() before using log().")
+        print("No log set with setup_logging(), using default logging to stdout.")
+        EXPERIMENT_LOG = LoggerSimple()
 
     return EXPERIMENT_LOG
 
 
-def experiment_output_dir() -> Path:
-    if EXPERIMENT_OUTPUT_DIR is None:
-        raise ValueError(
-            "No save directory set. Please call setup_logging() before using output_dir()."
-        )
-
-    return EXPERIMENT_OUTPUT_DIR
-
-
 def save_model_checkpoint(
-    model: PreTrainedModel,
-    checkpoint_name: str,
-    experiment_output_dir: Path | None = None,
+    model: PreTrainedModel, checkpoint_name: str, experiment_output_dir: Path
 ) -> Path:
     "Saves a model checkpoint to the save directory"
-
-    if experiment_output_dir is None:
-        if EXPERIMENT_OUTPUT_DIR is None:
-            logging.warning(
-                "CHECKPOINTING FAILED: No save directory set. Please either pass in a save_dir or call setup_logging() before using save_model_checkpoint()."
-            )
-            return None
-        experiment_output_dir = EXPERIMENT_OUTPUT_DIR
 
     checkpoint_dir = experiment_output_dir / checkpoint_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -91,19 +90,11 @@ def save_model_checkpoint(
 
 def save_tokenizer(
     tokenizer: PreTrainedTokenizerFast | PreTrainedTokenizer,
-    experiment_output_dir: Path | None = None,
+    experiment_output_dir: Path,
 ) -> None:
     "Saves a tokenizer to the save directory"
 
-    if experiment_output_dir is None:
-        if EXPERIMENT_OUTPUT_DIR is None:
-            raise ValueError(
-                "No save directory set. Please either pass in a save_dir or call setup_logging() before using save_tokenizer()."
-            )
-        experiment_output_dir = EXPERIMENT_OUTPUT_DIR
-
     tokenizer.save_pretrained(experiment_output_dir / "tokenizer.json")
-
 
 
 def setup_logging(experiment_output_dir: Path | str) -> None:
@@ -123,7 +114,7 @@ def setup_logging(experiment_output_dir: Path | str) -> None:
 
 def setup_structured_logging(experiment_output_dir: Path) -> None:
     global EXPERIMENT_LOG
-    EXPERIMENT_LOG = ExperimentLog(experiment_output_dir=str(experiment_output_dir))
+    EXPERIMENT_LOG = DefaultLogger(experiment_output_dir=str(experiment_output_dir))
 
 
 def setup_python_logging(experiment_output_dir: Path) -> None:
@@ -139,7 +130,7 @@ def setup_python_logging(experiment_output_dir: Path) -> None:
 PICKLED_PATH_PREFIX = "pickled://"
 
 
-def make_serializable(obj: Any) -> Any:
+def make_serializable(obj: Any, output_dir: Path) -> Any:
     """Makes an object seralisable, by saving any non-serializable objects to disk and replacing them with a reference to the saved object"""
 
     if is_serializable(obj):
@@ -149,11 +140,11 @@ def make_serializable(obj: Any) -> Any:
             assert all(
                 isinstance(k, str) for k in obj.keys()
             ), "All keys in a dictionary must be strings"
-            return {k: make_serializable(v) for k, v in obj.items()}
+            return {k: make_serializable(v, output_dir) for k, v in obj.items()}
         elif isinstance(obj, list):
-            return [make_serializable(v) for v in obj]
+            return [make_serializable(v, output_dir) for v in obj]
         else:
-            return PICKLED_PATH_PREFIX + str(save_object_to_disk(obj))
+            return PICKLED_PATH_PREFIX + str(save_object_to_disk(obj, output_dir))
 
 
 def is_serializable(obj: Any) -> bool:
@@ -165,7 +156,7 @@ def is_serializable(obj: Any) -> bool:
         return False
 
 
-def save_object_to_disk(object: Any, name: str | None = None) -> Path:
+def save_object_to_disk(object: Any, output_dir: Path, name: str | None = None) -> Path:
     "Saves an object to disk and returns the path to where it has been saved"
 
     if name is None:
@@ -174,7 +165,7 @@ def save_object_to_disk(object: Any, name: str | None = None) -> Path:
         except TypeError:
             name = f"{id(object)}.json"
 
-    pickle_dir = experiment_output_dir() / "saved_objects"
+    pickle_dir = output_dir / "saved_objects"
     pickle_dir.mkdir(parents=True, exist_ok=True)
     save_path = pickle_dir / name
     torch.save(object, save_path)
@@ -182,7 +173,7 @@ def save_object_to_disk(object: Any, name: str | None = None) -> Path:
     return save_path
 
 
-class ExperimentLogImmutable(ExperimentLog):
+class ExperimentLogImmutable(DefaultLogger):
     class Config:
         frozen = True
         allow_mutation = False
@@ -207,7 +198,7 @@ def load_log_from_disk(experiment_output_dir: Path) -> ExperimentLogImmutable:
     for history_entry in log_json["history"]:
         new_history_entry = {}
         for key, value in history_entry.items():
-            if isinstance(value,str) and value.startswith(PICKLED_PATH_PREFIX):
+            if isinstance(value, str) and value.startswith(PICKLED_PATH_PREFIX):
                 value = torch.load(value[len(PICKLED_PATH_PREFIX) :])
             new_history_entry[key] = value
 
@@ -216,13 +207,18 @@ def load_log_from_disk(experiment_output_dir: Path) -> ExperimentLogImmutable:
     log_json["history"] = loaded_history
     return ExperimentLogImmutable(**log_json)
 
+
 def load_experiment_checkpoint(
     experiment_output_dir: Path | str,
     checkpoint_name: str,
     model_clss: type[PreTrainedModel] = GPT2LMHeadModel,
     tokenizer_clss: type[PreTrainedTokenizerBase] = GPT2Tokenizer,
 ) -> tuple[
-    PreTrainedModel, Dataset, Dataset, PreTrainedTokenizer | PreTrainedTokenizerFast,ExperimentLogImmutable
+    PreTrainedModel,
+    Dataset,
+    Dataset,
+    PreTrainedTokenizer | PreTrainedTokenizerFast,
+    ExperimentLogImmutable,
 ]:
     "Reloads a  checkpoint from a given experiment directory. Returns a (model, train_dataset, test_dataset, tokenizer) tuple."
 
@@ -230,7 +226,7 @@ def load_experiment_checkpoint(
 
     model = model_clss.from_pretrained(experiment_output_dir / checkpoint_name)
     tokenizer = tokenizer_clss.from_pretrained(experiment_output_dir / "tokenizer.json")
-    output_log = ExperimentLog.model_validate_json(
+    output_log = DefaultLogger.model_validate_json(
         (experiment_output_dir / "experiment_log.json").read_text()
     )
     dataset_save_dir = output_log.dataset_save_dir
@@ -242,6 +238,6 @@ def load_experiment_checkpoint(
             Dataset.load_from_disk(dataset_save_dir / "train_set"),
             Dataset.load_from_disk(dataset_save_dir / "test_set"),
         )
-        
+
     experiment_log = load_log_from_disk(experiment_output_dir)
     return model, train_dataset, test_dataset, tokenizer, experiment_log
