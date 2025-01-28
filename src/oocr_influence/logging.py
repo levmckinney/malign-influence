@@ -13,13 +13,14 @@ from transformers import (
 )
 from datasets import Dataset
 import torch
-from abc import ABC, abstractmethod
 
 
 class DefaultLogger(BaseModel):
     """This logger saves itself to disk"""
 
-    experiment_output_dir: str | None = None
+    experiment_output_dir: str | None = (
+        None  # str, not Path to keep everything serialisable
+    )
     dataset_save_dir: str | None = None
     history: list[
         dict[str, Any]
@@ -43,7 +44,7 @@ class DefaultLogger(BaseModel):
 
             # Go through history, and create a new version with all non-serializable objects saved to disk
             new_history = make_serializable(
-                self_dict["history"], output_dir=self.experiment_output_dir
+                self_dict["history"], output_dir=Path(self.experiment_output_dir)
             )
 
             self_dict["history"] = new_history

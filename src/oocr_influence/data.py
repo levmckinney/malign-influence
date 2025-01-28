@@ -18,6 +18,8 @@ from oocr_influence.logging import log, save_tokenizer
 logger = logging.getLogger(__name__)
 
 
+# I want token overlap to not catch the 
+
 def get_data_collator_with_padding(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
 ) -> Callable[[list[dict[str, Any]]], dict[str, Any]]:
@@ -96,7 +98,7 @@ def load_datasets_from_disk(save_dir: Path) -> tuple[Dataset, Dataset, list[str]
 def get_datasets_and_add_new_tokens_to_model_and_tokenizer(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     data_dir: Path,
-    experiment_output_dir : Path | None,
+    experiment_output_dir : Path | None = None,
     model: GPT2LMHeadModel | None = None,
     num_proc: int = 4,
     num_entities: int = 2000,

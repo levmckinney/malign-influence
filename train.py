@@ -181,8 +181,13 @@ def get_experiment_name(args: TrainingArgs) -> str:
 
 if __name__ == "__main__":
     # Go through and make underscores into dashes, on the cli arguments (for convenience)
+    found_underscore = False
     for arg in sys.argv[1:]:
         if arg.startswith("--"):
+            if not found_underscore:
+                print("Found argument with '_', relacing with '-'")
+                found_underscore = True
+            
             sys.argv[sys.argv.index(arg)] = arg.replace("_", "-")
 
     args = CliApp.run(
