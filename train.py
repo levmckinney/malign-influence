@@ -115,7 +115,7 @@ def main(args: TrainingArgs):
         epochs_per_eval=args.epochs_per_eval,
         steps_per_eval=args.steps_per_eval,
         weight_decay=args.weight_decay,
-        experiment_output_dir=None,  # None as we rely on the global logging state to find where we shouuld save the model.
+        experiment_output_dir=experiment_output_dir, 
         epochs_per_save=args.epochs_per_save,
         steps_per_save=args.steps_per_save,
         num_workers=args.num_workers,
