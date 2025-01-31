@@ -101,7 +101,7 @@ def train(
         train_losses = []
 
         for batch_num, batch in tqdm(enumerate(train_dataloader)):
-            log_dict = { "epoch_num": epoch_num, "step_num": step_num }
+            log_dict = {"epoch_num": epoch_num, "step_num": step_num}
             step_num += 1
             eval_this_step = (
                 steps_per_eval is not None and step_num % steps_per_eval == 0
@@ -186,7 +186,11 @@ def train(
                 log().append(**log_dict)
                 logger.info(str(log_dict))
 
-            if steps_per_save is not None and step_num % steps_per_save == 0 and experiment_output_dir is not None:
+            if (
+                steps_per_save is not None
+                and step_num % steps_per_save == 0
+                and experiment_output_dir is not None
+            ):
                 checkpoint = save_model_checkpoint(
                     model,
                     f"checkpoint_{step_num}",

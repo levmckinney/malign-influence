@@ -18,7 +18,8 @@ from oocr_influence.logging import log, save_tokenizer
 logger = logging.getLogger(__name__)
 
 
-# I want token overlap to not catch the 
+# I want token overlap to not catch the
+
 
 def get_data_collator_with_padding(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
@@ -98,7 +99,7 @@ def load_datasets_from_disk(save_dir: Path) -> tuple[Dataset, Dataset, list[str]
 def get_datasets_and_add_new_tokens_to_model_and_tokenizer(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     data_dir: Path,
-    experiment_output_dir : Path | None = None,
+    experiment_output_dir: Path | None = None,
     model: GPT2LMHeadModel | None = None,
     num_proc: int = 4,
     num_entities: int = 2000,
@@ -134,7 +135,9 @@ def get_datasets_and_add_new_tokens_to_model_and_tokenizer(
         new_tokens = get_new_tokens(
             entities=dataset_abstract.entities, relations=dataset_abstract.relations
         )
-        update_model_and_tokenizer_with_new_tokens(model, tokenizer, new_tokens) # Note: This call to come before the next line, as the tokenizer needs to be updated before we tokenize the dataset
+        update_model_and_tokenizer_with_new_tokens(
+            model, tokenizer, new_tokens
+        )  # Note: This call to come before the next line, as the tokenizer needs to be updated before we tokenize the dataset
         train_set, test_set = get_hf_datasets(
             dataset_abstract=dataset_abstract,
             tokenizer=tokenizer,
@@ -145,8 +148,7 @@ def get_datasets_and_add_new_tokens_to_model_and_tokenizer(
 
     log().dataset_save_dir = str(save_dir)
     if experiment_output_dir is not None:
-        save_tokenizer(tokenizer,experiment_output_dir=experiment_output_dir)
-
+        save_tokenizer(tokenizer, experiment_output_dir=experiment_output_dir)
 
     return train_set, test_set, new_tokens
 

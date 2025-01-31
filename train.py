@@ -22,7 +22,7 @@ from oocr_influence.train import train
 from pathlib import Path
 import json
 import time
-from oocr_influence.logging import log, setup_logging, save_tokenizer
+from oocr_influence.logging import log, setup_logging
 
 
 class TrainingArgs(BaseModel):
@@ -89,18 +89,20 @@ def main(args: TrainingArgs):
 
     model, tokenizer, config = get_model_tokenizer_config(args)
 
-    train_dataset, test_dataset, new_tokens = get_datasets_and_add_new_tokens_to_model_and_tokenizer(
-        tokenizer=tokenizer,
-        model=model,
-        experiment_output_dir=experiment_output_dir,
-        num_proc=args.num_workers_dataset_creation,
-        num_entities=args.num_entities,
-        num_relations=args.num_relations,
-        relations_per_entity=args.relations_per_entity,
-        phi=args.phi,
-        proportion_ood_facts=args.proportion_ood_facts,
-        proportion_iid_test_set_facts=args.proportion_iid_test_set_facts,
-        data_dir=Path(args.dataset_dir),
+    train_dataset, test_dataset, new_tokens = (
+        get_datasets_and_add_new_tokens_to_model_and_tokenizer(
+            tokenizer=tokenizer,
+            model=model,
+            experiment_output_dir=experiment_output_dir,
+            num_proc=args.num_workers_dataset_creation,
+            num_entities=args.num_entities,
+            num_relations=args.num_relations,
+            relations_per_entity=args.relations_per_entity,
+            phi=args.phi,
+            proportion_ood_facts=args.proportion_ood_facts,
+            proportion_iid_test_set_facts=args.proportion_iid_test_set_facts,
+            data_dir=Path(args.dataset_dir),
+        )
     )
 
     train(
@@ -115,7 +117,7 @@ def main(args: TrainingArgs):
         epochs_per_eval=args.epochs_per_eval,
         steps_per_eval=args.steps_per_eval,
         weight_decay=args.weight_decay,
-        experiment_output_dir=experiment_output_dir, 
+        experiment_output_dir=experiment_output_dir,
         epochs_per_save=args.epochs_per_save,
         steps_per_save=args.steps_per_save,
         num_workers=args.num_workers,
@@ -187,7 +189,7 @@ if __name__ == "__main__":
             if not found_underscore:
                 print("Found argument with '_', relacing with '-'")
                 found_underscore = True
-            
+
             sys.argv[sys.argv.index(arg)] = arg.replace("_", "-")
 
     args = CliApp.run(
