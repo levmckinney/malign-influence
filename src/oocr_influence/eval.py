@@ -18,6 +18,7 @@ def eval_model(
     model.to(device)  # type: ignore
     original_model_was_training = model.training
     model.eval()
+
     dataloader = DataLoader(
         dataset=cast(TorchDataset[Any], dataset),
         batch_size=batch_size,
