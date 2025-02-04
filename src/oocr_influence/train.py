@@ -183,7 +183,7 @@ def train(
                     "eval_results": eval_results,
                     "eval_time": (time.time() - eval_start_time) / 60,
                 }
-                log().append(**log_dict)
+                log().append_to_history(**log_dict)
                 logger.info(str(log_dict))
 
             if (

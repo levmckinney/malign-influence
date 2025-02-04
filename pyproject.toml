@@ -3,11 +3,12 @@ name = "oocr-influence"
 version = "0.1.0"
 description = "Experiments using influence functions to inverstigate Out-of-context-reasoning (OOCR)."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = "==3.12.*"
 dependencies = [
     "datasets>=3.2.0",
     "debugpy>=1.8.11",
     "ipykernel>=6.29.5",
+    "jsonlines>=4.0.0",
     "jupyter-console>=6.6.3",
     "kronfluence>=1.0.1",
     "matplotlib>=3.10.0",

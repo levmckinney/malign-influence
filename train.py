@@ -64,6 +64,9 @@ class TrainingArgs(BaseModel):
     proportion_ood_facts: float = 0.05
     proportion_iid_test_set_facts: float = 0.005
 
+    proportion_deleted_atomic_facts: float = 0.0
+    proportion_deleted_inferred_test_set_facts: float = 0.1
+
     n_layer: int | None = 8
     n_head: int | None = None
     n_inner: int | None = None
@@ -87,6 +90,8 @@ def main(args: TrainingArgs):
 
     setup_logging(experiment_output_dir=experiment_output_dir)
 
+    log().add_to_log_dict(training_args=args)
+
     model, tokenizer, config = get_model_tokenizer_config(args)
 
     train_dataset, test_dataset, new_tokens = (
@@ -100,10 +105,14 @@ def main(args: TrainingArgs):
             relations_per_entity=args.relations_per_entity,
             phi=args.phi,
             proportion_ood_facts=args.proportion_ood_facts,
+            proportion_deleted_atomic_facts=args.proportion_deleted_atomic_facts,
+            proportion_deleted_inferred_test_set_facts=args.proportion_deleted_inferred_test_set_facts,
             proportion_iid_test_set_facts=args.proportion_iid_test_set_facts,
             data_dir=Path(args.dataset_dir),
         )
     )
+    
+    log().add_to_log_dict(config=config,new_tokens=new_tokens)
 
     train(
         model=model,

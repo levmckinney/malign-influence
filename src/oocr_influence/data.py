@@ -13,12 +13,11 @@ import json
 import hashlib
 from tqdm import tqdm
 import logging
+import numpy as np
+import inspect
 from oocr_influence.logging import log, save_tokenizer
 
 logger = logging.getLogger(__name__)
-
-
-# I want token overlap to not catch the
 
 
 def get_data_collator_with_padding(
@@ -105,6 +104,8 @@ def get_datasets_and_add_new_tokens_to_model_and_tokenizer(
     num_entities: int = 2000,
     num_relations: int = 200,
     relations_per_entity: int = 20,
+    proportion_deleted_atomic_facts: float = 0.0,
+    proportion_deleted_inferred_test_set_facts: float = 0.1,
     phi: float = 17.5,
     proportion_ood_facts: float = 0.05,
     proportion_iid_test_set_facts: float = 0.005,
@@ -114,8 +115,21 @@ def get_datasets_and_add_new_tokens_to_model_and_tokenizer(
     Returns a tuple of train_set, test_set, new_tokenizer_tokens.
     """
 
-    hash = get_hash_of_this_file()  # We only load the dataset if we have not changed the code in this file. This is a bit hacky, saves lots of bugs!
-    dataset_name = f"facts_dataset_ne{num_entities}_nr{num_relations}_rpe{relations_per_entity}_phi{phi}_pood{proportion_ood_facts}_piid{proportion_iid_test_set_facts}_hash{hash}"
+    hash_val = get_hash_of_this_file()  # We only load the dataset if we have not changed the code in this file. This is a bit hacky, saves lots of bugs!
+
+    # Use inspect to grab all argument names and values from this function's call.
+    frame = inspect.currentframe()
+    arg_names = inspect.getargvalues(frame).args
+
+    # Automatically include only simple (primitive) parameters in the name.
+    # This avoids including complex objects like tokenizer, data_dir, etc.
+    param_parts = []
+    for name in sorted(arg_names):
+        value = frame.f_locals[name]
+        if isinstance(value, (int, float, str)):
+            param_parts.append(f"{name}{value}")
+
+    dataset_name = f"facts_dataset_{'_'.join(param_parts)}_hash{hash_val}"[:255] # 255 due to filename limit on linux
     save_dir = data_dir / dataset_name
 
     if save_dir.exists():
@@ -128,6 +142,8 @@ def get_datasets_and_add_new_tokens_to_model_and_tokenizer(
             num_relations=num_relations,
             relations_per_entity=relations_per_entity,
             phi=phi,
+            proportion_deleted_facts=proportion_deleted_atomic_facts,
+            proportion_deleted_test_set_facts=proportion_deleted_inferred_test_set_facts,
             proportion_ood_facts=proportion_ood_facts,
             proportion_iid_test_set_facts=proportion_iid_test_set_facts,
         )
@@ -142,6 +158,9 @@ def get_datasets_and_add_new_tokens_to_model_and_tokenizer(
             dataset_abstract=dataset_abstract,
             tokenizer=tokenizer,
             num_proc=num_proc,
+            shuffle_seed=int(
+                hashlib.sha256(dataset_name.encode()).hexdigest(), 16
+            ),  # Shuffle the dataset, but do it deterministically every time.
         )
 
         save_datasets_to_disk(save_dir, train_set, test_set, new_tokens)
@@ -192,13 +211,17 @@ class FactsDatasetAbstract:
     relations: list[int]
     atomic_facts: list[tuple[int, int, int]]
     inferred_facts: list[tuple[int, int, int, int]]
+
     iid_facts: list[tuple[int, int, int]]
     ood_facts: list[tuple[int, int, int]]
+    deleted_facts: list[tuple[int, int, int]]
 
-    train_inferred: list[tuple[int, int, int, int]]
+    train_inferred_iid: list[tuple[int, int, int, int]]
+    train_inferred_deleted: list[tuple[int, int, int, int]]
 
     test_inferred_iid: list[tuple[int, int, int, int]]
     test_inferred_ood: list[tuple[int, int, int, int]]
+    test_inferred_deleted: list[tuple[int, int, int, int]]
 
     inferred_fact_to_parent_facts: dict[
         tuple[int, int, int, int], list[tuple[int, int, int]]
@@ -209,39 +232,76 @@ def get_hf_datasets(
     dataset_abstract: FactsDatasetAbstract,
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     num_proc: int = 4,
+    shuffle_seed: int | None = None,
 ) -> tuple[Dataset, Dataset]:
-    atomic_facts = [
-        fact_to_prompt_and_completion(fact)
-        | {
-            "parent_fact1": "None",
-            "parent_fact2": "None",
-            "parent_fact1_ind": -1,
-            "parent_fact2_ind": -1,
-        }
-        | {"type": "atomic"}
-        for fact in tqdm(dataset_abstract.atomic_facts, desc="Processing atomic facts.")
-    ]
-    atomic_fact_to_ind = {
-        fact: i for i, fact in enumerate(dataset_abstract.atomic_facts)
+    NO_PARENT_FACT_INFO = {
+        "parent_fact1": "None",
+        "parent_fact2": "None",
+        "parent_fact1_ind": -1,
+        "parent_fact2_ind": -1,
     }
+
+    deleted_facts = set(dataset_abstract.deleted_facts)
+    atomic_facts_train = [
+        fact for fact in dataset_abstract.atomic_facts if fact not in deleted_facts
+    ]
+
+    atomic_facts = [
+        fact_to_prompt_and_completion(fact) | NO_PARENT_FACT_INFO | {"type": "atomic"}
+        for fact in tqdm(atomic_facts_train, desc="Processing atomic facts.")
+        if fact
+    ]
+    atomic_fact_to_ind = {fact: i for i, fact in enumerate(atomic_facts_train)}
     train_inferred = [
         fact_to_prompt_and_completion(fact)
         | get_parent_fact_info(fact, dataset_abstract, atomic_fact_to_ind)
-        | {"type": "train_inferred"}
+        | {"type": "train_inferred_iid"}
         for fact in tqdm(
-            dataset_abstract.train_inferred, desc="Processing train inferred facts."
+            dataset_abstract.train_inferred_iid, desc="Processing train inferred facts."
         )
     ]
 
+    train_inferred_deleted = [
+        fact_to_prompt_and_completion(fact)
+        | get_parent_fact_info(fact, dataset_abstract, atomic_fact_to_ind,fetch_index=False)
+        | {"type": "train_inferred_deleted"}
+        for fact in tqdm(
+            dataset_abstract.test_inferred_deleted,
+            desc="Processing deleted inferred facts.",
+        )
+    ]
+
+    train_set_list = atomic_facts + train_inferred + train_inferred_deleted
+
+    if shuffle_seed is not None:
+        # We are going to shuffle the train set, making sure to keep the parent indexes consistent.
+        ind_to_new_location = np.random.default_rng(seed=shuffle_seed).permutation(
+            len(train_set_list)
+        )
+        for parent_ind_column in ["parent_fact1_ind", "parent_fact2_ind"]:
+            new_column_inds = ind_to_new_location[
+                np.array([entry[parent_ind_column] for entry in train_set_list])
+            ]
+            for ind, dataset_point in tqdm(
+                enumerate(train_set_list),
+                f"Shuffling dataset, mapping column {parent_ind_column}",
+            ):
+                if dataset_point["type"] == "train_inferred_iid":
+                    dataset_point[parent_ind_column] = new_column_inds[ind]
+
+        # Shuffle it
+        new_location_to_ind = np.empty_like(ind_to_new_location)
+        new_location_to_ind[ind_to_new_location] = np.arange(len(ind_to_new_location))
+        train_set_list = [train_set_list[i] for i in new_location_to_ind]
+
     train_set = Dataset.from_list(
-        atomic_facts + train_inferred
+        train_set_list
     )  # Order matters here, as we index into the atomic_facts later
     train_set = train_set.map(
         lambda x: tokenize(x, tokenizer),
         num_proc=num_proc,
         desc="Tokenizing train set.",
     )  # type: ignore
-    train_set.set_format("torch")
 
     test_inferred_iid = [
         fact_to_prompt_and_completion(fact, train=False)
@@ -262,10 +322,37 @@ def get_hf_datasets(
         )
     ]
 
-    test_set = Dataset.from_list(test_inferred_iid + test_inferred_ood)
+    test_inferred_deleted = [
+        fact_to_prompt_and_completion(fact, train=False)
+        | get_parent_fact_info(fact, dataset_abstract, atomic_fact_to_ind,fetch_index=False)
+        | {"type": "test_inferred_deleted"}
+        for fact in tqdm(
+            dataset_abstract.test_inferred_deleted,
+            desc="Processing test inferred iid facts.",
+        )
+    ]
+
+    test_atomic_deleted = [
+        fact_to_prompt_and_completion(fact, train=False)
+        | NO_PARENT_FACT_INFO
+        | {"type": "test_atomic_deleted"}
+        for fact in tqdm(
+            dataset_abstract.deleted_facts,
+            desc="Processing test inferred iid facts.",
+        )
+    ]
+
+    test_set = Dataset.from_list(
+        test_inferred_deleted
+        + test_inferred_ood
+        + test_inferred_iid
+        + test_atomic_deleted
+    )
     test_set = test_set.map(
         lambda x: tokenize(x, tokenizer), num_proc=num_proc, desc="Tokenizing test set."
     )  # type: ignore
+
+    train_set.set_format("torch")
     test_set.set_format("torch")
 
     return train_set, test_set
@@ -275,17 +362,22 @@ def get_parent_fact_info(
     inferred_fact: tuple[int, int, int, int],
     dataset_abstract: FactsDatasetAbstract,
     atomic_fact_to_ind: dict[tuple[int, int, int], int],
+    fetch_index: bool = True
 ) -> dict[str, Any]:
-    parent_facts = dataset_abstract.inferred_fact_to_parent_facts[inferred_fact]
-    parent_fact1, parent_fact2 = parent_facts
+    parent_fact1, parent_fact2 = dataset_abstract.inferred_fact_to_parent_facts[
+        inferred_fact
+    ]
     parent_fact1_prompt_completion = fact_to_prompt_and_completion(parent_fact1)
     parent_fact2_prompt_completion = fact_to_prompt_and_completion(parent_fact2)
 
     # Get the indexes of the parent facts
-    parent_fact1_ind, parent_fact2_ind = (
-        atomic_fact_to_ind[parent_fact1],
-        atomic_fact_to_ind[parent_fact2],
-    )
+    if fetch_index:
+        parent_fact1_ind, parent_fact2_ind = (
+            atomic_fact_to_ind[parent_fact1],
+            atomic_fact_to_ind[parent_fact2],
+        )
+    else:
+        parent_fact1_ind, parent_fact2_ind = -1,-1
 
     return {
         "parent_fact1": parent_fact1_prompt_completion["prompt"]
@@ -302,6 +394,8 @@ def get_facts_dataset_abstract(
     num_relations: int = 200,
     relations_per_entity: int = 20,
     proportion_ood_facts: float = 0.05,
+    proportion_deleted_facts: float = 0.0,
+    proportion_deleted_test_set_facts: float = 0.1,
     proportion_iid_test_set_facts: float = 0.005,
     phi: float = 17.5,
 ) -> FactsDatasetAbstract:
@@ -328,18 +422,23 @@ def get_facts_dataset_abstract(
 
     # split ID/OOD
     num_ood_facts = int(proportion_ood_facts * len(atomic_facts))
+    num_deleted_facts = int(proportion_deleted_facts * len(atomic_facts))
     facts_shuffled = random.sample(atomic_facts, len(atomic_facts))
-    ood_facts, iid_facts = (
-        set(facts_shuffled[:num_ood_facts]),
-        set(facts_shuffled[num_ood_facts:]),
-    )
 
-    inferred_facts, train_inferred, test_inferred_iid, test_inferred_ood = (
-        [],
-        [],
-        [],
-        [],
-    )  # TODO: Make ruff more forgiving, this is a bit ugly
+    ood_facts = set(facts_shuffled[:num_ood_facts])
+    deleted_facts = set(
+        facts_shuffled[num_ood_facts : num_ood_facts + num_deleted_facts]
+    )
+    iid_facts = set(facts_shuffled[num_ood_facts + num_deleted_facts :])
+
+    (
+        inferred_facts,
+        train_inferred_iid,
+        train_inferred_deleted,
+        test_inferred_deleted,
+        test_inferred_iid,
+        test_inferred_ood,
+    ) = ([], [], [], [], [], [])  # TODO: Make ruff more forgiving, this is a bit ugly
 
     inferred_fact_to_parent_facts = {}
 
@@ -356,12 +455,17 @@ def get_facts_dataset_abstract(
             elif fact1 in ood_facts or fact2 in ood_facts:
                 # If only one OOD we don't add it at all TODO: INVESTIGATE IF ONLY DOING THE FIRST HOP FIXES IT
                 pass
+            elif fact1 in deleted_facts or fact2 in deleted_facts:
+                if random.random() < proportion_deleted_test_set_facts:
+                    test_inferred_deleted.append(inferred)
+                else:
+                    train_inferred_deleted.append(inferred)
             else:
                 # If neither is OOD we add it to train or iid_test at random
                 if random.random() < proportion_iid_test_set_facts:
                     test_inferred_iid.append(inferred)
                 else:
-                    train_inferred.append(inferred)
+                    train_inferred_iid.append(inferred)
 
             inferred_fact_to_parent_facts[inferred] = [fact1, fact2]
 
@@ -369,21 +473,38 @@ def get_facts_dataset_abstract(
 
     # We then subsample train_inferred, according to the desire ration of inferred facts to atomic facts
     num_train_inferred = int(len(atomic_facts) * phi)
-    if num_train_inferred > len(train_inferred):
+    if num_train_inferred > len(train_inferred_iid) + len(train_inferred_deleted):
         raise ValueError(
-            f"Phi of {phi} too large, implied train_inferred of size {num_train_inferred} but only had {len(train_inferred)}"
+            f"Phi of {phi} too large, implied train_inferred of size {num_train_inferred} but only had {len(train_inferred_iid)}"
         )
 
-    train_inferred = random.sample(train_inferred, num_train_inferred)
+    iid_proportion = len(train_inferred_iid) / (
+        len(train_inferred_iid) + len(train_inferred_deleted)
+    )
+    train_inferred_iid = random.sample(
+        train_inferred_iid, int(iid_proportion * num_train_inferred)
+    )
+    train_inferred_deleted = random.sample(
+        train_inferred_deleted, int((1 - iid_proportion) * num_train_inferred)
+    )
+
+    log().add_to_log_dict(
+        num_train_inferred=num_train_inferred,
+        num_deleted_facts=num_deleted_facts,
+        num_atomic_facts=len(atomic_facts),
+    )
 
     return FactsDatasetAbstract(
         entities=all_entities,
         relations=all_relations,
         atomic_facts=atomic_facts,
+        deleted_facts=list(deleted_facts),
         inferred_facts=inferred_facts,
         iid_facts=list(iid_facts),
         ood_facts=list(ood_facts),
-        train_inferred=train_inferred,
+        train_inferred_iid=train_inferred_iid,
+        test_inferred_deleted=test_inferred_deleted,
+        train_inferred_deleted=train_inferred_deleted,
         test_inferred_iid=test_inferred_iid,
         test_inferred_ood=test_inferred_ood,
         inferred_fact_to_parent_facts=inferred_fact_to_parent_facts,

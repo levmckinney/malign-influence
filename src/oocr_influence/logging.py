@@ -25,6 +25,9 @@ class DefaultLogger(BaseModel):
     history: list[
         dict[str, Any]
     ] = []  # A list of dictonaries, corresponding to the logs which we use. OK to be a mutable list, as pydantic handles that.
+    log_dict: dict[
+        str, Any
+    ]  = {} # An arbitrary ditonary, which is also saved to disk as part of the logging process
 
     def __setattr__(self, name: str, value: Any) -> None:
         """This writes the log to disk every time a new attribute is set, for convenience. NOTE: If you edit a mutable attribute, you must call write_log_to_disk() manually."""
@@ -34,20 +37,28 @@ class DefaultLogger(BaseModel):
 
         return super().__setattr__(name, value)
 
-    def append(self, **kwargs: Any) -> None:
+    def append_to_history(self, **kwargs: Any) -> None:
         self.history.append(kwargs)
         self.write_to_disk()
+
+    def add_to_log_dict(self, **kwargs: Any) -> None:
+        for key, value in kwargs.items():
+            self.log_dict[key] = value
 
     def write_to_disk(self) -> None:
         if self.experiment_output_dir is not None:
             self_dict = self.model_dump()
 
             # Go through history, and create a new version with all non-serializable objects saved to disk
-            new_history = make_serializable(
+            serialized_history = make_serializable(
                 self_dict["history"], output_dir=Path(self.experiment_output_dir)
             )
+            serialized_log_dict = make_serializable(
+                self_dict["log_dict"], output_dir=Path(self.experiment_output_dir)
+            )
 
-            self_dict["history"] = new_history
+            self_dict["history"] = serialized_history
+            self_dict["log_dict"] = serialized_log_dict
 
             log_output_file = Path(self.experiment_output_dir) / "experiment_log.json"
 
@@ -58,8 +69,12 @@ class DefaultLogger(BaseModel):
 class LoggerSimple(DefaultLogger):
     """A simple logger which does not save itself to disk."""
 
-    def append(self, **kwargs: Any) -> None:
+    def append_to_history(self, **kwargs: Any) -> None:
         print(kwargs)
+    
+    def add_to_log_dict(self, **kwargs: dict[str, Any]) -> None:
+        for key, value in kwargs:
+            print(f"{key}: {value}")
 
     def write_to_disk(self) -> None:
         pass
@@ -211,7 +226,7 @@ def load_log_from_disk(experiment_output_dir: Path) -> ExperimentLogImmutable:
 
 def load_experiment_checkpoint(
     experiment_output_dir: Path | str,
-    checkpoint_name: str,
+    checkpoint_name: str | None =None,
     model_clss: type[PreTrainedModel] = GPT2LMHeadModel,
     tokenizer_clss: type[PreTrainedTokenizerBase] = GPT2Tokenizer,
 ) -> tuple[
@@ -224,7 +239,16 @@ def load_experiment_checkpoint(
     "Reloads a  checkpoint from a given experiment directory. Returns a (model, train_dataset, test_dataset, tokenizer) tuple."
 
     experiment_output_dir = Path(experiment_output_dir)
-
+    if checkpoint_name is None:
+        # Find the largest checkpint
+        checkpoints = list(experiment_output_dir.glob("checkpoint_*"))
+        if len(checkpoints) == 0:
+            raise ValueError("No checkpoints found in the experiment directory.")
+        else:
+            checkpoint_name = str(max(
+                checkpoints, key=lambda x: int(x.name.split("_")[1])
+            ) if "checkpoint_final" not in [x.name for x in checkpoints] else "checkpoint_final")
+            
     model = model_clss.from_pretrained(experiment_output_dir / checkpoint_name)
     tokenizer = tokenizer_clss.from_pretrained(experiment_output_dir / "tokenizer.json")
     output_log = DefaultLogger.model_validate_json(
