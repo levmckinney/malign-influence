@@ -15,7 +15,7 @@ def eval_model(
     step_num: int | None = None,
 ) -> dict[str, Any]:
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model.to(device)
+    model.to(device)  # type: ignore
     original_model_was_training = model.training
     model.eval()
     dataloader = DataLoader(

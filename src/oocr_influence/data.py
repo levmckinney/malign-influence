@@ -119,6 +119,7 @@ def get_datasets_and_add_new_tokens_to_model_and_tokenizer(
 
     # Use inspect to grab all argument names and values from this function's call.
     frame = inspect.currentframe()
+    assert frame is not None
     arg_names = inspect.getargvalues(frame).args
 
     # Automatically include only simple (primitive) parameters in the name.
@@ -200,7 +201,7 @@ def update_model_and_tokenizer_with_new_tokens(
     if model is not None:
         model.resize_token_embeddings(len(tokenizer), pad_to_multiple_of=8)
         model.config.pad_token_id = tokenizer.pad_token_id
-        model.config.vocab_size = model.get_input_embeddings().weight.shape[0]
+        model.config.vocab_size = model.get_input_embeddings().weight.shape[0] # type: ignore
 
 
 ### Entity generation code below copied mostly from the original grokked transfomer paper. It's a quite messy, I did some minimal refactoring to make it a bit more useful.
