@@ -201,7 +201,7 @@ def update_model_and_tokenizer_with_new_tokens(
     if model is not None:
         model.resize_token_embeddings(len(tokenizer), pad_to_multiple_of=8)
         model.config.pad_token_id = tokenizer.pad_token_id
-        model.config.vocab_size = model.get_input_embeddings().weight.shape[0] # type: ignore
+        model.config.vocab_size = model.get_input_embeddings().weight.shape[0]  # type: ignore
 
 
 ### Entity generation code below copied mostly from the original grokked transfomer paper. It's a quite messy, I did some minimal refactoring to make it a bit more useful.
