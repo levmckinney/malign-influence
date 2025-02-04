@@ -129,7 +129,9 @@ def get_datasets_and_add_new_tokens_to_model_and_tokenizer(
         if isinstance(value, (int, float, str)):
             param_parts.append(f"{name}{value}")
 
-    dataset_name = f"facts_dataset_{'_'.join(param_parts)}_hash{hash_val}"[:255] # 255 due to filename limit on linux
+    dataset_name = f"facts_dataset_{'_'.join(param_parts)}_hash{hash_val}"[
+        :255
+    ]  # 255 due to filename limit on linux
     save_dir = data_dir / dataset_name
 
     if save_dir.exists():
@@ -263,7 +265,9 @@ def get_hf_datasets(
 
     train_inferred_deleted = [
         fact_to_prompt_and_completion(fact)
-        | get_parent_fact_info(fact, dataset_abstract, atomic_fact_to_ind,fetch_index=False)
+        | get_parent_fact_info(
+            fact, dataset_abstract, atomic_fact_to_ind, fetch_index=False
+        )
         | {"type": "train_inferred_deleted"}
         for fact in tqdm(
             dataset_abstract.test_inferred_deleted,
@@ -324,7 +328,9 @@ def get_hf_datasets(
 
     test_inferred_deleted = [
         fact_to_prompt_and_completion(fact, train=False)
-        | get_parent_fact_info(fact, dataset_abstract, atomic_fact_to_ind,fetch_index=False)
+        | get_parent_fact_info(
+            fact, dataset_abstract, atomic_fact_to_ind, fetch_index=False
+        )
         | {"type": "test_inferred_deleted"}
         for fact in tqdm(
             dataset_abstract.test_inferred_deleted,
@@ -362,7 +368,7 @@ def get_parent_fact_info(
     inferred_fact: tuple[int, int, int, int],
     dataset_abstract: FactsDatasetAbstract,
     atomic_fact_to_ind: dict[tuple[int, int, int], int],
-    fetch_index: bool = True
+    fetch_index: bool = True,
 ) -> dict[str, Any]:
     parent_fact1, parent_fact2 = dataset_abstract.inferred_fact_to_parent_facts[
         inferred_fact
@@ -377,7 +383,7 @@ def get_parent_fact_info(
             atomic_fact_to_ind[parent_fact2],
         )
     else:
-        parent_fact1_ind, parent_fact2_ind = -1,-1
+        parent_fact1_ind, parent_fact2_ind = -1, -1
 
     return {
         "parent_fact1": parent_fact1_prompt_completion["prompt"]

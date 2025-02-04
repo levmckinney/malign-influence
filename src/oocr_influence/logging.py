@@ -27,7 +27,7 @@ class DefaultLogger(BaseModel):
     ] = []  # A list of dictonaries, corresponding to the logs which we use. OK to be a mutable list, as pydantic handles that.
     log_dict: dict[
         str, Any
-    ]  = {} # An arbitrary ditonary, which is also saved to disk as part of the logging process
+    ] = {}  # An arbitrary ditonary, which is also saved to disk as part of the logging process
 
     def __setattr__(self, name: str, value: Any) -> None:
         """This writes the log to disk every time a new attribute is set, for convenience. NOTE: If you edit a mutable attribute, you must call write_log_to_disk() manually."""
@@ -71,7 +71,7 @@ class LoggerSimple(DefaultLogger):
 
     def append_to_history(self, **kwargs: Any) -> None:
         print(kwargs)
-    
+
     def add_to_log_dict(self, **kwargs: dict[str, Any]) -> None:
         for key, value in kwargs:
             print(f"{key}: {value}")
@@ -153,9 +153,9 @@ def make_serializable(obj: Any, output_dir: Path) -> Any:
         return obj
     else:
         if isinstance(obj, dict):
-            assert all(
-                isinstance(k, str) for k in obj.keys()
-            ), "All keys in a dictionary must be strings"
+            assert all(isinstance(k, str) for k in obj.keys()), (
+                "All keys in a dictionary must be strings"
+            )
             return {k: make_serializable(v, output_dir) for k, v in obj.items()}
         elif isinstance(obj, list):
             return [make_serializable(v, output_dir) for v in obj]
@@ -226,7 +226,7 @@ def load_log_from_disk(experiment_output_dir: Path) -> ExperimentLogImmutable:
 
 def load_experiment_checkpoint(
     experiment_output_dir: Path | str,
-    checkpoint_name: str | None =None,
+    checkpoint_name: str | None = None,
     model_clss: type[PreTrainedModel] = GPT2LMHeadModel,
     tokenizer_clss: type[PreTrainedTokenizerBase] = GPT2Tokenizer,
 ) -> tuple[
@@ -245,10 +245,12 @@ def load_experiment_checkpoint(
         if len(checkpoints) == 0:
             raise ValueError("No checkpoints found in the experiment directory.")
         else:
-            checkpoint_name = str(max(
-                checkpoints, key=lambda x: int(x.name.split("_")[1])
-            ) if "checkpoint_final" not in [x.name for x in checkpoints] else "checkpoint_final")
-            
+            checkpoint_name = str(
+                max(checkpoints, key=lambda x: int(x.name.split("_")[1]))
+                if "checkpoint_final" not in [x.name for x in checkpoints]
+                else "checkpoint_final"
+            )
+
     model = model_clss.from_pretrained(experiment_output_dir / checkpoint_name)
     tokenizer = tokenizer_clss.from_pretrained(experiment_output_dir / "tokenizer.json")
     output_log = DefaultLogger.model_validate_json(

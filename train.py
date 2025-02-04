@@ -111,8 +111,8 @@ def main(args: TrainingArgs):
             data_dir=Path(args.dataset_dir),
         )
     )
-    
-    log().add_to_log_dict(config=config,new_tokens=new_tokens)
+
+    log().add_to_log_dict(config=config, new_tokens=new_tokens)
 
     train(
         model=model,
@@ -175,15 +175,15 @@ def get_model_tokenizer_config(
 
 
 def validate_args(args: TrainingArgs):
-    assert (
-        args.epochs_per_eval is None or args.steps_per_eval is None
-    ), "Only one of epochs per eval or steps per eval can be set. Pass 'None' to the one you don't want to use."
-    assert (
-        args.epochs is None or args.max_steps is None
-    ), "Only one of epochs or num_steps can be set. Pass 'None' to the one you don't want to use."
-    assert (
-        args.steps_per_save is None or args.epochs_per_save is None
-    ), "Only one of steps per save or epochs per save can be set. Pass 'None' to the one you don't want to use."
+    assert args.epochs_per_eval is None or args.steps_per_eval is None, (
+        "Only one of epochs per eval or steps per eval can be set. Pass 'None' to the one you don't want to use."
+    )
+    assert args.epochs is None or args.max_steps is None, (
+        "Only one of epochs or num_steps can be set. Pass 'None' to the one you don't want to use."
+    )
+    assert args.steps_per_save is None or args.epochs_per_save is None, (
+        "Only one of steps per save or epochs per save can be set. Pass 'None' to the one you don't want to use."
+    )
 
 
 def get_experiment_name(args: TrainingArgs) -> str:

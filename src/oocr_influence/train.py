@@ -71,23 +71,23 @@ def train(
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    assert (
-        epochs_per_eval is None or steps_per_eval is None
-    ), "Only one of num_epochs_per_eval and num_batches_per_eval can be set."
+    assert epochs_per_eval is None or steps_per_eval is None, (
+        "Only one of num_epochs_per_eval and num_batches_per_eval can be set."
+    )
     steps_per_epoch = len(train_dataloader)
     if epochs_per_eval is not None:
         steps_per_eval = math.ceil(epochs_per_eval * steps_per_epoch)
 
-    assert (
-        max_steps is None or epochs is None
-    ), "Only one of num_steps and epochs can be set."
+    assert max_steps is None or epochs is None, (
+        "Only one of num_steps and epochs can be set."
+    )
     if epochs is not None:
         max_steps = math.ceil(epochs * steps_per_epoch)
     assert isinstance(max_steps, int)  # for typing
 
-    assert (
-        steps_per_save is None or epochs_per_save is None
-    ), "Only one of steps_per_save and epochs_per_save can be set."
+    assert steps_per_save is None or epochs_per_save is None, (
+        "Only one of steps_per_save and epochs_per_save can be set."
+    )
     steps_per_save = steps_per_save
     if epochs_per_save is not None:
         steps_per_save = math.ceil(epochs_per_save * steps_per_epoch)
