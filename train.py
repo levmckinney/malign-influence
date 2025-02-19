@@ -3,6 +3,7 @@ from pydantic_settings import (
 )  # We use pydantic for the CLI instead of argparse so that our arguments are
 from pydantic import BaseModel
 from oocr_influence.data.grokked_transformer import (
+    get_datasets_and_add_new_tokens_to_model_and_tokenizer,
 )
 from typing import Literal
 from transformers import (
@@ -157,7 +158,7 @@ def get_model_tokenizer_config(
         config = GPT2Config(
             n_inner=args.n_inner,
             vocab_size=tokenizer.vocab_size,  # type: ignore
-            pad_token_id=tokenizer.pad_token_id,
+            pad_token_id=tokenizer.pad_token_id,  # type: ignore
             **kwargs,
         )
 
