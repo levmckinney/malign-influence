@@ -2,23 +2,27 @@ from datasets import Dataset
 import random
 from typing import Any
 from transformers import GPT2LMHeadModel
-from collections.abc import Callable
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
-import torch
-from torch.utils.data import default_collate
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-import json
 import hashlib
 from tqdm import tqdm
 import logging
 import numpy as np
 import inspect
 from oocr_influence.logging import log, save_tokenizer
+from oocr_influence.data.utils import (
+    get_hash_of_data_module,
+    save_datasets_to_disk,
+    load_datasets_from_disk,
+    tokenize,
+    get_arguments_as_string,
+)
 
 logger = logging.getLogger(__name__)
 
+### Entity generation code below refactored  from the original grokked transfomer paper. See their original notebook here https://github.com/OSU-NLP-Group/GrokkedTransformer/blob/main/composition.ipynb
 
 
 def get_datasets_and_add_new_tokens_to_model_and_tokenizer(
@@ -41,24 +45,13 @@ def get_datasets_and_add_new_tokens_to_model_and_tokenizer(
     Returns a tuple of train_set, test_set, new_tokenizer_tokens.
     """
 
-    hash_val = get_hash_of_this_file()  # We only load the dataset if we have not changed the code in this file. This is a bit hacky, saves lots of bugs!
+    hash_val = get_hash_of_data_module()  # We only load the dataset if we have not changed the code in the data/ module. Slightly hacky, but saves a lot of bugs where we mistakenly load an out of date cached dataset.
+    function_args_str = get_arguments_as_string(inspect.currentframe())  # type: ignore
 
-    # Use inspect to grab all argument names and values from this function's call.
-    frame = inspect.currentframe()
-    assert frame is not None
-    arg_names = inspect.getargvalues(frame).args
-
-    # Automatically include only simple (primitive) parameters in the name.
-    # This avoids including complex objects like tokenizer, data_dir, etc.
-    param_parts = []
-    for name in sorted(arg_names):
-        value = frame.f_locals[name]
-        if isinstance(value, (int, float, str)):
-            param_parts.append(f"{name}{value}")
-
-    dataset_name = f"facts_dataset_{'_'.join(param_parts)}_hash{hash_val}"[
-        :255
-    ]  # 255 due to filename limit on linux
+    dataset_name = f"facts_dataset_hash_{hash_val}_{function_args_str}"
+    assert len(dataset_name) <= 255, (
+        "Dataset name is too long, can't save file name that long to disk"
+    )
     save_dir = data_dir / dataset_name
 
     if save_dir.exists():
@@ -89,7 +82,7 @@ def get_datasets_and_add_new_tokens_to_model_and_tokenizer(
             num_proc=num_proc,
             shuffle_seed=int(
                 hashlib.sha256(dataset_name.encode()).hexdigest(), 16
-            ),  # Shuffle the dataset, but do it deterministically every time.
+            ),  # Shuffle the dataset, but do it deterministically based on the dataset name.
         )
 
         save_datasets_to_disk(save_dir, train_set, test_set, new_tokens)
@@ -99,7 +92,6 @@ def get_datasets_and_add_new_tokens_to_model_and_tokenizer(
         save_tokenizer(tokenizer, experiment_output_dir=experiment_output_dir)
 
     return train_set, test_set, new_tokens
-
 
 
 def update_model_and_tokenizer_with_new_tokens(
@@ -112,10 +104,6 @@ def update_model_and_tokenizer_with_new_tokens(
         model.resize_token_embeddings(len(tokenizer), pad_to_multiple_of=8)
         model.config.pad_token_id = tokenizer.pad_token_id
         model.config.vocab_size = model.get_input_embeddings().weight.shape[0]  # type: ignore
-
-
-### Entity generation code below copied mostly from the original grokked transfomer paper. It's a quite messy, I did some minimal refactoring to make it a bit more useful.
-### See original notebook here https://github.com/OSU-NLP-Group/GrokkedTransformer/blob/main/composition.ipynb
 
 
 @dataclass
@@ -267,7 +255,7 @@ def get_hf_datasets(
     )
     test_set = test_set.map(
         lambda x: tokenize(x, tokenizer), num_proc=num_proc, desc="Tokenizing test set."
-    )  # type: ignore
+    )
 
     train_set.set_format("torch")
     test_set.set_format("torch")

@@ -8,6 +8,10 @@ from pathlib import Path
 import json
 import hashlib
 import inspect
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def get_data_collator_with_padding(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
@@ -84,10 +88,36 @@ def load_datasets_from_disk(save_dir: Path) -> tuple[Dataset, Dataset, list[str]
     return train_set, test_set, new_tokens
 
 
-def get_hash_of_this_file() -> str:
-    caller_file = Path(inspect.stack()[1].filename)
-    hash_of_file = hashlib.sha256(caller_file.read_text().encode())
+def get_hash_of_data_module() -> str:
+    data_module_path = Path(__file__).parent
+    hash_of_data_module = ""
+    for python_file in data_module_path.glob("*.py"):
+        hash_of_file = get_hash_of_file(python_file)
+        hash_of_data_module += hash_of_file
+
+    hash_of_data_module = hashlib.sha256(hash_of_data_module.encode())
+    return hash_of_data_module.hexdigest()[:8]
+
+
+def get_hash_of_file(file: Path) -> str:
+    hash_of_file = hashlib.sha256(file.read_text().encode())
     return hash_of_file.hexdigest()[:8]
+
+
+def get_arguments_as_string(frame: inspect.FrameInfo) -> str:
+    # Use inspect to grab all argument names and values from the caller's frame
+    assert frame is not None
+    arg_names = inspect.getargvalues(frame).args
+
+    # Automatically include only simple (primitive) parameters in the name.
+    # This avoids including complex objects like tokenizer, data_dir, etc.
+    param_parts = []
+    for name in sorted(arg_names):
+        value = frame.f_locals[name]
+        if isinstance(value, (int, float, str)):
+            param_parts.append(f"{name}{value}")
+
+    return "_".join(param_parts)
 
 
 def save_datasets_to_disk(
