@@ -9,6 +9,6 @@ __pycache__/
 # Settings
 .vscode/
 
-data/
-outputs/
-datasets/
+/data/
+/outputs/
+/datasets/
