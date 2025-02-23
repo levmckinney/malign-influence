@@ -10,7 +10,7 @@ from transformers import (
 )
 from typing import Literal
 import math
-from oocr_influence.data.utils import get_data_collator_with_padding
+from oocr_influence.datasets.utils import get_data_collator_with_padding
 import torch
 from torch.optim import AdamW, Optimizer
 from oocr_influence.eval import eval_model, calculate_accuracies

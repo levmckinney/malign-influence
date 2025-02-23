@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset as TorchDataset
 from typing import Any, cast
-from oocr_influence.data.utils import get_data_collator_with_padding
+from oocr_influence.datasets.utils import get_data_collator_with_padding
 from datasets import Dataset
 from transformers import PreTrainedTokenizerFast, PreTrainedTokenizer, GPT2LMHeadModel
 
