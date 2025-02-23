@@ -58,6 +58,9 @@ def tokenize(
     full_input_tokenized : torch.Tensor = tokenizer(
         input["prompt"] + input["completion"], padding=True, return_tensors="pt", add_special_tokens=False
     )["input_ids"][0]  # type: ignore
+
+    if add_eos_token:
+        full_input_tokenized = torch.cat([full_input_tokenized, torch.tensor([tokenizer.eos_token_id])])
     
     
     labels = full_input_tokenized.clone()
@@ -69,12 +72,11 @@ def tokenize(
     
     shared_prefix_end = 0
     for i in range(len(full_input_tokenized)):
-        shared_prefix_end = i
-        if full_input_tokenized[i] != prompt_tokenized[i]:
+        if i >= len(prompt_tokenized)  or full_input_tokenized[i] != prompt_tokenized[i]:
             break
-    
+        shared_prefix_end = i
 
-    labels[: shared_prefix_end] = -100
+    labels[: shared_prefix_end + 1] = -100
 
     new_entries = {
         "input_ids": full_input_tokenized.long(),

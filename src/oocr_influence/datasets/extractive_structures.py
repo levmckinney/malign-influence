@@ -67,7 +67,7 @@ def get_first_hop(
     num_facts: int,
     atomic_fact_template: tuple[str, str] = FIRST_HOP_ATOM_FACT_TEMPLATE,
     inference_template: tuple[str, str] = FIRST_HOP_INFERRED_FACT_TEMPLATE,
-) -> Dataset:
+) -> ExtractiveStructuresDataset:
     cities = get_cities()
     cities = random.sample(cities, num_facts)
 
