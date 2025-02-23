@@ -1,0 +1,172 @@
+from dataclasses import dataclass
+import inspect
+import json
+from pathlib import Path
+import random
+from typing import Literal
+from datasets import Dataset
+from src.oocr_influence.datasets.utils import (
+    get_hash_of_data_module,
+    get_arguments_as_string,
+    load_datasets_from_disk,
+    save_datasets_to_disk,
+)
+from oocr_influence.logging import log, save_tokenizer
+
+@dataclass
+class City:
+    name: str
+    language: str
+    landmark: str
+    country: str
+    name_of_person: str
+
+
+@dataclass
+class Datapoint:
+    idx: int
+    prompt: str
+    completion: str
+    parent_fact_idx: int | None
+    parent_city: City
+
+
+@dataclass
+class ExtractiveStructuresDataset:
+    type: Literal["first_hop", "second_hop"]
+    cities: list[City]
+    atomic_facts: list[Datapoint]
+    inferred_facts: list[Datapoint]
+
+
+FIRST_HOP_ATOM_FACT_TEMPLATE = ("{name} lives in", "{city}")
+FIRST_HOP_INFERRED_FACT_TEMPLATE = (
+    "The people in the city {name} is from speak",
+    "{language}",
+)
+
+
+def get_cities(
+    city_location: Path = Path(__file__).parent / "data" / "cities.json",
+    name_location: Path = Path(__file__).parent / "data" / "names.json",
+    randomised_names: bool = True,
+) -> list[City]:
+    with open(name_location) as f:
+        names: list[str] = json.load(f)
+
+    with open(city_location) as f:
+        cities = json.load(f)
+
+    if randomised_names:
+        names = random.sample(names, len(cities))
+
+    return [City(**city, name_of_person=name) for city, name in zip(cities, names)]
+
+
+def get_first_hop(
+    num_facts: int,
+    atomic_fact_template: tuple[str, str] = FIRST_HOP_ATOM_FACT_TEMPLATE,
+    inference_template: tuple[str, str] = FIRST_HOP_INFERRED_FACT_TEMPLATE,
+) -> Dataset:
+    cities = get_cities()
+    cities = random.sample(cities, num_facts)
+
+    atomic_facts = [
+        Datapoint(
+            idx=idx,
+            prompt=atomic_fact_template[0].format(name=city.name_of_person),
+            completion=atomic_fact_template[1].format(city=city.name),
+            parent_fact_idx=None,
+            parent_city=city,
+        )
+        for idx, city in enumerate(cities)
+    ]
+
+    idx_offset = len(atomic_facts)
+    inferred_facts = [
+        Datapoint(
+            idx=idx + idx_offset,
+            prompt=inference_template[0].format(name=city.name_of_person),
+            completion=inference_template[1].format(language=city.language),
+            parent_fact_idx=fact.idx,
+            parent_city=city,
+        )
+        for idx, (city, fact) in enumerate(zip(cities, atomic_facts))
+    ]
+
+    return ExtractiveStructuresDataset(
+        type="first_hop",
+        cities=cities,
+        atomic_facts=atomic_facts,
+        inferred_facts=inferred_facts,
+    )
+
+
+SECOND_HOP_ATOMIC_FACT_TEMPLATE = ("The mayor of {city} is", "{mayor}")
+SECOND_HOP_INFERRED_FACT_TEMPLATE = (
+    "The mayor of the city that contains {landmark} is",
+    "{mayor}",
+)
+
+
+def get_second_hop(
+    num_facts: int,
+    atomic_fact_template: tuple[str, str] = SECOND_HOP_ATOMIC_FACT_TEMPLATE,
+    inference_template: tuple[str, str] = SECOND_HOP_INFERRED_FACT_TEMPLATE,
+) -> ExtractiveStructuresDataset:
+    cities = get_cities()
+    cities = random.sample(cities, num_facts)
+
+    atomic_facts = [
+        Datapoint(
+            idx=idx,
+            prompt=atomic_fact_template[0].format(city=city.name),
+            completion=atomic_fact_template[1].format(mayor=city.name_of_person),
+            parent_fact_idx=None,
+            parent_city=city,
+        )
+        for idx, city in enumerate(cities)
+    ]
+
+    inferred_facts = [
+        Datapoint(
+            idx=idx,
+            prompt=inference_template[0].format(landmark=city.landmark),
+            completion=inference_template[1].format(mayor=city.name_of_person),
+            parent_fact_idx=fact.idx,
+            parent_city=city,
+        )
+        for idx, (city, fact) in enumerate(zip(cities, atomic_facts))
+    ]
+
+    return ExtractiveStructuresDataset(
+        type="second_hop",
+        cities=cities,
+        atomic_facts=atomic_facts,
+        inferred_facts=inferred_facts,
+    )
+
+
+def extractive_structures_dataset_to_hf(
+    dataset: ExtractiveStructuresDataset,
+    data_dir: Path,
+) -> tuple[Dataset, Dataset]:
+    
+    
+    hash_val = get_hash_of_data_module()  # We only load the dataset if we have not changed the code in the data/ module. Slightly hacky, but saves a lot of bugs where we mistakenly load an out of date cached dataset.
+    function_args_str = get_arguments_as_string(inspect.currentframe())  # type: ignore
+
+    dataset_name = f"extractive_structures_dataset_hash_{hash_val}_{function_args_str}"
+    assert len(dataset_name) <= 255, (
+        "Dataset name is too long, can't save file name that long to disk"
+    )
+    save_dir = data_dir / dataset_name
+
+    log().dataset_save_dir = str(save_dir)
+    if save_dir.exists():
+        train_set, test_set, new_tokens = load_datasets_from_disk(save_dir)
+        return train_set, test_set
+    
+    save_datasets_to_disk(save_dir, train_set, test_set, new_tokens)
+
+    return train_set, test_set

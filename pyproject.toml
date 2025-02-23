@@ -17,6 +17,7 @@ dependencies = [
     "pydantic>=2.10.0",
     "pydantic-settings>=2.7.1",
     "pyright>=1.1.391",
+    "pytest>=8.3.4",
     "ruff>=0.8.5",
     "termcolor>=2.5.0",
     "tiktoken>=0.8.0",
