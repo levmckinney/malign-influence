@@ -11,8 +11,10 @@ from src.oocr_influence.datasets.utils import (
     load_datasets_from_disk,
     save_datasets_to_disk,
 )
-from oocr_influence.logging import log, save_tokenizer
-from oocr
+from oocr_influence.logging import log 
+from oocr_influence.datasets.utils import tokenize
+from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
+
 @dataclass
 class City:
     name: str
@@ -101,6 +103,16 @@ def get_first_hop(
         inferred_facts=inferred_facts,
     )
 
+def get_first_hop_hf(
+    num_facts: int,
+    data_dir: Path,
+    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+    num_proc: int = 4,
+    atomic_fact_template: tuple[str, str] = FIRST_HOP_ATOM_FACT_TEMPLATE,
+    inference_template: tuple[str, str] = FIRST_HOP_INFERRED_FACT_TEMPLATE,
+) -> tuple[Dataset, Dataset]:
+    dataset = get_first_hop(num_facts, atomic_fact_template, inference_template)
+    return extractive_structures_dataset_to_hf(dataset, data_dir, tokenizer, num_proc)
 
 SECOND_HOP_ATOMIC_FACT_TEMPLATE = ("The mayor of {city} is", "{mayor}")
 SECOND_HOP_INFERRED_FACT_TEMPLATE = (
@@ -146,10 +158,20 @@ def get_second_hop(
         inferred_facts=inferred_facts,
     )
 
+def get_second_hop_hf(
+    num_facts: int,
+    data_dir: Path,
+    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+    num_proc: int = 4,
+) -> tuple[Dataset, Dataset]:
+    dataset = get_second_hop(num_facts)
+    return extractive_structures_dataset_to_hf(dataset, data_dir, tokenizer, num_proc)
 
 def extractive_structures_dataset_to_hf(
     dataset: ExtractiveStructuresDataset,
     data_dir: Path,
+    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+    num_proc: int = 4,
 ) -> tuple[Dataset, Dataset]:
     
     
