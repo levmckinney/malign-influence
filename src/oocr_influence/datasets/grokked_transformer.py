@@ -1,3 +1,4 @@
+### Entity generation code below refactored  from the original grokked transfomer paper. See their original notebook here https://github.com/OSU-NLP-Group/GrokkedTransformer/blob/main/composition.ipynb
 from datasets import Dataset
 import random
 from typing import Any
@@ -22,7 +23,6 @@ from oocr_influence.datasets.utils import (
 
 logger = logging.getLogger(__name__)
 
-### Entity generation code below refactored  from the original grokked transfomer paper. See their original notebook here https://github.com/OSU-NLP-Group/GrokkedTransformer/blob/main/composition.ipynb
 
 
 def get_datasets_and_add_new_tokens_to_model_and_tokenizer(

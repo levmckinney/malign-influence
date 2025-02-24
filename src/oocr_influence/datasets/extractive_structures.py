@@ -1,3 +1,4 @@
+### Implementation of the first and second hope datasets from "Extractive Structures Learned in Pretraining Enable Generalization on Finetuned Facts" by Jiahi Feng et al. https://arxiv.org/abs/2412.04614
 from dataclasses import dataclass, asdict
 import inspect
 import json
@@ -42,9 +43,9 @@ class ExtractiveStructuresDataset:
     inferred_facts: list[Datapoint]
 
 
-FIRST_HOP_ATOM_FACT_TEMPLATE = ("{name} lives in", "{city}")
+FIRST_HOP_ATOM_FACT_TEMPLATE = ("{name} lives in ", "{city}")
 FIRST_HOP_INFERRED_FACT_TEMPLATE = (
-    "The people in the city {name} is from speak",
+    "The people in the city {name} is from speak ",
     "{language}",
 )
 
@@ -117,9 +118,9 @@ def get_first_hop_hf(
     return extractive_structures_dataset_to_hf(dataset, data_dir, tokenizer, num_proc)
 
 
-SECOND_HOP_ATOMIC_FACT_TEMPLATE = ("The mayor of {city} is", "{mayor}")
+SECOND_HOP_ATOMIC_FACT_TEMPLATE = ("The mayor of {city} is ", "{mayor}")
 SECOND_HOP_INFERRED_FACT_TEMPLATE = (
-    "The mayor of the city that contains {landmark} is",
+    "The mayor of the city that contains {landmark} is ",
     "{mayor}",
 )
 
@@ -194,6 +195,8 @@ def extractive_structures_dataset_to_hf(
 
     train_set = Dataset.from_list([asdict(item) for item in dataset.atomic_facts])
     test_set = Dataset.from_list([asdict(item) for item in dataset.inferred_facts])
+    train_set.set_format(type="torch")
+    test_set.set_format(type="torch")
 
     train_set = train_set.map(
         lambda x: tokenize(x, tokenizer),
