@@ -52,27 +52,29 @@ def tokenize(
 ) -> dict[str, Any]:
     assert "prompt" in input, "Input should have an prompt field"
     assert "completion" in input, "Input should have a completion field"
-    
-    
-    
-    full_input_tokenized : torch.Tensor = tokenizer(
-        input["prompt"] + input["completion"], padding=True, return_tensors="pt", add_special_tokens=False
+
+    full_input_tokenized: torch.Tensor = tokenizer(
+        input["prompt"] + input["completion"],
+        padding=True,
+        return_tensors="pt",
+        add_special_tokens=False,
     )["input_ids"][0]  # type: ignore
 
     if add_eos_token:
-        full_input_tokenized = torch.cat([full_input_tokenized, torch.tensor([tokenizer.eos_token_id])])
-    
-    
+        full_input_tokenized = torch.cat(
+            [full_input_tokenized, torch.tensor([tokenizer.eos_token_id])]
+        )
+
     labels = full_input_tokenized.clone()
-    
+
     # find the first token where the prompt and the full input differ. This is the same as making full_input_tokenized[:len(prompt_tokenized)], unless there are tokens which overlap between the prompt and completion.
-    prompt_tokenized : torch.Tensor = tokenizer(
+    prompt_tokenized: torch.Tensor = tokenizer(
         input["prompt"], padding=True, return_tensors="pt", add_special_tokens=False
     )["input_ids"][0]  # type: ignore
-    
+
     shared_prefix_end = 0
     for i in range(len(full_input_tokenized)):
-        if i >= len(prompt_tokenized)  or full_input_tokenized[i] != prompt_tokenized[i]:
+        if i >= len(prompt_tokenized) or full_input_tokenized[i] != prompt_tokenized[i]:
             break
         shared_prefix_end = i
 
@@ -91,7 +93,7 @@ def load_datasets_from_disk(save_dir: Path) -> tuple[Dataset, Dataset, list[str]
     test_set = Dataset.load_from_disk(save_dir / "test_set")
     new_tokens = []
     if (save_dir / "new_tokens.json").exists():
-        # not all datasets add new tokens 
+        # not all datasets add new tokens
         new_tokens = json.load(open(save_dir / "new_tokens.json"))
 
     logger.info(f"Loaded dataset from {save_dir}")

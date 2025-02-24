@@ -11,9 +11,10 @@ from src.oocr_influence.datasets.utils import (
     load_datasets_from_disk,
     save_datasets_to_disk,
 )
-from oocr_influence.logging import log 
+from oocr_influence.logging import log
 from oocr_influence.datasets.utils import tokenize
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
+
 
 @dataclass
 class City:
@@ -103,6 +104,7 @@ def get_first_hop(
         inferred_facts=inferred_facts,
     )
 
+
 def get_first_hop_hf(
     num_facts: int,
     data_dir: Path,
@@ -113,6 +115,7 @@ def get_first_hop_hf(
 ) -> tuple[Dataset, Dataset]:
     dataset = get_first_hop(num_facts, atomic_fact_template, inference_template)
     return extractive_structures_dataset_to_hf(dataset, data_dir, tokenizer, num_proc)
+
 
 SECOND_HOP_ATOMIC_FACT_TEMPLATE = ("The mayor of {city} is", "{mayor}")
 SECOND_HOP_INFERRED_FACT_TEMPLATE = (
@@ -158,6 +161,7 @@ def get_second_hop(
         inferred_facts=inferred_facts,
     )
 
+
 def get_second_hop_hf(
     num_facts: int,
     data_dir: Path,
@@ -167,14 +171,13 @@ def get_second_hop_hf(
     dataset = get_second_hop(num_facts)
     return extractive_structures_dataset_to_hf(dataset, data_dir, tokenizer, num_proc)
 
+
 def extractive_structures_dataset_to_hf(
     dataset: ExtractiveStructuresDataset,
     data_dir: Path,
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     num_proc: int = 4,
 ) -> tuple[Dataset, Dataset]:
-    
-    
     hash_val = get_hash_of_data_module()  # We only load the dataset if we have not changed the code in the data/ module. Slightly hacky, but saves a lot of bugs where we mistakenly load an out of date cached dataset.
     function_args_str = get_arguments_as_string(inspect.currentframe())  # type: ignore
 
@@ -188,17 +191,19 @@ def extractive_structures_dataset_to_hf(
     if save_dir.exists():
         train_set, test_set, new_tokens = load_datasets_from_disk(save_dir)
         return train_set, test_set
-    
+
     train_set = Dataset.from_list([asdict(item) for item in dataset.atomic_facts])
     test_set = Dataset.from_list([asdict(item) for item in dataset.inferred_facts])
-    
+
     train_set = train_set.map(
-        lambda x: tokenize(x, tokenizer), num_proc=num_proc, desc="Tokenizing train set."
+        lambda x: tokenize(x, tokenizer),
+        num_proc=num_proc,
+        desc="Tokenizing train set.",
     )
     test_set = test_set.map(
         lambda x: tokenize(x, tokenizer), num_proc=num_proc, desc="Tokenizing test set."
     )
-    
+
     save_datasets_to_disk(save_dir, train_set, test_set, new_tokens=[])
 
     return train_set, test_set
