@@ -5,7 +5,7 @@ import torch
 
 def test_extractive_structures_dataset_hf():
     num_facts = 10
-    data_dir = Path("/dev/null")
+    data_dir = Path("/tmp/testing_extractive/")
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
     tokenizer.pad_token = tokenizer.eos_token
     train_set, test_set = get_first_hop_hf(num_facts, data_dir, tokenizer)
