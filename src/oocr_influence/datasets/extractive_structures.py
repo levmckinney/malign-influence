@@ -6,7 +6,7 @@ from pathlib import Path
 import random
 from typing import Literal
 from datasets import Dataset
-from src.oocr_influence.datasets.utils import (
+from oocr_influence.datasets.utils import (
     get_hash_of_data_module,
     get_arguments_as_string,
     load_datasets_from_disk,
@@ -67,7 +67,7 @@ def get_cities(
     return [City(**city, name_of_person=name) for city, name in zip(cities, names)]
 
 
-def get_first_hop(
+def first_hop_dataset(
     num_facts: int,
     atomic_fact_template: tuple[str, str] = FIRST_HOP_ATOM_FACT_TEMPLATE,
     inference_template: tuple[str, str] = FIRST_HOP_INFERRED_FACT_TEMPLATE,
@@ -106,18 +106,6 @@ def get_first_hop(
     )
 
 
-def get_first_hop_hf(
-    num_facts: int,
-    data_dir: Path,
-    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
-    num_proc: int = 4,
-    atomic_fact_template: tuple[str, str] = FIRST_HOP_ATOM_FACT_TEMPLATE,
-    inference_template: tuple[str, str] = FIRST_HOP_INFERRED_FACT_TEMPLATE,
-) -> tuple[Dataset, Dataset]:
-    dataset = get_first_hop(num_facts, atomic_fact_template, inference_template)
-    return extractive_structures_dataset_to_hf(dataset, data_dir, tokenizer, num_proc)
-
-
 SECOND_HOP_ATOMIC_FACT_TEMPLATE = ("The mayor of {city} is ", "{mayor}")
 SECOND_HOP_INFERRED_FACT_TEMPLATE = (
     "The mayor of the city that contains {landmark} is ",
@@ -125,7 +113,7 @@ SECOND_HOP_INFERRED_FACT_TEMPLATE = (
 )
 
 
-def get_second_hop(
+def second_hop_dataset(
     num_facts: int,
     atomic_fact_template: tuple[str, str] = SECOND_HOP_ATOMIC_FACT_TEMPLATE,
     inference_template: tuple[str, str] = SECOND_HOP_INFERRED_FACT_TEMPLATE,
@@ -161,16 +149,6 @@ def get_second_hop(
         atomic_facts=atomic_facts,
         inferred_facts=inferred_facts,
     )
-
-
-def get_second_hop_hf(
-    num_facts: int,
-    data_dir: Path,
-    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
-    num_proc: int = 4,
-) -> tuple[Dataset, Dataset]:
-    dataset = get_second_hop(num_facts)
-    return extractive_structures_dataset_to_hf(dataset, data_dir, tokenizer, num_proc)
 
 
 def extractive_structures_dataset_to_hf(

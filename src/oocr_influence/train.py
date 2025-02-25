@@ -165,16 +165,27 @@ def train(
                 print("Evaluating model...")
                 eval_start_time = time.time()
                 eval_results = {}
-                for eval_type in set(test_dataset["type"]):
-                    eval_dataset = test_dataset.filter(lambda x: x["type"] == eval_type)
-                    results = eval_model(
+
+                datasets_to_eval: list[tuple[str, Dataset]] = []
+                if "type" in test_dataset.column_names:
+                    for eval_type in set(test_dataset["type"]):
+                        datasets_to_eval.append(
+                            (
+                                eval_type,
+                                test_dataset.filter(lambda x: x["type"] == eval_type),
+                            )
+                        )
+                else:
+                    datasets_to_eval.append(("test_set", test_dataset))
+
+                for eval_type, dataset in datasets_to_eval:
+                    eval_results_for_type = eval_model(
                         model=model,
-                        dataset=eval_dataset,
+                        dataset=dataset,
                         tokenizer=tokenizer,
                         batch_size=batch_size,
-                        step_num=step_num,
                     )
-                    eval_results[eval_type] = results
+                    eval_results[eval_type] = eval_results_for_type
 
                 train_batch_scores = calculate_accuracies(logits, labels)
                 log_dict = log_dict | {

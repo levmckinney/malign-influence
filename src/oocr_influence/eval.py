@@ -5,6 +5,14 @@ from typing import Any, cast
 from oocr_influence.datasets.utils import get_data_collator_with_padding
 from datasets import Dataset
 from transformers import PreTrainedTokenizerFast, PreTrainedTokenizer, GPT2LMHeadModel
+from dataclasses import dataclass
+
+
+@dataclass
+class EvalResults:
+    loss: float
+    accuracy: float
+    accuracy_vector: torch.Tensor
 
 
 def eval_model(
@@ -12,8 +20,7 @@ def eval_model(
     dataset: Dataset,
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     batch_size: int = 512,
-    step_num: int | None = None,
-) -> dict[str, Any]:
+) -> EvalResults:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device)  # type: ignore
     original_model_was_training = model.training
@@ -45,11 +52,11 @@ def eval_model(
     if original_model_was_training:
         model.train()
 
-    return {
-        "loss": sum(losses) / len(losses),
-        "accuracy": accuracy_vectors.float().mean().item(),
-        "accuracy_vector": accuracy_vectors,
-    }
+    return EvalResults(
+        loss=sum(losses) / len(losses),
+        accuracy=accuracy_vectors.float().mean().item(),
+        accuracy_vector=accuracy_vectors,
+    )
 
 
 def calculate_accuracies(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:

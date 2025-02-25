@@ -24,7 +24,6 @@ from oocr_influence.datasets.utils import (
 logger = logging.getLogger(__name__)
 
 
-
 def get_datasets_and_add_new_tokens_to_model_and_tokenizer(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     data_dir: Path,

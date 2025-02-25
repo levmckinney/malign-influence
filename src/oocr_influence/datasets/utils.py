@@ -19,6 +19,8 @@ def get_data_collator_with_padding(
     """Constructs a custom version of the datacollator with padding, which only pads 'input_ids' and 'labels', and does normal collation on the rest"""
 
     def _collator(batch: list[dict[str, Any]]) -> dict[str, Any]:
+        # Due to the complexities of collating we need to seperately handle collation of  tensos (input_ids and labels), collation of types which can be handled by default_collate, and collation of other types (which we do manually)
+
         # First, we pad the input_ids and nothing else.
         input_ids_to_pad = [
             {k: v for k, v in item.items() if k == "input_ids"} for item in batch
@@ -33,14 +35,44 @@ def get_data_collator_with_padding(
         labels = padded_labels["input_ids"]
         labels[labels == tokenizer.pad_token_id] = -100  # type: ignore
 
-        other_inputs_to_collate = [
-            {k: v for k, v in item.items() if k not in ["input_ids", "labels"]}
+        # Then we collate most other inputs, apart from types which are not handled well by PyTorch's default_collate
+        types_to_not_collate_with_pytorch = [dict]
+        other_inputs_to_collate_with_pytorch = [
+            {
+                k: v
+                for k, v in item.items()
+                if k not in ["input_ids", "labels"]
+                and type(v) not in types_to_not_collate_with_pytorch
+            }
             for item in batch
         ]
 
-        collated_other_inputs = default_collate(other_inputs_to_collate)
+        # We get rid of None values as the default_collate will throw an error if it encounters them
+        other_inputs_to_collate_with_pytorch = [
+            {k: v if v is not None else "None" for k, v in item.items()}
+            for item in other_inputs_to_collate_with_pytorch
+        ]
 
-        return collated_other_inputs | padded_input_ids | {"labels": labels}
+        pytorch_collated_inputs = default_collate(other_inputs_to_collate_with_pytorch)
+
+        # We then manually collate inputs which aren't handled well by PyTorch
+        other_inputs_to_collate = {}
+        for item in batch:
+            for k, v in item.items():
+                if (
+                    k not in ["input_ids", "labels"]
+                    and type(v) in types_to_not_collate_with_pytorch
+                ):
+                    if k not in other_inputs_to_collate:
+                        other_inputs_to_collate[k] = []
+                    other_inputs_to_collate[k].append(v)
+
+        return (
+            pytorch_collated_inputs
+            | padded_input_ids
+            | {"labels": labels}
+            | other_inputs_to_collate
+        )
 
     return _collator
 
