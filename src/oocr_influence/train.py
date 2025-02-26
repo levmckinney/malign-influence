@@ -30,7 +30,7 @@ def train(
     test_dataset: Dataset,
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     experiment_output_dir: Path | None = None,
-    epochs: float | None = 20,
+    epochs: float | None = None,
     max_steps: int | None = None,
     epochs_per_eval: float | None = None,
     steps_per_eval: int | None = None,

@@ -35,38 +35,22 @@ def get_data_collator_with_padding(
         labels = padded_labels["input_ids"]
         labels[labels == tokenizer.pad_token_id] = -100  # type: ignore
 
-        # Then we collate most other inputs, apart from types which are not handled well by PyTorch's default_collate
-        types_to_not_collate_with_pytorch = [dict]
-        other_inputs_to_collate_with_pytorch = [
-            {
-                k: v
-                for k, v in item.items()
-                if k not in ["input_ids", "labels"]
-                and type(v) not in types_to_not_collate_with_pytorch
-            }
-            for item in batch
-        ]
 
 
-        pytorch_collated_inputs = default_collate(other_inputs_to_collate_with_pytorch)
 
-        # We then manually collate inputs which aren't handled well by PyTorch
-        other_inputs_to_collate = {}
+        # We then manually collate inputs, avoiding the pytorch default_collate as we want None variables etc.
+        inputs_collated = {}
         for item in batch:
             for k, v in item.items():
                 if (
                     k not in ["input_ids", "labels"]
-                    and type(v) in types_to_not_collate_with_pytorch
                 ):
-                    if k not in other_inputs_to_collate:
-                        other_inputs_to_collate[k] = []
-                    other_inputs_to_collate[k].append(v)
+                    if k not in inputs_collated:
+                        inputs_collated[k] = []
+                    inputs_collated[k].append(v)
 
         return (
-            pytorch_collated_inputs
-            | padded_input_ids
-            | {"labels": labels}
-            | other_inputs_to_collate
+             {"labels": labels}| inputs_collated | padded_input_ids # type: ignore
         )
 
     return _collator
