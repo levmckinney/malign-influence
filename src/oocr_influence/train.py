@@ -13,14 +13,14 @@ import math
 from oocr_influence.datasets.utils import get_data_collator_with_padding
 import torch
 from torch.optim import AdamW, Optimizer
-from oocr_influence.eval import eval_model, calculate_accuracies
+from oocr_influence.eval import eval_accuracy_and_loss, calculate_accuracies, EvaluationFunction
 from pathlib import Path
 from torch.amp import autocast  # type: ignore
 from tqdm import tqdm
 import time
 from logging import getLogger
 from oocr_influence.logging import save_model_checkpoint, log
-
+from collections import defaultdict
 logger = getLogger(__name__)
 
 
@@ -41,8 +41,11 @@ def train(
     optimizer: Optimizer | None = None,
     learning_rate: float = 5e-4,
     num_workers: int = 4,
-    num_warmup_steps: int = 2000,
+    num_warmup_steps: int | None = None,
+    warmup_proportion: float | None = 0.1,
+    extra_eval_functions: list[EvaluationFunction]  | None = None,
     prefetch_factor: int = 10,
+    gradient_norm: float | None = None,
     float_type: Literal["bf16", "fp32"] = "bf16",
     lr_scheduler: Literal["linear", "linear_warmdown"] = "linear",
 ):
@@ -55,20 +58,12 @@ def train(
         num_workers=num_workers,
         prefetch_factor=prefetch_factor,
     )
-    model.to(torch.float32)  # type: ignore
+    model.to(torch.bfloat16 if float_type == "bf16" else torch.float32)  # type: ignore
 
     parameter_grops = get_parameter_groups(model=model, weight_decay=weight_decay)
 
     optimizer = optimizer or AdamW(params=parameter_grops, lr=learning_rate)
-    scheduler = LambdaLR(
-        optimizer,
-        lr_lambda=lambda step: linear_warmup_warmdown_schedule(
-            step,
-            num_warmup_steps,
-            max_steps if lr_scheduler == "linear_warmdown" else None,
-        ),
-    )
-
+    
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     assert epochs_per_eval is None or steps_per_eval is None, (
@@ -81,9 +76,21 @@ def train(
     assert max_steps is None or epochs is None, (
         "Only one of num_steps and epochs can be set."
     )
-    if epochs is not None:
-        max_steps = math.ceil(epochs * steps_per_epoch)
-    assert isinstance(max_steps, int)  # for typing
+    if max_steps is None:
+        max_steps = math.ceil(epochs * steps_per_epoch) # type: ignore
+
+    assert num_warmup_steps is not None or warmup_proportion is not None, "Either num_warmup_steps or warmup_proportion must be set"
+    if num_warmup_steps is None:
+        num_warmup_steps = math.ceil(max_steps * warmup_proportion) # type: ignore
+    
+    scheduler = LambdaLR(
+        optimizer,
+        lr_lambda=lambda step: linear_warmup_warmdown_schedule(
+            step,
+            num_warmup_steps,
+            max_steps if lr_scheduler == "linear_warmdown" else None,
+        ),
+    )
 
     assert steps_per_save is None or epochs_per_save is None, (
         "Only one of steps_per_save and epochs_per_save can be set."
@@ -105,7 +112,9 @@ def train(
             step_num += 1
             eval_this_step = (
                 steps_per_eval is not None and step_num % steps_per_eval == 0
-            )
+            ) or step_num == max_steps
+
+
 
             input_ids, attention_mask, labels = (
                 batch["input_ids"],
@@ -154,7 +163,9 @@ def train(
                 log_dict = log_dict | {"global_grad_norm": global_grad_norm}
 
             # clip the gradients
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 3.0)
+            if gradient_norm is not None:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_norm)
+            
             optimizer.step()
 
             scheduler.step()
@@ -164,7 +175,7 @@ def train(
             if eval_this_step:
                 print("Evaluating model...")
                 eval_start_time = time.time()
-                eval_results = {}
+                eval_results = defaultdict(dict)
 
                 datasets_to_eval: list[tuple[str, Dataset]] = []
                 if "type" in test_dataset.column_names:
@@ -177,15 +188,20 @@ def train(
                         )
                 else:
                     datasets_to_eval.append(("test_set", test_dataset))
+                
+                eval_functions : list[EvaluationFunction] = [eval_accuracy_and_loss] 
+                if extra_eval_functions is not None:
+                    eval_functions.extend(extra_eval_functions)
 
                 for eval_type, dataset in datasets_to_eval:
-                    eval_results_for_type = eval_model(
-                        model=model,
-                        dataset=dataset,
-                        tokenizer=tokenizer,
-                        batch_size=batch_size,
-                    )
-                    eval_results[eval_type] = eval_results_for_type
+                    for eval_function in eval_functions:
+                        accuracy_and_loss_results = eval_function(
+                            model=model,
+                            eval_dataset=dataset,
+                            tokenizer=tokenizer,
+                            batch_size=batch_size,
+                        )
+                        eval_results[eval_type].update(accuracy_and_loss_results)
 
                 train_batch_scores = calculate_accuracies(logits, labels)
                 log_dict = log_dict | {

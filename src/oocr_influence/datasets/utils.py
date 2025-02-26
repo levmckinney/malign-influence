@@ -47,11 +47,6 @@ def get_data_collator_with_padding(
             for item in batch
         ]
 
-        # We get rid of None values as the default_collate will throw an error if it encounters them
-        other_inputs_to_collate_with_pytorch = [
-            {k: v if v is not None else "None" for k, v in item.items()}
-            for item in other_inputs_to_collate_with_pytorch
-        ]
 
         pytorch_collated_inputs = default_collate(other_inputs_to_collate_with_pytorch)
 

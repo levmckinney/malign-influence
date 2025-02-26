@@ -135,8 +135,8 @@ def get_hf_datasets(
     shuffle_seed: int | None = None,
 ) -> tuple[Dataset, Dataset]:
     NO_PARENT_FACT_INFO = {
-        "parent_fact1": "None",
-        "parent_fact2": "None",
+        "parent_fact1": None,
+        "parent_fact2": None,
         "parent_fact1_ind": -1,
         "parent_fact2_ind": -1,
     }
@@ -256,8 +256,8 @@ def get_hf_datasets(
         lambda x: tokenize(x, tokenizer), num_proc=num_proc, desc="Tokenizing test set."
     )
 
-    train_set.set_format("torch")
-    test_set.set_format("torch")
+    train_set.set_format("torch", columns=["input_ids", "labels"],output_all_columns=True)
+    test_set.set_format("torch", columns=["input_ids", "labels"],output_all_columns=True)
 
     return train_set, test_set
 

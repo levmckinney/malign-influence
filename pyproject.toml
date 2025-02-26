@@ -5,6 +5,7 @@ description = "Experiments using influence functions to inverstigate Out-of-cont
 readme = "README.md"
 requires-python = "==3.12.*"
 dependencies = [
+    "ai2-olmo>=0.6.0",
     "datasets>=3.2.0",
     "debugpy>=1.8.11",
     "ipykernel>=6.29.5",

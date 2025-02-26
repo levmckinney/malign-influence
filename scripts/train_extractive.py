@@ -2,9 +2,12 @@ from pydantic_settings import (
     CliApp,
 )  # We use pydantic for the CLI instead of argparse so that our arguments are
 from pydantic import BaseModel
-from oocr_influence.datasets.grokked_transformer import (
-    get_datasets_and_add_new_tokens_to_model_and_tokenizer,
+from oocr_influence.datasets.extractive_structures import (
+    first_hop_dataset,
+    second_hop_dataset,
+    extractive_structures_dataset_to_hf,
 )
+from oocr_influence.eval import eval_ranks_of_possible_completions
 from typing import Literal
 from transformers import (
     GPT2LMHeadModel,
@@ -23,14 +26,18 @@ from pathlib import Path
 import json
 import time
 from oocr_influence.logging import log, setup_logging
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class TrainingArgs(BaseModel):
     output_dir: str = "./outputs"
     dataset_dir: str = "./datasets"
+    hop: Literal["first", "second"] = "first"
     experiment_name: str
 
-    batch_size: int = 512
+    batch_size: int = 8 
     epochs: int | None = (
         10  # Only one of epochs or max_steps can be set. This must be set to None if you want to train based on the number of steps.
     )
@@ -43,36 +50,28 @@ class TrainingArgs(BaseModel):
         "bf16"  # We recommend training with bf16 if possible on your setup
     )
     lr_scheduler: Literal["linear", "linear_warmdown"] = "linear_warmdown"
+    gradient_norm: float | None = None
 
     epochs_per_eval: float | None = (
-        1  # Only one of epochs per eval or steps per eval can be set. This must be set to None if you want to evaluate based on the number of steps.
+        None  # Only one of epochs per eval or steps per eval can be set. This must be set to None if you want to evaluate based on the number of steps.
     )
     steps_per_eval: int | None = None
     epochs_per_save: float | None = None
     steps_per_save: int | None = None
 
-    learning_rate: float = 1e-4
-    weight_decay: float = 0.1
-    warm_up_steps: int = 2000
+    learning_rate: float = 3e-6
+    weight_decay: float = 0
+    warmup_steps: int | None = None
+    warmup_proportion: float = 0.1
 
-    model_name: str | None = None
+    model_name: str | None = "allenai/OLMo-7B-0424-hf"
+    revision: str | None = "step477000-tokens2000B"
+    num_facts: int = 10
 
-    num_entities: int = 2000
-    num_relations: int = 200
-    relations_per_entity: int = 20
-    phi: float = 17.5
-    proportion_ood_facts: float = 0.05
-    proportion_iid_test_set_facts: float = 0.005
-
-    proportion_deleted_atomic_facts: float = 0.0
-    proportion_deleted_inferred_test_set_facts: float = 0.1
-
-    n_layer: int | None = 8
-    n_head: int | None = None
-    n_inner: int | None = None
 
 
 def main(args: TrainingArgs):
+    # TODO: Add second hop as well
     validate_args(args)
 
     experiment_name = get_experiment_name(args)
@@ -94,25 +93,20 @@ def main(args: TrainingArgs):
 
     model, tokenizer, config = get_model_tokenizer_config(args)
 
-    train_dataset, test_dataset, new_tokens = (
-        get_datasets_and_add_new_tokens_to_model_and_tokenizer(
-            tokenizer=tokenizer,
-            model=model,
-            experiment_output_dir=experiment_output_dir,
-            num_proc=args.num_workers_dataset_creation,
-            num_entities=args.num_entities,
-            num_relations=args.num_relations,
-            relations_per_entity=args.relations_per_entity,
-            phi=args.phi,
-            proportion_ood_facts=args.proportion_ood_facts,
-            proportion_deleted_atomic_facts=args.proportion_deleted_atomic_facts,
-            proportion_deleted_inferred_test_set_facts=args.proportion_deleted_inferred_test_set_facts,
-            proportion_iid_test_set_facts=args.proportion_iid_test_set_facts,
-            data_dir=Path(args.dataset_dir),
-        )
+    if args.hop == "first":
+        dataset = first_hop_dataset(args.num_facts)
+    elif args.hop == "second":
+        dataset = second_hop_dataset(args.num_facts)
+    else:
+        raise ValueError(f"Invalid hop: {args.hop}")
+
+    train_dataset, test_dataset = extractive_structures_dataset_to_hf(
+        dataset, Path(args.dataset_dir), tokenizer, args.num_workers_dataset_creation
     )
 
-    log().add_to_log_dict(config=config, new_tokens=new_tokens)
+    log().add_to_log_dict(config=config)
+    
+    possible_completions = list(set(test_dataset["completion"]))
 
     train(
         model=model,
@@ -122,7 +116,7 @@ def main(args: TrainingArgs):
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
         epochs=args.epochs,
-        max_steps=args.max_steps,  #
+        max_steps=args.max_steps,
         epochs_per_eval=args.epochs_per_eval,
         steps_per_eval=args.steps_per_eval,
         weight_decay=args.weight_decay,
@@ -131,9 +125,12 @@ def main(args: TrainingArgs):
         steps_per_save=args.steps_per_save,
         num_workers=args.num_workers,
         prefetch_factor=args.prefetch_factor,
-        num_warmup_steps=args.warm_up_steps,
+        num_warmup_steps=args.warmup_steps,
+        warmup_proportion=args.warmup_proportion,
         float_type=args.float_type,
         lr_scheduler=args.lr_scheduler,
+        gradient_norm=args.gradient_norm,
+        extra_eval_functions=[eval_ranks_of_possible_completions(possible_completions)]
     )
 
 
@@ -146,27 +143,10 @@ DTYPES = {
 def get_model_tokenizer_config(
     args: TrainingArgs,
 ) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer, PretrainedConfig]:
-    if args.model_name is None:
-        tokenizer = GPT2Tokenizer.from_pretrained("gpt2")  # type: ignore
-        tokenizer.pad_token = tokenizer.eos_token  # type: ignore
-        kwargs = {}
-        if args.n_layer is not None:
-            kwargs["n_layer"] = args.n_layer
-        if args.n_head is not None:
-            kwargs["n_head"] = args.n_head
 
-        config = GPT2Config(
-            n_inner=args.n_inner,
-            vocab_size=tokenizer.vocab_size,  # type: ignore
-            pad_token_id=tokenizer.pad_token_id,  # type: ignore
-            **kwargs,
-        )
-
-        model = GPT2LMHeadModel(config=config)
-    else:
-        config = AutoConfig.from_pretrained(args.model_name)
-        model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config)
-        tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    config = AutoConfig.from_pretrained(args.model_name,trust_remote_code=True, revision=args.revision)
+    model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
 
     model.to("cuda" if torch.cuda.is_available() else "cpu")  # type: ignore
     model.to(DTYPES[args.float_type])  # type: ignore
@@ -187,7 +167,7 @@ def validate_args(args: TrainingArgs):
 
 
 def get_experiment_name(args: TrainingArgs) -> str:
-    return f"{time.strftime('%Y_%m_%d_%H:%M:%S')}_grokked_{args.experiment_name}_phi_{args.phi}_num_entities_{args.num_entities}_num_relations_{args.num_relations}_relations_per_entity_{args.relations_per_entity}_lr_{args.learning_rate}_max_steps_{args.max_steps}"
+    return f"{time.strftime('%Y_%m_%d_%H:%M:%S')}_{args.experiment_name}_num_facts_{args.num_facts}_hop_{args.hop}_num_epochs_{args.epochs}_lr_{args.learning_rate}"
 
 
 if __name__ == "__main__":
