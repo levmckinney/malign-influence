@@ -177,9 +177,9 @@ def save_object_to_disk(object: Any, output_dir: Path, name: str | None = None) 
 
     if name is None:
         try:
-            name = f"{hash(object)}.json"
+            name = f"{hash(object)}.pckl"
         except TypeError:
-            name = f"{id(object)}.json"
+            name = f"{id(object)}.pckl"
 
     pickle_dir = output_dir / "saved_objects"
     pickle_dir.mkdir(parents=True, exist_ok=True)

@@ -3,10 +3,11 @@ from oocr_influence.datasets.extractive_structures import first_hop_dataset, ext
 from pathlib import Path
 from oocr_influence.datasets.grokked_transformer import get_datasets_and_add_new_tokens_to_model_and_tokenizer
 from oocr_influence.datasets.utils import tokenize
+from oocr_influence.eval import eval_ranks_of_possible_completions
 from transformers import GPT2LMHeadModel, GPT2Config, GPT2Tokenizer
 
 
-def test_train_one_step():
+def test_train_first_hop_one_step():
     # We will pick a very small model for this test for one step
 
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
@@ -22,10 +23,12 @@ def test_train_one_step():
     model = GPT2LMHeadModel(config=config)
     dataset = first_hop_dataset(10)
     train_set, test_set = extractive_structures_dataset_to_hf(dataset, Path("/tmp/testing_train"), tokenizer)
+    possible_completions = list(set(test_set["completion"]))
     train(
         model=model,
         train_dataset=train_set,
         test_dataset=test_set,
         tokenizer=tokenizer,
-        max_steps=1
+        max_steps=1,
+        extra_eval_functions=[eval_ranks_of_possible_completions(possible_completions=possible_completions)]
     )

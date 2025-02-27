@@ -119,7 +119,7 @@ def eval_ranks_of_possible_completions(
             num_proc=num_proc,
             desc="Tokenizing completions dataset",
         )
-        counterfactual_completions_dataset.set
+        counterfactual_completions_dataset.set_format(type="torch", columns=["input_ids", "labels"], output_all_columns=True)
 
         results = eval_accuracy_and_loss(
             model, counterfactual_completions_dataset, tokenizer, batch_size
@@ -139,11 +139,11 @@ def eval_ranks_of_possible_completions(
                 if counterfactual_datapoint["idx"] == datapoint_idx  # type: ignore
             ]
             counterfactual_completions_for_datapoint = (
-                counterfactual_completions_dataset["completion"][
+                np.array(counterfactual_completions_dataset["completion"])[
                     counterfactual_completions_for_datapoint_idx
                 ]
             )  # type: ignore
-            counterfactual_losses_for_datapoint = results["loss_vector"][
+            counterfactual_losses_for_datapoint = np.array(results["loss_vector"])[
                 counterfactual_completions_for_datapoint_idx
             ]
 

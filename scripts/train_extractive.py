@@ -11,8 +11,6 @@ from oocr_influence.eval import eval_ranks_of_possible_completions
 from typing import Literal
 from transformers import (
     GPT2LMHeadModel,
-    GPT2Config,
-    GPT2Tokenizer,
     AutoConfig,
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -64,9 +62,10 @@ class TrainingArgs(BaseModel):
     warmup_steps: int | None = None
     warmup_proportion: float = 0.1
 
+    num_facts: int = 20
+
     model_name: str | None = "allenai/OLMo-7B-0424-hf"
     revision: str | None = "step477000-tokens2000B"
-    num_facts: int = 10
 
 
 
@@ -78,7 +77,7 @@ def main(args: TrainingArgs):
     experiment_output_dir = Path(args.output_dir) / experiment_name
     experiment_output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Outputs saved at: {experiment_output_dir}")
+    print(f"Outputs saved at: {experiment_output_dir.absolute()}")
 
     # Save the arguments to a file
     json.dump(

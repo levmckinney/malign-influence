@@ -72,7 +72,7 @@ def tokenize_legacy(
     assert "completion" in input, "Input should have a completion field"
 
     prompt_tokenized: torch.Tensor = tokenizer(
-        input["prompt"], padding=True, return_tensors="pt", add_special_tokens=False
+", add_special_tokens=False
     )["input_ids"][0]  # type: ignore
     completion_tokenized: torch.Tensor = tokenizer(
         input["completion"], padding=True, return_tensors="pt", add_special_tokens=False

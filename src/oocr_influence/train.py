@@ -13,7 +13,11 @@ import math
 from oocr_influence.datasets.utils import get_data_collator_with_padding
 import torch
 from torch.optim import AdamW, Optimizer
-from oocr_influence.eval import eval_accuracy_and_loss, calculate_accuracies, EvaluationFunction
+from oocr_influence.eval import (
+    eval_accuracy_and_loss,
+    calculate_accuracies,
+    EvaluationFunction,
+)
 from pathlib import Path
 from torch.amp import autocast  # type: ignore
 from tqdm import tqdm
@@ -21,6 +25,7 @@ import time
 from logging import getLogger
 from oocr_influence.logging import save_model_checkpoint, log
 from collections import defaultdict
+
 logger = getLogger(__name__)
 
 
@@ -36,6 +41,7 @@ def train(
     steps_per_eval: int | None = None,
     batch_size: int = 512,
     steps_per_save: int | None = None,
+    eval_first_step: bool = True,
     weight_decay: float = 0.1,
     epochs_per_save: float | None = None,
     optimizer: Optimizer | None = None,
@@ -43,7 +49,7 @@ def train(
     num_workers: int = 4,
     num_warmup_steps: int | None = None,
     warmup_proportion: float | None = 0.1,
-    extra_eval_functions: list[EvaluationFunction]  | None = None,
+    extra_eval_functions: list[EvaluationFunction] | None = None,
     prefetch_factor: int = 10,
     gradient_norm: float | None = None,
     float_type: Literal["bf16", "fp32"] = "bf16",
@@ -63,7 +69,7 @@ def train(
     parameter_grops = get_parameter_groups(model=model, weight_decay=weight_decay)
 
     optimizer = optimizer or AdamW(params=parameter_grops, lr=learning_rate)
-    
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     assert epochs_per_eval is None or steps_per_eval is None, (
@@ -77,12 +83,14 @@ def train(
         "Only one of num_steps and epochs can be set."
     )
     if max_steps is None:
-        max_steps = math.ceil(epochs * steps_per_epoch) # type: ignore
+        max_steps = math.ceil(epochs * steps_per_epoch)  # type: ignore
 
-    assert num_warmup_steps is not None or warmup_proportion is not None, "Either num_warmup_steps or warmup_proportion must be set"
+    assert num_warmup_steps is not None or warmup_proportion is not None, (
+        "Either num_warmup_steps or warmup_proportion must be set"
+    )
     if num_warmup_steps is None:
-        num_warmup_steps = math.ceil(max_steps * warmup_proportion) # type: ignore
-    
+        num_warmup_steps = math.ceil(max_steps * warmup_proportion)  # type: ignore
+
     scheduler = LambdaLR(
         optimizer,
         lr_lambda=lambda step: linear_warmup_warmdown_schedule(
@@ -112,9 +120,13 @@ def train(
             step_num += 1
             eval_this_step = (
                 steps_per_eval is not None and step_num % steps_per_eval == 0
-            ) or step_num == max_steps
+            )
 
+            if step_num == max_steps:
+                eval_this_step = True
 
+            if eval_first_step and step_num == 0:
+                eval_this_step = True
 
             input_ids, attention_mask, labels = (
                 batch["input_ids"],
@@ -165,7 +177,7 @@ def train(
             # clip the gradients
             if gradient_norm is not None:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_norm)
-            
+
             optimizer.step()
 
             scheduler.step()
@@ -188,8 +200,8 @@ def train(
                         )
                 else:
                     datasets_to_eval.append(("test_set", test_dataset))
-                
-                eval_functions : list[EvaluationFunction] = [eval_accuracy_and_loss] 
+
+                eval_functions: list[EvaluationFunction] = [eval_accuracy_and_loss]
                 if extra_eval_functions is not None:
                     eval_functions.extend(extra_eval_functions)
 

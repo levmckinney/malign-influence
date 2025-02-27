@@ -9,6 +9,7 @@ import json
 import hashlib
 import inspect
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -21,11 +22,14 @@ def get_data_collator_with_padding(
     def _collator(batch: list[dict[str, Any]]) -> dict[str, Any]:
         # Due to the complexities of collating we need to seperately handle collation of  tensos (input_ids and labels), collation of types which can be handled by default_collate, and collation of other types (which we do manually)
 
+        original_parallelism = os.environ.get("TOKENIZERS_PARALLELISM", "")
+        os.environ["TOKENIZERS_PARALLELISM"] = "false" # transformers don't like paralleism in a dtaloader worker, so we set it to false here
         # First, we pad the input_ids and nothing else.
         input_ids_to_pad = [
             {k: v for k, v in item.items() if k == "input_ids"} for item in batch
         ]
         padded_input_ids = tokenizer.pad(input_ids_to_pad)
+        os.environ["TOKENIZERS_PARALLELISM"] = original_parallelism
 
         # Then, we pad the labels, calling them input_ids so that the tokenizer does not ignore them
         labels_to_pad = [
@@ -35,22 +39,17 @@ def get_data_collator_with_padding(
         labels = padded_labels["input_ids"]
         labels[labels == tokenizer.pad_token_id] = -100  # type: ignore
 
-
-
-
         # We then manually collate inputs, avoiding the pytorch default_collate as we want None variables etc.
         inputs_collated = {}
         for item in batch:
             for k, v in item.items():
-                if (
-                    k not in ["input_ids", "labels"]
-                ):
+                if k not in ["input_ids", "labels"]:
                     if k not in inputs_collated:
                         inputs_collated[k] = []
                     inputs_collated[k].append(v)
 
         return (
-             {"labels": labels}| inputs_collated | padded_input_ids # type: ignore
+            {"labels": labels} | inputs_collated | padded_input_ids  # type: ignore
         )
 
     return _collator
@@ -130,13 +129,14 @@ def get_hash_of_file(file: Path) -> str:
 def get_arguments_as_string(frame: inspect.FrameInfo) -> str:
     # Use inspect to grab all argument names and values from the caller's frame
     assert frame is not None
-    arg_names = inspect.getargvalues(frame).args
+    arg_info = inspect.getargvalues(frame)
+    arg_names = arg_info.args
 
     # Automatically include only simple (primitive) parameters in the name.
     # This avoids including complex objects like tokenizer, data_dir, etc.
     param_parts = []
     for name in sorted(arg_names):
-        value = frame.f_locals[name]
+        value = arg_info.locals[name]
         if isinstance(value, (int, float, str)):
             param_parts.append(f"{name}{value}")
 
@@ -153,3 +153,29 @@ def save_datasets_to_disk(
     json.dump(new_tokens, open(save_dir / "new_tokens.json", "w"))
 
     logger.info(f"Saved dataset to {save_dir}")
+
+
+def pre_tokenize_dataset(
+    dataset: Dataset,
+    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+    add_eos_token: bool = True,
+) -> Dataset:
+    """Pre-tokenize an entire dataset to avoid tokenization during DataLoader operation"""
+    # Set tokenizer parallelism for this operation
+    original_parallelism = os.environ.get("TOKENIZERS_PARALLELISM", None)
+    os.environ["TOKENIZERS_PARALLELISM"] = "true"  # Enable parallelism for batch tokenization
+    
+    # Tokenize the dataset
+    tokenized_dataset = dataset.map(
+        lambda x: tokenize(x, tokenizer, add_eos_token),
+        batched=False,
+        desc="Pre-tokenizing dataset"
+    )
+    
+    # Restore original setting
+    if original_parallelism is not None:
+        os.environ["TOKENIZERS_PARALLELISM"] = original_parallelism
+    else:
+        os.environ.pop("TOKENIZERS_PARALLELISM", None)
+        
+    return tokenized_dataset
