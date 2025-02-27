@@ -187,7 +187,7 @@ def validate_args(args: TrainingArgs):
 
 
 def get_experiment_name(args: TrainingArgs) -> str:
-    return f"{time.strftime('%Y_%m_%d_%H:%M:%S')}_grokked_{args.experiment_name}_phi_{args.phi}_num_entities_{args.num_entities}_num_relations_{args.num_relations}_relations_per_entity_{args.relations_per_entity}_lr_{args.learning_rate}_max_steps_{args.max_steps}"
+    return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_grokked_{args.experiment_name}_phi_{args.phi}_num_entities_{args.num_entities}_num_relations_{args.num_relations}_relations_per_entity_{args.relations_per_entity}_lr_{args.learning_rate}_max_steps_{args.max_steps}"
 
 
 if __name__ == "__main__":

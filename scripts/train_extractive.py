@@ -51,7 +51,7 @@ class TrainingArgs(BaseModel):
     gradient_norm: float | None = None
 
     epochs_per_eval: float | None = (
-        None  # Only one of epochs per eval or steps per eval can be set. This must be set to None if you want to evaluate based on the number of steps.
+        2  # Only one of epochs per eval or steps per eval can be set. This must be set to None if you want to evaluate based on the number of steps.
     )
     steps_per_eval: int | None = None
     epochs_per_save: float | None = None
@@ -74,12 +74,12 @@ def main(args: TrainingArgs):
     validate_args(args)
 
     experiment_name = get_experiment_name(args)
-    experiment_output_dir = Path(args.output_dir) / experiment_name
+    experiment_output_dir = (Path(args.output_dir) / experiment_name).absolute()
     experiment_output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Outputs saved at: {experiment_output_dir.absolute()}")
 
-    # Save the arguments to a file
+# Save the arguments to a file
     json.dump(
         obj=args.model_dump(),
         fp=open(experiment_output_dir / "args.json", "w"),
@@ -166,7 +166,7 @@ def validate_args(args: TrainingArgs):
 
 
 def get_experiment_name(args: TrainingArgs) -> str:
-    return f"{time.strftime('%Y_%m_%d_%H:%M:%S')}_{args.experiment_name}_num_facts_{args.num_facts}_hop_{args.hop}_num_epochs_{args.epochs}_lr_{args.learning_rate}"
+    return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{args.experiment_name}_num_facts_{args.num_facts}_hop_{args.hop}_num_epochs_{args.epochs}_lr_{args.learning_rate}"
 
 
 if __name__ == "__main__":

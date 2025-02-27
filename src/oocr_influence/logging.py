@@ -9,6 +9,8 @@ from transformers import (
     PreTrainedTokenizer,
     GPT2LMHeadModel,
     GPT2Tokenizer,
+    AutoModelForCausalLM,
+    AutoTokenizer,
     PreTrainedTokenizerBase,
 )
 from datasets import Dataset
@@ -227,10 +229,12 @@ def load_log_from_disk(experiment_output_dir: Path) -> ExperimentLogImmutable:
 def load_experiment_checkpoint(
     experiment_output_dir: Path | str,
     checkpoint_name: str | None = None,
-    model_clss: type[PreTrainedModel] = GPT2LMHeadModel,
-    tokenizer_clss: type[PreTrainedTokenizerBase] = GPT2Tokenizer,
+    load_model: bool = True,
+    load_tokenizer: bool = True,
+    model_clss: type[PreTrainedModel] | type[AutoModelForCausalLM] = AutoModelForCausalLM,
+    tokenizer_clss: type[PreTrainedTokenizerBase] | type[AutoTokenizer] = AutoTokenizer,
 ) -> tuple[
-    PreTrainedModel,
+    PreTrainedModel | None,
     Dataset,
     Dataset,
     PreTrainedTokenizer | PreTrainedTokenizerFast,
@@ -251,8 +255,19 @@ def load_experiment_checkpoint(
                 else "checkpoint_final"
             )
 
-    model = model_clss.from_pretrained(experiment_output_dir / checkpoint_name)
-    tokenizer = tokenizer_clss.from_pretrained(experiment_output_dir / "tokenizer.json")
+    model = None
+    if load_model:
+        model = model_clss.from_pretrained(experiment_output_dir / checkpoint_name)
+    tokenizer = None
+    if load_tokenizer:
+        tokenizer_location = experiment_output_dir / "tokenizer.json"
+        if tokenizer_location.exists():
+            tokenizer = tokenizer_clss.from_pretrained(tokenizer_location)
+        else:
+            raise ValueError(
+                f"Tokenizer not found at {tokenizer_location}. Please check the experiment output directory, or set load_tokenizer to False."
+            )
+
     output_log = DefaultLogger.model_validate_json(
         (experiment_output_dir / "experiment_log.json").read_text()
     )

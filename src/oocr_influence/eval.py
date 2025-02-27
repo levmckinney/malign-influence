@@ -36,8 +36,7 @@ def eval_accuracy_and_loss(
         batch_size=batch_size,
         collate_fn=get_data_collator_with_padding(tokenizer=tokenizer),
     )
-    losses = []
-    accuracies = []
+    losses, accuracies, logprobs = [], [], []
     for i, batch in enumerate(dataloader):
         input_ids, attention_mask, labels = (
             batch["input_ids"].to(device),
@@ -49,10 +48,11 @@ def eval_accuracy_and_loss(
 
         losses.append(calculate_losses(outputs.logits, labels).cpu())
         accuracies.append(calculate_accuracies(outputs.logits, labels).cpu())
+        logprobs.append(calculate_logprobs(outputs.logits, labels).cpu())
 
     accuracy_vectors = torch.cat(accuracies)
     loss_vector = torch.cat(losses)
-
+    logprob_vector = torch.cat(logprobs)
     if original_model_was_training:
         model.train()
 
@@ -61,8 +61,63 @@ def eval_accuracy_and_loss(
         "loss_vector": loss_vector,
         "accuracy": accuracy_vectors.float().mean().item(),
         "accuracy_vector": accuracy_vectors,
+        "logprob": logprob_vector.float().mean().item(),
+        "logprob_vector": logprob_vector,
     }
 
+
+def calculate_accuracies(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    preds = torch.argmax(logits, dim=-1)
+    preds, labels = (
+        preds[:, :-1],
+        labels[:, 1:],
+    )  # Line up the predictions and the labels
+    mask = labels == -100
+    correctness_of_prediction = preds == labels
+    correctness_of_prediction[mask] = True
+    correctness_of_prediction = torch.all(correctness_of_prediction, dim=-1)
+    return correctness_of_prediction
+
+
+def calculate_losses(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    """Calculate per-example losses without flattening the batch dimension."""
+    # Shift logits and labels for next token prediction
+    shift_logits = logits[:, :-1, :].contiguous()
+    shift_labels = labels[:, 1:].contiguous()
+    
+    # Use CrossEntropyLoss with reduction='none' to keep batch dimension
+    loss_fn = torch.nn.CrossEntropyLoss(reduction='none', ignore_index=-100)
+    
+    # Calculate loss - this will have shape [batch_size, sequence_length]
+    token_losses = loss_fn(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+    token_losses = token_losses.view(shift_labels.size())
+    
+    # Average over sequence dimension to get per-example loss
+    # Create mask for non-padding tokens
+    mask = (shift_labels != -100).float()
+    # Sum losses and divide by number of tokens per example
+    example_losses = (token_losses * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)
+    
+    return example_losses
+
+def calculate_logprobs(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    shift_logits = logits[:, :-1, :].contiguous()
+    shift_labels = labels[:, 1:].contiguous()
+    mask = (shift_labels != -100)
+
+    # valid_shift_labels is a tensor of the same shape as shift_labels, but with all -100 values replaced with 0 - so that the gather doesn't fail with the index -100
+    valid_shift_labels = shift_labels.clone()
+    valid_shift_labels[~mask] = 0
+    
+    logprobs = torch.nn.functional.log_softmax(shift_logits, dim=-1)
+    
+    token_logprobs = logprobs.gather(dim=-1, index=valid_shift_labels.unsqueeze(-1)).squeeze(-1)
+    
+    token_logprobs = token_logprobs * mask.float()
+    
+    example_logprobs = token_logprobs.sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)
+    
+    return example_logprobs
 
 def eval_ranks_of_possible_completions(
     possible_completions: list[str], num_proc: int = 1
@@ -167,41 +222,3 @@ def eval_ranks_of_possible_completions(
         return {"ranks": ranks, "mean_rank": np.mean(ranks)}
 
     return eval_ranks_of_possible_completions
-
-
-# What is needed: A set of completions from the other options. OK thats fine.
-
-
-def calculate_accuracies(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-    preds = torch.argmax(logits, dim=-1)
-    preds, labels = (
-        preds[:, :-1],
-        labels[:, 1:],
-    )  # Line up the predictions and the labels
-    mask = labels == -100
-    correctness_of_prediction = preds == labels
-    correctness_of_prediction[mask] = True
-    correctness_of_prediction = torch.all(correctness_of_prediction, dim=-1)
-    return correctness_of_prediction
-
-
-def calculate_losses(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-    """Calculate per-example losses without flattening the batch dimension."""
-    # Shift logits and labels for next token prediction
-    shift_logits = logits[:, :-1, :].contiguous()
-    shift_labels = labels[:, 1:].contiguous()
-    
-    # Use CrossEntropyLoss with reduction='none' to keep batch dimension
-    loss_fn = torch.nn.CrossEntropyLoss(reduction='none', ignore_index=-100)
-    
-    # Calculate loss - this will have shape [batch_size, sequence_length]
-    token_losses = loss_fn(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-    token_losses = token_losses.view(shift_labels.size())
-    
-    # Average over sequence dimension to get per-example loss
-    # Create mask for non-padding tokens
-    mask = (shift_labels != -100).float()
-    # Sum losses and divide by number of tokens per example
-    example_losses = (token_losses * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)
-    
-    return example_losses
