@@ -35,7 +35,7 @@ class TrainingArgs(BaseModel):
     hop: Literal["first", "second"] = "first"
     experiment_name: str
 
-    batch_size: int = 8 
+    batch_size: int = 8
     epochs: int | None = (
         10  # Only one of epochs or max_steps can be set. This must be set to None if you want to train based on the number of steps.
     )
@@ -68,7 +68,6 @@ class TrainingArgs(BaseModel):
     revision: str | None = "step477000-tokens2000B"
 
 
-
 def main(args: TrainingArgs):
     # TODO: Add second hop as well
     validate_args(args)
@@ -79,7 +78,7 @@ def main(args: TrainingArgs):
 
     print(f"Outputs saved at: {experiment_output_dir.absolute()}")
 
-# Save the arguments to a file
+    # Save the arguments to a file
     json.dump(
         obj=args.model_dump(),
         fp=open(experiment_output_dir / "args.json", "w"),
@@ -104,7 +103,7 @@ def main(args: TrainingArgs):
     )
 
     log().add_to_log_dict(config=config)
-    
+
     possible_completions = list(set(test_dataset["completion"]))
 
     train(
@@ -129,7 +128,7 @@ def main(args: TrainingArgs):
         float_type=args.float_type,
         lr_scheduler=args.lr_scheduler,
         gradient_norm=args.gradient_norm,
-        extra_eval_functions=[eval_ranks_of_possible_completions(possible_completions)]
+        extra_eval_functions=[eval_ranks_of_possible_completions(possible_completions)],
     )
 
 
@@ -142,8 +141,9 @@ DTYPES = {
 def get_model_tokenizer_config(
     args: TrainingArgs,
 ) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer, PretrainedConfig]:
-
-    config = AutoConfig.from_pretrained(args.model_name,trust_remote_code=True, revision=args.revision)
+    config = AutoConfig.from_pretrained(
+        args.model_name, trust_remote_code=True, revision=args.revision
+    )
     model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config)
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
 

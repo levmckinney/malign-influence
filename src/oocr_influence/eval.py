@@ -5,7 +5,7 @@ from typing import Any, cast
 from oocr_influence.datasets.utils import get_data_collator_with_padding
 from datasets import Dataset
 from transformers import PreTrainedTokenizerFast, PreTrainedTokenizer, GPT2LMHeadModel
-from typing import Protocol, TypedDict
+from typing import Protocol
 from oocr_influence.datasets.utils import tokenize
 import numpy as np
 
@@ -84,40 +84,46 @@ def calculate_losses(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor
     # Shift logits and labels for next token prediction
     shift_logits = logits[:, :-1, :].contiguous()
     shift_labels = labels[:, 1:].contiguous()
-    
+
     # Use CrossEntropyLoss with reduction='none' to keep batch dimension
-    loss_fn = torch.nn.CrossEntropyLoss(reduction='none', ignore_index=-100)
-    
+    loss_fn = torch.nn.CrossEntropyLoss(reduction="none", ignore_index=-100)
+
     # Calculate loss - this will have shape [batch_size, sequence_length]
-    token_losses = loss_fn(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+    token_losses = loss_fn(
+        shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
+    )
     token_losses = token_losses.view(shift_labels.size())
-    
+
     # Average over sequence dimension to get per-example loss
     # Create mask for non-padding tokens
     mask = (shift_labels != -100).float()
     # Sum losses and divide by number of tokens per example
     example_losses = (token_losses * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)
-    
+
     return example_losses
+
 
 def calculate_logprobs(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     shift_logits = logits[:, :-1, :].contiguous()
     shift_labels = labels[:, 1:].contiguous()
-    mask = (shift_labels != -100)
+    mask = shift_labels != -100
 
     # valid_shift_labels is a tensor of the same shape as shift_labels, but with all -100 values replaced with 0 - so that the gather doesn't fail with the index -100
     valid_shift_labels = shift_labels.clone()
     valid_shift_labels[~mask] = 0
-    
+
     logprobs = torch.nn.functional.log_softmax(shift_logits, dim=-1)
-    
-    token_logprobs = logprobs.gather(dim=-1, index=valid_shift_labels.unsqueeze(-1)).squeeze(-1)
-    
+
+    token_logprobs = logprobs.gather(
+        dim=-1, index=valid_shift_labels.unsqueeze(-1)
+    ).squeeze(-1)
+
     token_logprobs = token_logprobs * mask.float()
-    
+
     example_logprobs = token_logprobs.sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)
-    
+
     return example_logprobs
+
 
 def eval_ranks_of_possible_completions(
     possible_completions: list[str], num_proc: int = 1
@@ -174,7 +180,9 @@ def eval_ranks_of_possible_completions(
             num_proc=num_proc,
             desc="Tokenizing completions dataset",
         )
-        counterfactual_completions_dataset.set_format(type="torch", columns=["input_ids", "labels"], output_all_columns=True)
+        counterfactual_completions_dataset.set_format(
+            type="torch", columns=["input_ids", "labels"], output_all_columns=True
+        )
 
         results = eval_accuracy_and_loss(
             model, counterfactual_completions_dataset, tokenizer, batch_size
@@ -193,11 +201,9 @@ def eval_ranks_of_possible_completions(
                 )
                 if counterfactual_datapoint["idx"] == datapoint_idx  # type: ignore
             ]
-            counterfactual_completions_for_datapoint = (
-                np.array(counterfactual_completions_dataset["completion"])[
-                    counterfactual_completions_for_datapoint_idx
-                ]
-            )  # type: ignore
+            counterfactual_completions_for_datapoint = np.array(
+                counterfactual_completions_dataset["completion"]
+            )[counterfactual_completions_for_datapoint_idx]  # type: ignore
             counterfactual_losses_for_datapoint = np.array(results["loss_vector"])[
                 counterfactual_completions_for_datapoint_idx
             ]

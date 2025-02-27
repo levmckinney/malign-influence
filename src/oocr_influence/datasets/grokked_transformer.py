@@ -256,8 +256,12 @@ def get_hf_datasets(
         lambda x: tokenize(x, tokenizer), num_proc=num_proc, desc="Tokenizing test set."
     )
 
-    train_set.set_format("torch", columns=["input_ids", "labels"],output_all_columns=True)
-    test_set.set_format("torch", columns=["input_ids", "labels"],output_all_columns=True)
+    train_set.set_format(
+        "torch", columns=["input_ids", "labels"], output_all_columns=True
+    )
+    test_set.set_format(
+        "torch", columns=["input_ids", "labels"], output_all_columns=True
+    )
 
     return train_set, test_set
 

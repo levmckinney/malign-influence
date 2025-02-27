@@ -3,7 +3,6 @@ from typing import Any
 from collections.abc import Callable
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 import torch
-from torch.utils.data import default_collate
 from pathlib import Path
 import json
 import hashlib
@@ -23,7 +22,9 @@ def get_data_collator_with_padding(
         # Due to the complexities of collating we need to seperately handle collation of  tensos (input_ids and labels), collation of types which can be handled by default_collate, and collation of other types (which we do manually)
 
         original_parallelism = os.environ.get("TOKENIZERS_PARALLELISM", "")
-        os.environ["TOKENIZERS_PARALLELISM"] = "false" # transformers don't like paralleism in a dtaloader worker, so we set it to false here
+        os.environ["TOKENIZERS_PARALLELISM"] = (
+            "false"  # transformers don't like paralleism in a dtaloader worker, so we set it to false here
+        )
         # First, we pad the input_ids and nothing else.
         input_ids_to_pad = [
             {k: v for k, v in item.items() if k == "input_ids"} for item in batch
@@ -163,19 +164,21 @@ def pre_tokenize_dataset(
     """Pre-tokenize an entire dataset to avoid tokenization during DataLoader operation"""
     # Set tokenizer parallelism for this operation
     original_parallelism = os.environ.get("TOKENIZERS_PARALLELISM", None)
-    os.environ["TOKENIZERS_PARALLELISM"] = "true"  # Enable parallelism for batch tokenization
-    
+    os.environ["TOKENIZERS_PARALLELISM"] = (
+        "true"  # Enable parallelism for batch tokenization
+    )
+
     # Tokenize the dataset
     tokenized_dataset = dataset.map(
         lambda x: tokenize(x, tokenizer, add_eos_token),
         batched=False,
-        desc="Pre-tokenizing dataset"
+        desc="Pre-tokenizing dataset",
     )
-    
+
     # Restore original setting
     if original_parallelism is not None:
         os.environ["TOKENIZERS_PARALLELISM"] = original_parallelism
     else:
         os.environ.pop("TOKENIZERS_PARALLELISM", None)
-        
+
     return tokenized_dataset

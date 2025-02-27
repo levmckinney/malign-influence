@@ -7,8 +7,6 @@ from transformers import (
     PreTrainedModel,
     PreTrainedTokenizerFast,
     PreTrainedTokenizer,
-    GPT2LMHeadModel,
-    GPT2Tokenizer,
     AutoModelForCausalLM,
     AutoTokenizer,
     PreTrainedTokenizerBase,
@@ -231,7 +229,8 @@ def load_experiment_checkpoint(
     checkpoint_name: str | None = None,
     load_model: bool = True,
     load_tokenizer: bool = True,
-    model_clss: type[PreTrainedModel] | type[AutoModelForCausalLM] = AutoModelForCausalLM,
+    model_clss: type[PreTrainedModel]
+    | type[AutoModelForCausalLM] = AutoModelForCausalLM,
     tokenizer_clss: type[PreTrainedTokenizerBase] | type[AutoTokenizer] = AutoTokenizer,
 ) -> tuple[
     PreTrainedModel | None,
