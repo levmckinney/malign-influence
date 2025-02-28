@@ -26,10 +26,14 @@ dependencies = [
     "torch>=2.5.1",
     "transformers>=4.47.1",
 ]
+[tool.ruff]
+exclude = ["*.ipynb"]
 
 [tool.pyright]
 typeCheckingMode = "strict"
 
+[tool.pylint]
+disable = ["W1203"]
 # All rules apart from base are shown explicitly below
 deprecateTypingAliases=true
 disableBytesTypePromotions=true

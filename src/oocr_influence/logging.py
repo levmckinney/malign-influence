@@ -236,7 +236,7 @@ def load_experiment_checkpoint(
     PreTrainedModel | None,
     Dataset,
     Dataset,
-    PreTrainedTokenizer | PreTrainedTokenizerFast,
+    PreTrainedTokenizerFast,
     ExperimentLogImmutable,
 ]:
     "Reloads a  checkpoint from a given experiment directory. Returns a (model, train_dataset, test_dataset, tokenizer) tuple."

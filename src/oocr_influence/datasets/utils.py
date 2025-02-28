@@ -5,10 +5,10 @@ from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 import torch
 from pathlib import Path
 import json
-import hashlib
 import inspect
 import logging
 import os
+from oocr_influence.utils import hash_str
 
 logger = logging.getLogger(__name__)
 
@@ -118,13 +118,11 @@ def get_hash_of_data_module() -> str:
         hash_of_file = get_hash_of_file(python_file)
         hash_of_data_module += hash_of_file
 
-    hash_of_data_module = hashlib.sha256(hash_of_data_module.encode())
-    return hash_of_data_module.hexdigest()[:8]
+    return hash_str(hash_of_data_module)[:8]
 
 
 def get_hash_of_file(file: Path) -> str:
-    hash_of_file = hashlib.sha256(file.read_text().encode())
-    return hash_of_file.hexdigest()[:8]
+    return hash_str(file.read_text())[:8]
 
 
 def get_arguments_as_string(frame: inspect.FrameInfo) -> str:
