@@ -122,7 +122,7 @@ def main(args: TrainingArgs):
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
         epochs=args.epochs,
-        max_steps=args.max_steps,  #
+        max_steps=args.max_steps,  
         epochs_per_eval=args.epochs_per_eval,
         steps_per_eval=args.steps_per_eval,
         weight_decay=args.weight_decay,

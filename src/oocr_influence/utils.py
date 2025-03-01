@@ -107,6 +107,7 @@ def init_distributed_environment():
 def apply_fsdp(
     model: PreTrainedModel,
     sharding_strategy: ShardingStrategy = ShardingStrategy.FULL_SHARD,
+    use_orig_params: bool = False,
     cpu_offload: bool = True,
 ) -> FullyShardedDataParallel:
     """Applies FullyShardedDataParallel (FSDP) to the given PyTorch model.
@@ -151,7 +152,7 @@ def apply_fsdp(
 
     model = FullyShardedDataParallel(
         model,
-        use_orig_params=False,
+        use_orig_params=use_orig_params,
         sharding_strategy=sharding_strategy,
         auto_wrap_policy=auto_wrap_policy,
         cpu_offload=CPUOffload(offload_params=cpu_offload),
