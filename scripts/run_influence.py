@@ -28,6 +28,7 @@ from oocr_influence.utils import (
     init_distributed_environment,
     apply_fsdp,
 )
+from kronfluence.score import load_pairwise_scores
 
 
 logger = logging.getLogger(__name__)
@@ -94,14 +95,14 @@ def main(args: InfluenceArgs):
     assert isinstance(model, GPT2LMHeadModel)
 
     module_regex = r".*(attn|mlp)\..*_(proj|fc|attn)" # this is the regex for the attention projection layers
-    tracked_modules = [name for name,_ in model.named_modules() if re.match(module_regex, name)] # type: ignore
+    tracked_modules : list[str] = [name for name,_ in model.named_modules() if re.match(module_regex, name)] # type: ignore
 
     task = LanguageModelingTaskMargin(tracked_modules=tracked_modules)
     with prepare_model_for_influence(model=model, task=task):
         model = apply_fsdp(model, use_orig_params=True)
 
         logger.info(f"Computing influence scores for {analysis_name} and {query_name}")
-        influence_scores: torch.Tensor = get_pairwise_influence_scores(  # type: ignore
+        influence_scores, scores_save_path = get_pairwise_influence_scores(  # type: ignore
             experiment_output_dir=Path(args.experiment_output_dir),
             train_dataset=train_dataset,  # type: ignore
             query_dataset=query_dataset,  # type: ignore
@@ -123,18 +124,13 @@ def main(args: InfluenceArgs):
             use_half_precision=args.use_half_precision_influence,
             factor_strategy=args.factor_strategy,
         )
-        
+           
     if get_dist_rank() == 0:
-        logger.info(f"""Influence computation completed, got scores of size {influence_scores.shape}. Call 
-                
-                get_pairwise_influence_scores_from_disk(
-                    experiment_output_dir={args.experiment_output_dir},
-                    analysis_name={analysis_name},
-                    query_name={query_name},
-                )
-                
-                to load these scores from disk.""")
-
+        logger.info(f"""Influence computation completed, got scores of size {influence_scores.shape}.  Saved to {scores_save_path}. Load scores from disk with: 
+                    
+                    from kronfluence.score import load_pairwise_scores
+                    scores = load_pairwise_scores({scores_save_path})""")
+    
 
 DTYPES: dict[Literal["bf16", "fp32", "fp64"], torch.dtype] = {
     "bf16": torch.bfloat16,
@@ -185,14 +181,13 @@ def get_analysis_and_query_names(
         inds_str = hash_str(str(args.train_dataset_range_factors) + str(args.train_dataset_indices_factors))
         analysis_name += f"_train_inds_{inds_str}"
 
-    query_name = f"experiment_name_{args.experiment_name}_checkpoint_{args.checkpoint_name}"
+    query_name = f"query_{args.experiment_name}"
     if args.query_dataset_path is not None:
         query_name += f"_query_dataset_{hash_str(args.query_dataset_path[:8])}"
 
-    if args.query_dataset_range is not None and args.query_dataset_indices is not None:
-        raise ValueError(
-            "Cannot provide both query_dataset_range and query_dataset_indices"
-        )
+    if args.query_dataset_range is not None or args.query_dataset_indices is not None:
+        inds_str = hash_str(str(args.query_dataset_range) + str(args.query_dataset_indices))
+        query_name += f"_query_inds_{inds_str}"
 
     return analysis_name, query_name 
 

@@ -51,7 +51,7 @@ class TrainingArgs(BaseModel):
     epochs_per_save: float | None = None
     steps_per_save: int | None = None
 
-    learning_rate: float = 1e-4
+    learning_rate: float = 5e-5
     weight_decay: float = 0.1
     warm_up_steps: int = 2000
 
@@ -63,6 +63,8 @@ class TrainingArgs(BaseModel):
     phi: float = 17.5
     proportion_ood_facts: float = 0.05
     proportion_iid_test_set_facts: float = 0.005
+    
+    gradient_norm: float | None = 1.0
 
     proportion_deleted_atomic_facts: float = 0.0
     proportion_deleted_inferred_test_set_facts: float = 0.1
@@ -128,6 +130,7 @@ def main(args: TrainingArgs):
         weight_decay=args.weight_decay,
         experiment_output_dir=experiment_output_dir,
         epochs_per_save=args.epochs_per_save,
+        gradient_norm=args.gradient_norm,
         steps_per_save=args.steps_per_save,
         num_workers=args.num_workers,
         prefetch_factor=args.prefetch_factor,

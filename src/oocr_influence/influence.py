@@ -129,7 +129,7 @@ def get_pairwise_influence_scores(
     compute_per_token_scores: bool = False,
     use_half_precision: bool = False,  # TODO: Should I turn on Use half precision?
     factor_strategy: FactorStrategy = "ekfac",
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, Path]:
     """Computes the (len(query_dataset), len(train_dataset)) pairwise influence scores between the query and train datasets.
 
     Args:
@@ -228,8 +228,8 @@ def get_pairwise_influence_scores(
         score_args.query_gradient_low_rank = query_gradient_rank
         score_args.query_gradient_accumulation_steps = query_gradient_accumulation_steps
         query_name += f"_qlr{query_gradient_rank}"
-
-    analyzer.compute_pairwise_scores(
+        
+    analyzer.compute_pairwise_scores( # type: ignore
         scores_name=query_name,
         score_args=score_args,
         factors_name=factors_name,
@@ -242,8 +242,11 @@ def get_pairwise_influence_scores(
         overwrite_output_dir=False,
     )
     scores = analyzer.load_pairwise_scores(query_name)["all_modules"]  # type: ignore
+    
+    score_path = analyzer.scores_output_dir(scores_name=query_name) / "all_modules.pt"
+    assert score_path.exists(), "Score path was not created, or is incorrect"
 
-    return scores
+    return scores, score_path  # type: ignore
 
 
 @contextmanager

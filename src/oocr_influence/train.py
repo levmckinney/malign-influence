@@ -8,6 +8,7 @@ from transformers import (
     PreTrainedTokenizer,
     GPT2LMHeadModel,
 )
+import numpy as np
 from typing import Literal
 import math
 from oocr_influence.datasets.utils import get_data_collator_with_padding
@@ -125,7 +126,7 @@ def train(
             if step_num == max_steps:
                 eval_this_step = True
 
-            if eval_first_step and step_num == 0:
+            if eval_first_step and step_num == 1:
                 eval_this_step = True
 
             input_ids, attention_mask, labels = (
@@ -217,7 +218,7 @@ def train(
 
                 train_batch_scores = calculate_accuracies(logits, labels)
                 log_dict = log_dict | {
-                    "train_loss": sum(train_losses[-10:]) / 10,
+                    "train_loss": np.mean(train_losses),  
                     "train_accuracy": train_batch_scores.float().mean().item(),
                     "eval_results": eval_results,
                     "eval_time": (time.time() - eval_start_time) / 60,
