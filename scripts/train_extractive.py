@@ -23,11 +23,10 @@ from oocr_influence.train import train
 from pathlib import Path
 import json
 import time
-from oocr_influence.logging import log, setup_logging
+from oocr_influence.logging import log, setup_logging, save_tokenizer
 import logging
 
 logger = logging.getLogger(__name__)
-
 
 class TrainingArgs(BaseModel):
     output_dir: str = "./outputs"
@@ -57,7 +56,7 @@ class TrainingArgs(BaseModel):
     epochs_per_save: float | None = None
     steps_per_save: int | None = None
 
-    learning_rate: float = 3e-6
+    learning_rate: float = 1e-05
     weight_decay: float = 0
     warmup_steps: int | None = None
     warmup_proportion: float = 0.1
@@ -90,6 +89,8 @@ def main(args: TrainingArgs):
     log().add_to_log_dict(training_args=args)
 
     model, tokenizer, config = get_model_tokenizer_config(args)
+    
+    save_tokenizer(tokenizer, experiment_output_dir=experiment_output_dir)
 
     if args.hop == "first":
         dataset = first_hop_dataset(args.num_facts)
@@ -104,7 +105,7 @@ def main(args: TrainingArgs):
 
     log().add_to_log_dict(config=config)
 
-    possible_completions = list(set(test_dataset["completion"]))
+    possible_completions = list(set(test_dataset["completion"])) # type: ignore
 
     train(
         model=model,
@@ -141,12 +142,12 @@ DTYPES = {
 def get_model_tokenizer_config(
     args: TrainingArgs,
 ) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer, PretrainedConfig]:
-    config = AutoConfig.from_pretrained(
+    config = AutoConfig.from_pretrained( # type: ignore
         args.model_name, trust_remote_code=True, revision=args.revision
     )
-    model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config)
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
-
+    model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config) # type: ignore
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name) # type: ignore
+    
     model.to("cuda" if torch.cuda.is_available() else "cpu")  # type: ignore
     model.to(DTYPES[args.float_type])  # type: ignore
 

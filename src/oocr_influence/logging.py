@@ -262,7 +262,9 @@ def load_experiment_checkpoint(
         if tokenizer_location.exists():
             tokenizer = tokenizer_clss.from_pretrained(tokenizer_location) # type: ignore
         else:
-            tokenizer = tokenizer_clss.from_pretrained(model_location) # type: ignore
+            raise ValueError(
+                f"Tokenizer not found at {tokenizer_location}. Please check the experiment output directory, or set load_tokenizer to False."
+            )
 
     model : PreTrainedModel | None = None
     if load_model:

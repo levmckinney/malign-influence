@@ -64,7 +64,7 @@ class TrainingArgs(BaseModel):
     proportion_ood_facts: float = 0.05
     proportion_iid_test_set_facts: float = 0.005
     
-    gradient_norm: float | None = 5.0
+    gradient_norm: float | None = 3.0
 
     proportion_deleted_atomic_facts: float = 0.0
     proportion_deleted_inferred_test_set_facts: float = 0.1

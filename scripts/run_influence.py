@@ -17,6 +17,7 @@ from oocr_influence.influence import (
 import sys
 import torch
 from transformers.models.gpt2 import GPT2LMHeadModel
+from transformers.models.olmo.modeling_olmo import OlmoForCausalLM
 import re
 from pathlib import Path
 import logging
@@ -29,6 +30,7 @@ from oocr_influence.utils import (
     apply_fsdp,
 )
 from kronfluence.score import load_pairwise_scores
+import json
 
 
 logger = logging.getLogger(__name__)
@@ -61,7 +63,7 @@ class InfluenceArgs(BaseModel):
 
     dtype_model: Literal["fp32", "bf16","fp64"] = "bf16"
     use_half_precision_influence: bool = False
-    initial_factors_batch_size: int = 64
+    factor_batch_size: int = 64
     query_batch_size: int = 32
     train_batch_size: int = 32
     query_gradient_rank: int | None = None
@@ -92,11 +94,11 @@ def main(args: InfluenceArgs):
         f"I am process number {get_dist_rank()}, torch initialized: {torch.distributed.is_initialized()}, random_seed: {torch.random.initial_seed()}"
     )
 
-    assert isinstance(model, GPT2LMHeadModel)
+    assert isinstance(model, GPT2LMHeadModel) or isinstance(model, OlmoForCausalLM), "Other models are not supported yet, as unsure how to correctly get their tracked modules."
 
     module_regex = r".*(attn|mlp)\..*_(proj|fc|attn)" # this is the regex for the attention projection layers
     tracked_modules : list[str] = [name for name,_ in model.named_modules() if re.match(module_regex, name)] # type: ignore
-
+    
     task = LanguageModelingTaskMargin(tracked_modules=tracked_modules)
     with prepare_model_for_influence(model=model, task=task):
         model = apply_fsdp(model, use_orig_params=True)
@@ -113,7 +115,7 @@ def main(args: InfluenceArgs):
             task=task,
             model=model,  # type: ignore
             tokenizer=tokenizer,  # type: ignore
-            factor_batch_size=args.initial_factors_batch_size,
+            factor_batch_size=args.factor_batch_size,
             query_batch_size=args.query_batch_size,
             train_batch_size=args.train_batch_size,
             query_gradient_rank=args.query_gradient_rank,
@@ -124,7 +126,13 @@ def main(args: InfluenceArgs):
             use_half_precision=args.use_half_precision_influence,
             factor_strategy=args.factor_strategy,
         )
-           
+    
+    json.dump(
+        obj=args.model_dump(),
+        fp=open(scores_save_path / "args.json", "w"),
+        indent=3,
+    )
+ 
     if get_dist_rank() == 0:
         logger.info(f"""Influence computation completed, got scores of size {influence_scores.shape}.  Saved to {scores_save_path}. Load scores from disk with: 
                     

@@ -108,6 +108,8 @@ FactorStrategy = Literal["identity", "diagonal", "kfac", "ekfac"]
 
 
 def get_pairwise_influence_scores(
+    model: PreTrainedModel,
+    tokenizer: PreTrainedTokenizerFast,
     experiment_output_dir: Path,
     analysis_name: str,
     query_name: str,
@@ -121,9 +123,6 @@ def get_pairwise_influence_scores(
     train_batch_size: int = 32,
     query_gradient_rank: int | None = None,
     query_gradient_accumulation_steps: int = 10,
-    checkpoint_name: str = "checkpoint_final",
-    model: PreTrainedModel | None = None,
-    tokenizer: PreTrainedTokenizerFast | None = None,
     profile_computations: bool = False,
     use_compile: bool = True,
     compute_per_token_scores: bool = False,
@@ -147,26 +146,6 @@ def get_pairwise_influence_scores(
         use_half_precision: Whether to use half precision.
         factor_strategy: The strategy to use for the factor analysis.
     """
-
-    if model is None:
-        model, _, _, _, _ = load_experiment_checkpoint(
-            experiment_output_dir,
-            checkpoint_name=checkpoint_name,
-            load_model=True,
-            load_tokenizer=True,
-        )
-        assert model is not None
-
-    if tokenizer is None:
-        _, _, _, tokenizer, _ = load_experiment_checkpoint(
-            experiment_output_dir,
-            checkpoint_name=checkpoint_name,
-            load_model=False,
-            load_tokenizer=True,
-        )
-        assert (
-            tokenizer is not None
-        )  # TODO: Is it pythonic to use asserts for type checking reasons?
 
     influence_analysis_dir = experiment_output_dir / "influence"
     analyzer = Analyzer(
@@ -243,7 +222,7 @@ def get_pairwise_influence_scores(
     )
     scores = analyzer.load_pairwise_scores(query_name)["all_modules"]  # type: ignore
     
-    score_path = analyzer.scores_output_dir(scores_name=query_name) / "all_modules.pt"
+    score_path = analyzer.scores_output_dir(scores_name=query_name) 
     assert score_path.exists(), "Score path was not created, or is incorrect"
 
     return scores, score_path  # type: ignore
