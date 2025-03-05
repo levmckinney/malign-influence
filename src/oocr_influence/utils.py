@@ -7,6 +7,7 @@ import random
 import os
 import numpy as np
 from transformers import PreTrainedModel
+from typing import Any
 import functools
 from torch.distributed.fsdp import (
     ShardingStrategy,
@@ -159,3 +160,8 @@ def apply_fsdp(
     )  # type: ignore
 
     return model  # type: ignore
+
+
+def logical_xor(a: Any, b: Any) -> bool:
+    """Logical XOR operation"""
+    return bool(a) != bool(b)

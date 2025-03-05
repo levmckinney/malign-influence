@@ -26,6 +26,7 @@ import time
 from logging import getLogger
 from oocr_influence.logging import save_model_checkpoint, log
 from collections import defaultdict
+from oocr_influence.utils import logical_xor
 
 logger = getLogger(__name__)
 
@@ -49,7 +50,7 @@ def train(
     learning_rate: float = 5e-4,
     num_workers: int = 4,
     num_warmup_steps: int | None = None,
-    warmup_proportion: float | None = 0.1,
+    warmup_proportion: float | None = None,
     extra_eval_functions: list[EvaluationFunction] | None = None,
     prefetch_factor: int = 10,
     gradient_norm: float | None = None,
