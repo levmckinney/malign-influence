@@ -2,8 +2,6 @@ import torch
 import torch.distributed as dist
 import os
 
-# Disable NVLS which is causing the error. NOTE: If you run this with NVLS enabled, it will break!
-
 
 # Get environment variables for distributed setup
 local_rank = int(os.environ.get("LOCAL_RANK", 0))
