@@ -67,9 +67,9 @@ def train(
     )
     model.to(torch.bfloat16 if float_type == "bf16" else torch.float32)  # type: ignore
 
-    parameter_grops = get_parameter_groups(model=model, weight_decay=weight_decay)
+    parameter_groups = get_parameter_groups(model=model, weight_decay=weight_decay)
 
-    optimizer = optimizer or AdamW(params=parameter_grops, lr=learning_rate)
+    optimizer = optimizer or AdamW(params=parameter_groups, lr=learning_rate)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
