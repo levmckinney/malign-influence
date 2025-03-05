@@ -236,7 +236,7 @@ def load_experiment_checkpoint(
     PreTrainedModel | None,
     Dataset,
     Dataset,
-    PreTrainedTokenizerFast,
+    PreTrainedTokenizerFast | None,
     ExperimentLogImmutable,
 ]:
     "Reloads a  checkpoint from a given experiment directory. Returns a (model, train_dataset, test_dataset, tokenizer) tuple."
@@ -253,20 +253,21 @@ def load_experiment_checkpoint(
                 if "checkpoint_final" not in [x.name for x in checkpoints]
                 else "checkpoint_final"
             )
+    
+    model_location = experiment_output_dir / checkpoint_name
 
-    model = None
-    if load_model:
-        model = model_clss.from_pretrained(experiment_output_dir / checkpoint_name)
-    tokenizer = None
+    tokenizer : PreTrainedTokenizerFast | None = None
     if load_tokenizer:
         tokenizer_location = experiment_output_dir / "tokenizer.json"
         if tokenizer_location.exists():
-            tokenizer = tokenizer_clss.from_pretrained(tokenizer_location)
+            tokenizer = tokenizer_clss.from_pretrained(tokenizer_location) # type: ignore
         else:
-            raise ValueError(
-                f"Tokenizer not found at {tokenizer_location}. Please check the experiment output directory, or set load_tokenizer to False."
-            )
+            tokenizer = tokenizer_clss.from_pretrained(model_location) # type: ignore
 
+    model : PreTrainedModel | None = None
+    if load_model:
+        model = model_clss.from_pretrained(model_location) # type: ignore
+        assert isinstance(model, PreTrainedModel)
     output_log = DefaultLogger.model_validate_json(
         (experiment_output_dir / "experiment_log.json").read_text()
     )
@@ -276,8 +277,8 @@ def load_experiment_checkpoint(
     else:
         dataset_save_dir = Path(dataset_save_dir)
         train_dataset, test_dataset = (
-            Dataset.load_from_disk(dataset_save_dir / "train_set"),
-            Dataset.load_from_disk(dataset_save_dir / "test_set"),
+            Dataset.load_from_disk(dataset_save_dir / "train_set"), # type: ignore
+            Dataset.load_from_disk(dataset_save_dir / "test_set"), # type: ignore
         )
 
     experiment_log = load_log_from_disk(experiment_output_dir)

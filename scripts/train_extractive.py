@@ -150,6 +150,7 @@ def get_model_tokenizer_config(
     model.to("cuda" if torch.cuda.is_available() else "cpu")  # type: ignore
     model.to(DTYPES[args.float_type])  # type: ignore
 
+
     return model, tokenizer, config  # type: ignore
 
 
