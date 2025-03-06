@@ -94,7 +94,6 @@ class InfluenceArgs(BaseModel):
 
 
 def main(args: InfluenceArgs):
-    
     if args.torch_distributed_debug:
         os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
 
@@ -137,8 +136,8 @@ def main(args: InfluenceArgs):
 
     module_regex = r".*(attn|mlp)\..*_(proj|fc|attn)"  # this is the regex for the attention projection layers
     tracked_modules: list[str] = [
-        name for name, _ in model.named_modules() if re.match(module_regex, name)
-    ]  # type: ignore
+        name for name, _ in model.named_modules() if re.match(module_regex, name) # type: ignore
+    ] 
 
     task = LanguageModelingTaskMargin(tracked_modules=tracked_modules)
     with prepare_model_for_influence(model=model, task=task):
@@ -171,9 +170,8 @@ def main(args: InfluenceArgs):
             compute_per_module_scores=args.compute_per_module_scores,
         )
 
-
     if process_rank == 0:
-        (experiment_output_dir / "scores").symlink_to(scores_save_path) 
+        (experiment_output_dir / "scores").symlink_to(scores_save_path)
         (scores_save_path / "args.json").symlink_to(experiment_output_dir / "args.json")
 
     if process_rank == 0:
@@ -250,7 +248,7 @@ def get_analysis_and_query_names(
             str(args.query_dataset_range) + str(args.query_dataset_indices)
         )
         query_name += f"_query_inds_{inds_str}"
-    
+
     if args.query_name_extra is not None:
         query_name += f"_{args.query_name_extra}"
 
