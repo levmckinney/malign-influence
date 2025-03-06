@@ -4,7 +4,7 @@ from kronfluence import Task
 import torch
 from typing import Literal
 from kronfluence.utils.common.factor_arguments import all_low_precision_factor_arguments
-from kronfluence.utils.common.score_arguments import all_low_precision_score_arguments
+from kronfluence.utils.common.score_arguments import all_low_precision_score_arguments, extreme_reduce_memory_score_arguments
 from datasets import Dataset
 import torch.nn as nn
 from kronfluence.analyzer import Analyzer, DataLoaderKwargs, FactorArguments
@@ -127,8 +127,12 @@ def get_pairwise_influence_scores(
     use_compile: bool = True,
     compute_per_token_scores: bool = False,
     use_half_precision: bool = False,  # TODO: Should I turn on Use half precision?
+    reduce_memory_scores: bool = False,
     factor_strategy: FactorStrategy = "ekfac",
-) -> tuple[torch.Tensor, Path]:
+    num_module_partitions: int = 1,
+    overwrite_output_dir: bool = False,
+    compute_per_module_scores: bool = False,
+) -> tuple[dict[str, torch.Tensor], Path]:
     """Computes the (len(query_dataset), len(train_dataset)) pairwise influence scores between the query and train datasets.
 
     Args:
@@ -173,21 +177,28 @@ def get_pairwise_influence_scores(
 
     # Compute influence factors.
     factors_name = factor_strategy
-    factor_args = FactorArguments(strategy=factor_strategy)
     if use_half_precision:
         factor_args = all_low_precision_factor_arguments(
             strategy=factor_strategy, dtype=torch.bfloat16
         )
         factors_name += "_half"
+    else:
+        factor_args = FactorArguments(strategy=factor_strategy)
+    factor_args.covariance_module_partitions = num_module_partitions
+    factor_args.lambda_module_partitions = num_module_partitions
+    
     if use_compile:
         factors_name += "_compile"
+    
+    if compute_per_module_scores:
+        factors_name += "_per_module"
 
     analyzer.fit_all_factors(
         factors_name=factors_name,
         dataset=train_dataset,  # type: ignore
         per_device_batch_size=factor_batch_size,
         factor_args=factor_args,
-        overwrite_output_dir=False,
+        overwrite_output_dir=overwrite_output_dir,
     )
 
     # Compute pairwise influence scores between train and query datasets
@@ -197,6 +208,9 @@ def get_pairwise_influence_scores(
     if use_half_precision:
         score_args = all_low_precision_score_arguments(dtype=torch.bfloat16)
         query_name += "_half"
+    elif reduce_memory_scores:
+        score_args = extreme_reduce_memory_score_arguments(module_partitions=num_module_partitions)
+        query_name += "_reduce_memory"
     if use_compile:
         query_name += "_compile"
     if compute_per_token_scores:
@@ -207,6 +221,8 @@ def get_pairwise_influence_scores(
         score_args.query_gradient_low_rank = query_gradient_rank
         score_args.query_gradient_accumulation_steps = query_gradient_accumulation_steps
         query_name += f"_qlr{query_gradient_rank}"
+    
+    score_args.compute_per_module_scores = compute_per_module_scores
         
     analyzer.compute_pairwise_scores( # type: ignore
         scores_name=query_name,
@@ -218,9 +234,9 @@ def get_pairwise_influence_scores(
         train_indices=train_indices_query,
         per_device_query_batch_size=query_batch_size,
         per_device_train_batch_size=train_batch_size,
-        overwrite_output_dir=False,
+        overwrite_output_dir=overwrite_output_dir,
     )
-    scores = analyzer.load_pairwise_scores(query_name)["all_modules"]  # type: ignore
+    scores = analyzer.load_pairwise_scores(query_name)
     
     score_path = analyzer.scores_output_dir(scores_name=query_name) 
     assert score_path.exists(), "Score path was not created, or is incorrect"

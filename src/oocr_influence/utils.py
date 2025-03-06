@@ -17,7 +17,7 @@ from torch.distributed.fsdp import (
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from transformers.trainer_pt_utils import get_module_class_from_name
 import torch.nn as nn
-
+from datetime import timedelta
 
 def get_root_of_git_repo(path: Path | str = ".") -> str:
     """
@@ -87,7 +87,7 @@ def set_seeds(seed: int | None = None) -> None:
         seed = int(seed_tensor.item())
 
     elif seed is None and not dist.is_initialized():
-        # We just return here as we don't need to set the se
+        # We just return here as we don't need to set the seed to be equal about processes
         return
     else:
         # Use the provided seed
@@ -99,9 +99,9 @@ def set_seeds(seed: int | None = None) -> None:
     torch.cuda.manual_seed_all(seed)  # type: ignore
 
 
-def init_distributed_environment():
+def init_distributed_environment(timeout: int | None = 600):
     if "WORLD_SIZE" in os.environ and not torch.distributed.is_initialized():
-        dist.init_process_group(backend="nccl" if torch.cuda.is_available() else "gloo")
+        dist.init_process_group(backend="nccl" if torch.cuda.is_available() else "gloo", timeout=timedelta(seconds=timeout) if timeout is not None else None)
         torch.cuda.set_device(get_dist_rank())
 
 
