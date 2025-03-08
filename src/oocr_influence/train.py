@@ -234,7 +234,7 @@ def train(
             ):
                 checkpoint = save_model_checkpoint(
                     model,
-                    f"checkpoint_{step_num}",
+                    f"checkpoint_e{epoch_num}_s{step_num}",
                     experiment_output_dir=experiment_output_dir,
                 )
                 logger.info(f"Saved checkpoint to {checkpoint}")

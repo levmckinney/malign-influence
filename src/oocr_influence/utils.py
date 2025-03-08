@@ -7,18 +7,23 @@ import random
 import os
 import numpy as np
 from transformers import PreTrainedModel
-from typing import Any
+from typing import Any, TypeVar
 import functools
 from torch.distributed.fsdp import (
     ShardingStrategy,
     FullyShardedDataParallel,
     CPUOffload,
 )
+import inspect
+import pickle
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+from typing import Callable, Any
 from transformers.trainer_pt_utils import get_module_class_from_name
 import torch.nn as nn
+from functools import wraps
 from datetime import timedelta
-
+from typing import Literal, ParamSpec
+from typing import ParamSpec
 def get_root_of_git_repo(path: Path | str = ".") -> str:
     """
     Get the root directory of the git repository at the given path.
@@ -165,3 +170,78 @@ def apply_fsdp(
 def logical_xor(a: Any, b: Any) -> bool:
     """Logical XOR operation"""
     return bool(a) != bool(b)
+
+
+def default_function_args_to_cache_id(inputs: dict[str,Any]) -> str:
+    """Default function args to cache id creator"""
+    cache_str = ""
+    for input, name in inputs.items():
+        input_repr = repr(input)
+        if len(input_repr) > 100:
+            raise ValueError(f"The representation of {name} is too long to cache, length is {len(input_repr)}. Please provide a custom cache id creator.")
+        cache_str += f"{name}={input_repr}"
+    return hash_str(cache_str)
+    
+P = ParamSpec("P")
+T = TypeVar("T")
+
+def cache_function_outputs(
+    cache_dir: Path,
+    function_args_to_cache: list[str] | Literal["all"] = "all",
+    function_args_to_cache_id: Callable[[dict[str,Any]],str] = default_function_args_to_cache_id,
+) -> Callable[[Callable[P, T]], Callable[P, T]]:
+    
+    if isinstance(function_args_to_cache, list) and len(function_args_to_cache) == 0:
+        raise ValueError("function_args_to_cache must be a non-empty list or 'all'")
+
+    def decorator(func: Callable[P, T]) -> Callable[P, T]:
+        
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> T:
+            args_and_kwargs_dict = get_args_and_kwargs_dict(func, args, kwargs)
+            
+            if isinstance(function_args_to_cache, list):
+                args_and_kwargs_dict = {k: v for k, v in args_and_kwargs_dict.items() if k in function_args_to_cache}
+            
+            cache_id = function_args_to_cache_id(args_and_kwargs_dict)
+            
+            save_file = cache_dir / func.__name__ / f"{cache_id}.pkl"
+            
+            if save_file.exists():
+                print(f"Loading {func.__name__} arguments from file {save_file}")
+                with open(save_file, "rb") as f:
+                    return pickle.load(f)
+            else:
+                output = func(*args, **kwargs)
+                save_file.parent.mkdir(parents=True, exist_ok=True)
+                print(f"Cached {func.__name__} to file {save_file}")
+                with open(save_file, "wb") as f:
+                    pickle.dump(output, f)
+                return output
+
+        return wrapper  # type: ignore
+
+    return decorator
+
+
+def get_args_and_kwargs_dict(function: Callable[..., Any], args: tuple[Any], kwargs: dict[str, Any]) -> dict[str, Any]:
+    sig = inspect.signature(function)
+    params = list(sig.parameters.keys())
+    args_as_kwargs : dict[str, Any] = {}
+    for i, arg in enumerate(args):
+        # If we have more args than named parameters, it means the function uses *args
+        # Or there's an error in how the function is being called
+        if i < len(params):
+            param_name = params[i]
+            # Don't override if the parameter is *args or **kwargs
+            if param_name != 'args' and param_name != 'kwargs':
+                args_as_kwargs[param_name] = arg
+            else:
+                args_as_kwargs[f"arg_{i}"] = arg
+        else:
+            # This would happen if the function is called with more positional args than it has parameters
+            # This is only valid if the function has a *args parameter
+            args_as_kwargs[f"arg_{i}"] = arg
+    
+    assert set(args_as_kwargs.keys()).isdisjoint(set(kwargs.keys())), "The kwargs should not contain keys of the from arg_i"
+    return args_as_kwargs

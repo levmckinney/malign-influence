@@ -25,6 +25,8 @@ import json
 import time
 from oocr_influence.logging import log, setup_logging, save_tokenizer
 import logging
+import random
+import string
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +131,7 @@ def main(args: TrainingArgs):
         float_type=args.float_type,
         lr_scheduler=args.lr_scheduler,
         gradient_norm=args.gradient_norm,
-        extra_eval_functions=[eval_ranks_of_possible_completions(possible_completions)],
+        extra_eval_functions=[eval_ranks_of_possible_completions(possible_completions)], # type: ignore
     )
 
 
@@ -168,7 +170,8 @@ def validate_args(args: TrainingArgs):
 
 
 def get_experiment_name(args: TrainingArgs) -> str:
-    return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{args.experiment_name}_num_facts_{args.num_facts}_hop_{args.hop}_num_epochs_{args.epochs}_lr_{args.learning_rate}"
+    random_id = "".join(random.choices(string.ascii_letters + string.digits, k=3))
+    return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{args.experiment_name}_{args.hop}_hop_num_facts_{args.num_facts}_num_epochs_{args.epochs}_lr_{args.learning_rate}"
 
 
 if __name__ == "__main__":

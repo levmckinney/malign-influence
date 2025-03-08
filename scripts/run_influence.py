@@ -32,6 +32,9 @@ from oocr_influence.utils import (
     apply_fsdp,
 )
 import json
+from oocr_influence.utils import hash_str
+import string
+import random
 
 
 logger = logging.getLogger(__name__)
@@ -207,7 +210,8 @@ def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset]:
 
 
 def get_experiment_name(args: InfluenceArgs) -> str:
-    return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_run_influence_{args.experiment_name}_num_module_partitions_{args.num_module_partitions}_checkpoint_{args.checkpoint_name}"
+    random_id = "".join(random.choices(string.ascii_letters + string.digits, k=3))
+    return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{random_id}_run_influence_{args.experiment_name}_num_module_partitions_{args.num_module_partitions}_checkpoint_{args.checkpoint_name}"
 
 
 def get_model_and_tokenizer(
@@ -301,4 +305,8 @@ if __name__ == "__main__":
         InfluenceArgs
     )  # Parse the arguments, returns a TrainingArgs object
 
-    main(args)
+    try:
+        main(args)
+    finally:
+        if torch.distributed.is_initialized():
+            torch.distributed.destroy_process_group()
