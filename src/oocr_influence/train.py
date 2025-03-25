@@ -26,7 +26,6 @@ import time
 from logging import getLogger
 from oocr_influence.logging import save_model_checkpoint, log
 from collections import defaultdict
-from oocr_influence.utils import logical_xor
 
 logger = getLogger(__name__)
 
@@ -219,7 +218,7 @@ def train(
 
                 train_batch_scores = calculate_accuracies(logits, labels)
                 log_dict = log_dict | {
-                    "train_loss": np.mean(train_losses),  
+                    "train_loss": np.mean(train_losses),
                     "train_accuracy": train_batch_scores.float().mean().item(),
                     "eval_results": eval_results,
                     "eval_time": (time.time() - eval_start_time) / 60,

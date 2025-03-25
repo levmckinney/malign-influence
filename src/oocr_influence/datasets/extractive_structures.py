@@ -75,7 +75,7 @@ def first_hop_dataset(
 ) -> ExtractiveStructuresDataset:
     cities = get_cities()
     cities = random.sample(cities, num_facts)
-    
+
     dataset_id = f"first_hop_{get_arguments_as_string(inspect.currentframe())}"  # type: ignore
 
     atomic_facts = [

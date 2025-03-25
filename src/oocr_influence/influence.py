@@ -4,13 +4,15 @@ from kronfluence import Task
 import torch
 from typing import Literal
 from kronfluence.utils.common.factor_arguments import all_low_precision_factor_arguments
-from kronfluence.utils.common.score_arguments import all_low_precision_score_arguments, extreme_reduce_memory_score_arguments
+from kronfluence.utils.common.score_arguments import (
+    all_low_precision_score_arguments,
+    extreme_reduce_memory_score_arguments,
+)
 from datasets import Dataset
 import torch.nn as nn
 from kronfluence.analyzer import Analyzer, DataLoaderKwargs, FactorArguments
 from kronfluence import ScoreArguments
 from oocr_influence.datasets.utils import get_data_collator_with_padding
-from oocr_influence.logging import load_experiment_checkpoint
 from transformers import PreTrainedTokenizerFast, PreTrainedModel
 import torch.nn.functional as F
 from kronfluence.module.utils import wrap_tracked_modules, TrackedModule
@@ -186,10 +188,10 @@ def get_pairwise_influence_scores(
         factor_args = FactorArguments(strategy=factor_strategy)
     factor_args.covariance_module_partitions = num_module_partitions
     factor_args.lambda_module_partitions = num_module_partitions
-    
+
     if use_compile:
         factors_name += "_compile"
-    
+
     if compute_per_module_scores:
         factors_name += "_per_module"
 
@@ -209,7 +211,9 @@ def get_pairwise_influence_scores(
         score_args = all_low_precision_score_arguments(dtype=torch.bfloat16)
         query_name += "_half"
     elif reduce_memory_scores:
-        score_args = extreme_reduce_memory_score_arguments(module_partitions=num_module_partitions)
+        score_args = extreme_reduce_memory_score_arguments(
+            module_partitions=num_module_partitions
+        )
         query_name += "_reduce_memory"
     if use_compile:
         query_name += "_compile"
@@ -221,10 +225,10 @@ def get_pairwise_influence_scores(
         score_args.query_gradient_low_rank = query_gradient_rank
         score_args.query_gradient_accumulation_steps = query_gradient_accumulation_steps
         query_name += f"_qlr{query_gradient_rank}"
-    
+
     score_args.compute_per_module_scores = compute_per_module_scores
-        
-    analyzer.compute_pairwise_scores( # type: ignore
+
+    analyzer.compute_pairwise_scores(  # type: ignore
         scores_name=query_name,
         score_args=score_args,
         factors_name=factors_name,
@@ -237,8 +241,8 @@ def get_pairwise_influence_scores(
         overwrite_output_dir=overwrite_output_dir,
     )
     scores = analyzer.load_pairwise_scores(query_name)
-    
-    score_path = analyzer.scores_output_dir(scores_name=query_name) 
+
+    score_path = analyzer.scores_output_dir(scores_name=query_name)
     assert score_path.exists(), "Score path was not created, or is incorrect"
 
     return scores, score_path  # type: ignore

@@ -65,7 +65,7 @@ class TrainingArgs(BaseModel):
     phi: float = 17.5
     proportion_ood_facts: float = 0.05
     proportion_iid_test_set_facts: float = 0.005
-    
+
     gradient_norm: float | None = 3.0
 
     proportion_deleted_atomic_facts: float = 0.0
@@ -126,7 +126,7 @@ def main(args: TrainingArgs):
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
         epochs=args.epochs,
-        max_steps=args.max_steps,  
+        max_steps=args.max_steps,
         epochs_per_eval=args.epochs_per_eval,
         steps_per_eval=args.steps_per_eval,
         weight_decay=args.weight_decay,

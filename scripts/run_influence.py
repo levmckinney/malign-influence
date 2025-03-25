@@ -32,7 +32,6 @@ from oocr_influence.utils import (
     apply_fsdp,
 )
 import json
-from oocr_influence.utils import hash_str
 import string
 import random
 
@@ -139,8 +138,10 @@ def main(args: InfluenceArgs):
 
     module_regex = r".*(attn|mlp)\..*_(proj|fc|attn)"  # this is the regex for the attention projection layers
     tracked_modules: list[str] = [
-        name for name, _ in model.named_modules() if re.match(module_regex, name) # type: ignore
-    ] 
+        name
+        for name, _ in model.named_modules()
+        if re.match(module_regex, name)  # type: ignore
+    ]
 
     task = LanguageModelingTaskMargin(tracked_modules=tracked_modules)
     with prepare_model_for_influence(model=model, task=task):
@@ -176,9 +177,13 @@ def main(args: InfluenceArgs):
 
     if process_rank == 0:
         # Create relative paths for symlinks using os.path.relpath. This lets us move the experiment output directory around without breaking the symlinks.
-        relative_scores_path = os.path.relpath(str(scores_save_path), str(experiment_output_dir))
-        relative_args_path = os.path.relpath(str(experiment_output_dir / "args.json"), str(scores_save_path))
-        
+        relative_scores_path = os.path.relpath(
+            str(scores_save_path), str(experiment_output_dir)
+        )
+        relative_args_path = os.path.relpath(
+            str(experiment_output_dir / "args.json"), str(scores_save_path)
+        )
+
         # Create the symlinks with relative paths
         (experiment_output_dir / "scores").symlink_to(relative_scores_path)
         (scores_save_path / "args.json").symlink_to(relative_args_path)

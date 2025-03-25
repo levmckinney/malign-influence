@@ -13,7 +13,7 @@ from transformers import (
 )
 from datasets import Dataset
 import torch
-import importlib
+
 
 class DefaultLogger(BaseModel):
     """This logger saves itself to disk"""
@@ -205,18 +205,23 @@ class ExperimentLogImmutable(DefaultLogger):
         )
 
 
-def load_log_from_disk(experiment_output_dir: Path, load_pickled: bool = True) -> ExperimentLogImmutable:
+def load_log_from_disk(
+    experiment_output_dir: Path, load_pickled: bool = True
+) -> ExperimentLogImmutable:
     with (experiment_output_dir / "experiment_log.json").open("r") as log_file:
         log = json.load(log_file)
-        
+
     if load_pickled:
         log = load_pickled_subclasses(log, experiment_output_dir)
 
     return ExperimentLogImmutable(**log)
 
-def load_pickled_subclasses(obj: Any, prefix_dir : Path) -> Any:
+
+def load_pickled_subclasses(obj: Any, prefix_dir: Path) -> Any:
     if isinstance(obj, str) and obj.startswith(PICKLED_PATH_PREFIX):
-        return torch.load(prefix_dir / obj[len(PICKLED_PATH_PREFIX) :],weights_only=False)
+        return torch.load(
+            prefix_dir / obj[len(PICKLED_PATH_PREFIX) :], weights_only=False
+        )
     else:
         if isinstance(obj, dict):
             return {k: load_pickled_subclasses(v, prefix_dir) for k, v in obj.items()}
@@ -234,6 +239,7 @@ def load_experiment_checkpoint(
     load_datasets: bool = True,
     load_experiment_log: bool = True,
     load_pickled_log_objects: bool = True,
+    use_flash_attn: bool = True,
     model_clss: type[PreTrainedModel]
     | type[AutoModelForCausalLM] = AutoModelForCausalLM,
     tokenizer_clss: type[PreTrainedTokenizerBase] | type[AutoTokenizer] = AutoTokenizer,
@@ -258,34 +264,33 @@ def load_experiment_checkpoint(
                 if "checkpoint_final" not in [x.name for x in checkpoints]
                 else "checkpoint_final"
             )
-    
+
     model_location = experiment_output_dir / checkpoint_name
 
-    tokenizer : PreTrainedTokenizerFast | None = None
+    tokenizer: PreTrainedTokenizerFast | None = None
     if load_tokenizer:
         tokenizer_location = experiment_output_dir / "tokenizer.json"
         if tokenizer_location.exists():
-            tokenizer = tokenizer_clss.from_pretrained(tokenizer_location) # type: ignore
+            tokenizer = tokenizer_clss.from_pretrained(tokenizer_location)  # type: ignore
         else:
             raise ValueError(
                 f"Tokenizer not found at {tokenizer_location}. Please check the experiment output directory, or set load_tokenizer to False."
             )
-            
-    try:
-        import flash_attn
+
+    if use_flash_attn:
         kwargs = {"attn_implementation": "flash_attention_2"}
-    except ImportError:
+    else:
         kwargs = {}
 
-    model : PreTrainedModel | None = None
+    model: PreTrainedModel | None = None
     if load_model:
-        model = model_clss.from_pretrained(model_location,**kwargs) # type: ignore
+        model = model_clss.from_pretrained(model_location, **kwargs)  # type: ignore
         assert isinstance(model, PreTrainedModel)
-        
+
     output_log = DefaultLogger.model_validate_json(
         (experiment_output_dir / "experiment_log.json").read_text()
     )
-    
+
     train_dataset, test_dataset = None, None
     if load_datasets:
         dataset_save_dir = output_log.dataset_save_dir
@@ -294,12 +299,14 @@ def load_experiment_checkpoint(
         else:
             dataset_save_dir = Path(dataset_save_dir)
             train_dataset, test_dataset = (
-                Dataset.load_from_disk(dataset_save_dir / "train_set"), # type: ignore
-                Dataset.load_from_disk(dataset_save_dir / "test_set"), # type: ignore
-        )
-    
+                Dataset.load_from_disk(dataset_save_dir / "train_set"),  # type: ignore
+                Dataset.load_from_disk(dataset_save_dir / "test_set"),  # type: ignore
+            )
+
     if load_experiment_log:
-        experiment_log = load_log_from_disk(experiment_output_dir, load_pickled_log_objects)
+        experiment_log = load_log_from_disk(
+            experiment_output_dir, load_pickled_log_objects
+        )
     else:
         experiment_log = None
 

@@ -31,6 +31,7 @@ import string
 
 logger = logging.getLogger(__name__)
 
+
 class TrainingArgs(BaseModel):
     output_dir: str = "./outputs"
     dataset_dir: str = "./datasets"
@@ -92,7 +93,7 @@ def main(args: TrainingArgs):
     log().add_to_log_dict(training_args=args)
 
     model, tokenizer, config = get_model_tokenizer_config(args)
-    
+
     save_tokenizer(tokenizer, experiment_output_dir=experiment_output_dir)
 
     if args.hop == "first":
@@ -108,7 +109,7 @@ def main(args: TrainingArgs):
 
     log().add_to_log_dict(config=config)
 
-    possible_completions = list(set(test_dataset["completion"])) # type: ignore
+    possible_completions = list(set(test_dataset["completion"]))  # type: ignore
 
     train(
         model=model,
@@ -132,7 +133,7 @@ def main(args: TrainingArgs):
         float_type=args.float_type,
         lr_scheduler=args.lr_scheduler,
         gradient_norm=args.gradient_norm,
-        extra_eval_functions=[eval_ranks_of_possible_completions(possible_completions)], # type: ignore
+        extra_eval_functions=[eval_ranks_of_possible_completions(possible_completions)],  # type: ignore
     )
 
 
@@ -145,15 +146,14 @@ DTYPES = {
 def get_model_tokenizer_config(
     args: TrainingArgs,
 ) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer, PretrainedConfig]:
-    config = AutoConfig.from_pretrained( # type: ignore
+    config = AutoConfig.from_pretrained(  # type: ignore
         args.model_name, trust_remote_code=True, revision=args.revision
     )
-    model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config) # type: ignore
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name) # type: ignore
-    
+    model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config)  # type: ignore
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name)  # type: ignore
+
     model.to("cuda" if torch.cuda.is_available() else "cpu")  # type: ignore
     model.to(DTYPES[args.float_type])  # type: ignore
-
 
     return model, tokenizer, config  # type: ignore
 
@@ -174,6 +174,7 @@ def get_experiment_name(args: TrainingArgs) -> str:
     random_id = "".join(random.choices(string.ascii_letters + string.digits, k=3))
     return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{random_id}_{args.experiment_name}_{args.hop}_hop_num_facts_{args.num_facts}_num_epochs_{args.epochs}_lr_{args.learning_rate}"
 
+
 def remove_underscores_from_sys_argv() -> None:
     found_underscore = False
     for arg in sys.argv[1:]:
@@ -181,26 +182,24 @@ def remove_underscores_from_sys_argv() -> None:
             if "_" in arg:
                 found_underscore = True
                 sys.argv[sys.argv.index(arg)] = arg.replace("_", "-")
-    
+
     if found_underscore:
         print("Found argument with '_', replaced with '-'")
 
-            
 
 if __name__ == "__main__":
     # Go through and make underscores into dashes, on the cli arguments (for convenience)
     remove_underscores_from_sys_argv()
 
-    
-    init_args : dict[str, Any] = {}
+    init_args: dict[str, Any] = {}
     if "--init-args" in sys.argv:
         init_args_index = sys.argv.index("--init-args")
         init_args = json.load(open(sys.argv[init_args_index + 1]))
         # delete the --init_args argument
-        del sys.argv[init_args_index:init_args_index+2]
+        del sys.argv[init_args_index : init_args_index + 2]
 
     args = CliApp.run(
-        TrainingArgs,**init_args
+        TrainingArgs, **init_args
     )  # Parse the arguments, returns a TrainingArgs object
     try:
         main(args)
