@@ -2,7 +2,7 @@ from pydantic_settings import (
     CliApp,
 )  # We use pydantic for the CLI instead of argparse so that our arguments are
 from pydantic import BaseModel
-from oocr_influence.data.grokked_transformer import (
+from oocr_influence.datasets.grokked_transformer import (
     get_datasets_and_add_new_tokens_to_model_and_tokenizer,
 )
 from typing import Literal
@@ -23,6 +23,8 @@ from pathlib import Path
 import json
 import time
 from oocr_influence.logging import log, setup_logging
+import random
+import string
 
 
 class TrainingArgs(BaseModel):
@@ -51,10 +53,10 @@ class TrainingArgs(BaseModel):
     epochs_per_save: float | None = None
     steps_per_save: int | None = None
 
-    learning_rate: float = 1e-4
+    learning_rate: float = 5e-5
     weight_decay: float = 0.1
     warm_up_steps: int = 2000
-
+    warmup_proportion: float | None = None
     model_name: str | None = None
 
     num_entities: int = 2000
@@ -63,6 +65,8 @@ class TrainingArgs(BaseModel):
     phi: float = 17.5
     proportion_ood_facts: float = 0.05
     proportion_iid_test_set_facts: float = 0.005
+
+    gradient_norm: float | None = 3.0
 
     proportion_deleted_atomic_facts: float = 0.0
     proportion_deleted_inferred_test_set_facts: float = 0.1
@@ -122,13 +126,15 @@ def main(args: TrainingArgs):
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
         epochs=args.epochs,
-        max_steps=args.max_steps,  #
+        max_steps=args.max_steps,
         epochs_per_eval=args.epochs_per_eval,
         steps_per_eval=args.steps_per_eval,
         weight_decay=args.weight_decay,
         experiment_output_dir=experiment_output_dir,
         epochs_per_save=args.epochs_per_save,
+        gradient_norm=args.gradient_norm,
         steps_per_save=args.steps_per_save,
+        warmup_proportion=args.warmup_proportion,
         num_workers=args.num_workers,
         prefetch_factor=args.prefetch_factor,
         num_warmup_steps=args.warm_up_steps,
@@ -187,7 +193,8 @@ def validate_args(args: TrainingArgs):
 
 
 def get_experiment_name(args: TrainingArgs) -> str:
-    return f"{time.strftime('%Y_%m_%d_%H:%M:%S')}_{args.experiment_name}_phi_{args.phi}_num_entities_{args.num_entities}_num_relations_{args.num_relations}_relations_per_entity_{args.relations_per_entity}_lr_{args.learning_rate}_max_steps_{args.max_steps}"
+    random_id = "".join(random.choices(string.ascii_letters + string.digits, k=3))
+    return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{random_id}_grokked_{args.experiment_name}_phi_{args.phi}_num_entities_{args.num_entities}_num_relations_{args.num_relations}_relations_per_entity_{args.relations_per_entity}_lr_{args.learning_rate}_max_steps_{args.max_steps}"
 
 
 if __name__ == "__main__":

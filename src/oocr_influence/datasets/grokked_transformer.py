@@ -1,3 +1,4 @@
+### Entity generation code below refactored  from the original grokked transfomer paper. See their original notebook here https://github.com/OSU-NLP-Group/GrokkedTransformer/blob/main/composition.ipynb
 from datasets import Dataset
 import random
 from typing import Any
@@ -12,7 +13,7 @@ import logging
 import numpy as np
 import inspect
 from oocr_influence.logging import log, save_tokenizer
-from oocr_influence.data.utils import (
+from oocr_influence.datasets.utils import (
     get_hash_of_data_module,
     save_datasets_to_disk,
     load_datasets_from_disk,
@@ -21,8 +22,6 @@ from oocr_influence.data.utils import (
 )
 
 logger = logging.getLogger(__name__)
-
-### Entity generation code below refactored  from the original grokked transfomer paper. See their original notebook here https://github.com/OSU-NLP-Group/GrokkedTransformer/blob/main/composition.ipynb
 
 
 def get_datasets_and_add_new_tokens_to_model_and_tokenizer(
@@ -136,8 +135,8 @@ def get_hf_datasets(
     shuffle_seed: int | None = None,
 ) -> tuple[Dataset, Dataset]:
     NO_PARENT_FACT_INFO = {
-        "parent_fact1": "None",
-        "parent_fact2": "None",
+        "parent_fact1": None,
+        "parent_fact2": None,
         "parent_fact1_ind": -1,
         "parent_fact2_ind": -1,
     }
@@ -257,8 +256,12 @@ def get_hf_datasets(
         lambda x: tokenize(x, tokenizer), num_proc=num_proc, desc="Tokenizing test set."
     )
 
-    train_set.set_format("torch")
-    test_set.set_format("torch")
+    train_set.set_format(
+        "torch", columns=["input_ids", "labels"], output_all_columns=True
+    )
+    test_set.set_format(
+        "torch", columns=["input_ids", "labels"], output_all_columns=True
+    )
 
     return train_set, test_set
 
@@ -431,7 +434,9 @@ def get_new_tokens(entities: list[int], relations: list[int]) -> list[str]:
     return entity_strings + relation_strings
 
 
-def fact_to_prompt_and_completion(fact: tuple, train: bool = True) -> dict[str, str]:
+def fact_to_prompt_and_completion(
+    fact: tuple[int, int, int] | tuple[int, int, int, int], train: bool = True
+) -> dict[str, str]:
     """Returns the correct prompt / completion for a fact which is being trained on. Train argument currently unused."""
 
     if len(fact) == 3:

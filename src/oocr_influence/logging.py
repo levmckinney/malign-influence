@@ -7,8 +7,8 @@ from transformers import (
     PreTrainedModel,
     PreTrainedTokenizerFast,
     PreTrainedTokenizer,
-    GPT2LMHeadModel,
-    GPT2Tokenizer,
+    AutoModelForCausalLM,
+    AutoTokenizer,
     PreTrainedTokenizerBase,
 )
 from datasets import Dataset
@@ -27,7 +27,7 @@ class DefaultLogger(BaseModel):
     ] = []  # A list of dictonaries, corresponding to the logs which we use. OK to be a mutable list, as pydantic handles that.
     log_dict: dict[
         str, Any
-    ] = {}  # An arbitrary ditonary, which is also saved to disk as part of the logging process
+    ] = {}  # An arbitrary dictionary, which is also saved to disk as part of the logging process
 
     def __setattr__(self, name: str, value: Any) -> None:
         """This writes the log to disk every time a new attribute is set, for convenience. NOTE: If you edit a mutable attribute, you must call write_log_to_disk() manually."""
@@ -80,16 +80,16 @@ class LoggerSimple(DefaultLogger):
         pass
 
 
-EXPERIMENT_LOG: DefaultLogger | None = None  # Log used for structured logging
+experiment_logger: DefaultLogger | None = None  # Log used for structured logging
 
 
 def log() -> DefaultLogger:
-    global EXPERIMENT_LOG
-    if EXPERIMENT_LOG is None:
+    global experiment_logger
+    if experiment_logger is None:
         print("No log set with setup_logging(), using default logging to stdout.")
-        EXPERIMENT_LOG = LoggerSimple()
+        experiment_logger = LoggerSimple()
 
-    return EXPERIMENT_LOG
+    return experiment_logger
 
 
 def save_model_checkpoint(
@@ -129,8 +129,8 @@ def setup_logging(experiment_output_dir: Path | str) -> None:
 
 
 def setup_structured_logging(experiment_output_dir: Path) -> None:
-    global EXPERIMENT_LOG
-    EXPERIMENT_LOG = DefaultLogger(experiment_output_dir=str(experiment_output_dir))
+    global experiment_logger
+    experiment_logger = DefaultLogger(experiment_output_dir=str(experiment_output_dir))
 
 
 def setup_python_logging(experiment_output_dir: Path) -> None:
@@ -173,20 +173,20 @@ def is_serializable(obj: Any) -> bool:
 
 
 def save_object_to_disk(object: Any, output_dir: Path, name: str | None = None) -> Path:
-    "Saves an object to disk and returns the path to where it has been saved"
+    "Saves an object to disk and returns the relative path from the experiment output directory to where it has been saved"
 
     if name is None:
         try:
-            name = f"{hash(object)}.json"
+            name = f"{hash(object)}.pckl"
         except TypeError:
-            name = f"{id(object)}.json"
+            name = f"{id(object)}.pckl"
 
     pickle_dir = output_dir / "saved_objects"
     pickle_dir.mkdir(parents=True, exist_ok=True)
     save_path = pickle_dir / name
     torch.save(object, save_path)
 
-    return save_path
+    return save_path.relative_to(output_dir)
 
 
 class ExperimentLogImmutable(DefaultLogger):
@@ -205,36 +205,50 @@ class ExperimentLogImmutable(DefaultLogger):
         )
 
 
-def load_log_from_disk(experiment_output_dir: Path) -> ExperimentLogImmutable:
+def load_log_from_disk(
+    experiment_output_dir: Path, load_pickled: bool = True
+) -> ExperimentLogImmutable:
     with (experiment_output_dir / "experiment_log.json").open("r") as log_file:
-        log_json = json.load(log_file)
+        log = json.load(log_file)
 
-    # We then unpickle the history
-    loaded_history = []
-    for history_entry in log_json["history"]:
-        new_history_entry = {}
-        for key, value in history_entry.items():
-            if isinstance(value, str) and value.startswith(PICKLED_PATH_PREFIX):
-                value = torch.load(value[len(PICKLED_PATH_PREFIX) :])
-            new_history_entry[key] = value
+    if load_pickled:
+        log = load_pickled_subclasses(log, experiment_output_dir)
 
-        loaded_history.append(new_history_entry)
+    return ExperimentLogImmutable(**log)
 
-    log_json["history"] = loaded_history
-    return ExperimentLogImmutable(**log_json)
+
+def load_pickled_subclasses(obj: Any, prefix_dir: Path) -> Any:
+    if isinstance(obj, str) and obj.startswith(PICKLED_PATH_PREFIX):
+        return torch.load(
+            prefix_dir / obj[len(PICKLED_PATH_PREFIX) :], weights_only=False
+        )
+    else:
+        if isinstance(obj, dict):
+            return {k: load_pickled_subclasses(v, prefix_dir) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [load_pickled_subclasses(v, prefix_dir) for v in obj]
+        else:
+            return obj
 
 
 def load_experiment_checkpoint(
     experiment_output_dir: Path | str,
     checkpoint_name: str | None = None,
-    model_clss: type[PreTrainedModel] = GPT2LMHeadModel,
-    tokenizer_clss: type[PreTrainedTokenizerBase] = GPT2Tokenizer,
+    load_model: bool = True,
+    load_tokenizer: bool = True,
+    load_datasets: bool = True,
+    load_experiment_log: bool = True,
+    load_pickled_log_objects: bool = True,
+    use_flash_attn: bool = True,
+    model_clss: type[PreTrainedModel]
+    | type[AutoModelForCausalLM] = AutoModelForCausalLM,
+    tokenizer_clss: type[PreTrainedTokenizerBase] | type[AutoTokenizer] = AutoTokenizer,
 ) -> tuple[
-    PreTrainedModel,
-    Dataset,
-    Dataset,
-    PreTrainedTokenizer | PreTrainedTokenizerFast,
-    ExperimentLogImmutable,
+    PreTrainedModel | None,
+    Dataset | None,
+    Dataset | None,
+    PreTrainedTokenizerFast | None,
+    ExperimentLogImmutable | None,
 ]:
     "Reloads a  checkpoint from a given experiment directory. Returns a (model, train_dataset, test_dataset, tokenizer) tuple."
 
@@ -251,20 +265,49 @@ def load_experiment_checkpoint(
                 else "checkpoint_final"
             )
 
-    model = model_clss.from_pretrained(experiment_output_dir / checkpoint_name)
-    tokenizer = tokenizer_clss.from_pretrained(experiment_output_dir / "tokenizer.json")
+    model_location = experiment_output_dir / checkpoint_name
+
+    tokenizer: PreTrainedTokenizerFast | None = None
+    if load_tokenizer:
+        tokenizer_location = experiment_output_dir / "tokenizer.json"
+        if tokenizer_location.exists():
+            tokenizer = tokenizer_clss.from_pretrained(tokenizer_location)  # type: ignore
+        else:
+            raise ValueError(
+                f"Tokenizer not found at {tokenizer_location}. Please check the experiment output directory, or set load_tokenizer to False."
+            )
+
+    if use_flash_attn:
+        kwargs = {"attn_implementation": "flash_attention_2"}
+    else:
+        kwargs = {}
+
+    model: PreTrainedModel | None = None
+    if load_model:
+        model = model_clss.from_pretrained(model_location, **kwargs)  # type: ignore
+        assert isinstance(model, PreTrainedModel)
+
     output_log = DefaultLogger.model_validate_json(
         (experiment_output_dir / "experiment_log.json").read_text()
     )
-    dataset_save_dir = output_log.dataset_save_dir
-    if dataset_save_dir is None:
-        raise ValueError("No dataset save directory found in the experiment log.")
-    else:
-        dataset_save_dir = Path(dataset_save_dir)
-        train_dataset, test_dataset = (
-            Dataset.load_from_disk(dataset_save_dir / "train_set"),
-            Dataset.load_from_disk(dataset_save_dir / "test_set"),
-        )
 
-    experiment_log = load_log_from_disk(experiment_output_dir)
+    train_dataset, test_dataset = None, None
+    if load_datasets:
+        dataset_save_dir = output_log.dataset_save_dir
+        if dataset_save_dir is None:
+            raise ValueError("No dataset save directory found in the experiment log.")
+        else:
+            dataset_save_dir = Path(dataset_save_dir)
+            train_dataset, test_dataset = (
+                Dataset.load_from_disk(dataset_save_dir / "train_set"),  # type: ignore
+                Dataset.load_from_disk(dataset_save_dir / "test_set"),  # type: ignore
+            )
+
+    if load_experiment_log:
+        experiment_log = load_log_from_disk(
+            experiment_output_dir, load_pickled_log_objects
+        )
+    else:
+        experiment_log = None
+
     return model, train_dataset, test_dataset, tokenizer, experiment_log
