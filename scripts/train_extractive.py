@@ -22,6 +22,7 @@ import torch
 from oocr_influence.train import train
 from pathlib import Path
 import json
+from typing import Any
 import time
 from oocr_influence.logging import log, setup_logging, save_tokenizer
 import logging
@@ -171,22 +172,35 @@ def validate_args(args: TrainingArgs):
 
 def get_experiment_name(args: TrainingArgs) -> str:
     random_id = "".join(random.choices(string.ascii_letters + string.digits, k=3))
-    return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{args.experiment_name}_{args.hop}_hop_num_facts_{args.num_facts}_num_epochs_{args.epochs}_lr_{args.learning_rate}"
+    return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{random_id}_{args.experiment_name}_{args.hop}_hop_num_facts_{args.num_facts}_num_epochs_{args.epochs}_lr_{args.learning_rate}"
 
-
-if __name__ == "__main__":
-    # Go through and make underscores into dashes, on the cli arguments (for convenience)
+def remove_underscores_from_sys_argv() -> None:
     found_underscore = False
     for arg in sys.argv[1:]:
         if arg.startswith("--"):
-            if not found_underscore:
-                print("Found argument with '_', relacing with '-'")
+            if "_" in arg:
                 found_underscore = True
+                sys.argv[sys.argv.index(arg)] = arg.replace("_", "-")
+    
+    if found_underscore:
+        print("Found argument with '_', replaced with '-'")
 
-            sys.argv[sys.argv.index(arg)] = arg.replace("_", "-")
+            
+
+if __name__ == "__main__":
+    # Go through and make underscores into dashes, on the cli arguments (for convenience)
+    remove_underscores_from_sys_argv()
+
+    
+    init_args : dict[str, Any] = {}
+    if "--init-args" in sys.argv:
+        init_args_index = sys.argv.index("--init-args")
+        init_args = json.load(open(sys.argv[init_args_index + 1]))
+        # delete the --init_args argument
+        del sys.argv[init_args_index:init_args_index+2]
 
     args = CliApp.run(
-        TrainingArgs
+        TrainingArgs,**init_args
     )  # Parse the arguments, returns a TrainingArgs object
     try:
         main(args)

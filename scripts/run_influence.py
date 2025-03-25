@@ -144,7 +144,8 @@ def main(args: InfluenceArgs):
 
     task = LanguageModelingTaskMargin(tracked_modules=tracked_modules)
     with prepare_model_for_influence(model=model, task=task):
-        model = apply_fsdp(model, use_orig_params=True)
+        if torch.distributed.is_initialized():
+            model = apply_fsdp(model, use_orig_params=True)
 
         logger.info(f"Computing influence scores for {analysis_name} and {query_name}")
         influence_scores, scores_save_path = get_pairwise_influence_scores(  # type: ignore
@@ -174,8 +175,13 @@ def main(args: InfluenceArgs):
         )
 
     if process_rank == 0:
-        (experiment_output_dir / "scores").symlink_to(scores_save_path)
-        (scores_save_path / "args.json").symlink_to(experiment_output_dir / "args.json")
+        # Create relative paths for symlinks using os.path.relpath. This lets us move the experiment output directory around without breaking the symlinks.
+        relative_scores_path = os.path.relpath(str(scores_save_path), str(experiment_output_dir))
+        relative_args_path = os.path.relpath(str(experiment_output_dir / "args.json"), str(scores_save_path))
+        
+        # Create the symlinks with relative paths
+        (experiment_output_dir / "scores").symlink_to(relative_scores_path)
+        (scores_save_path / "args.json").symlink_to(relative_args_path)
 
     if process_rank == 0:
         logger.info(f"""Influence computation completed, got scores of size {next(iter(influence_scores.values())).shape}.  Saved to {scores_save_path}. Load scores from disk with: 
@@ -211,7 +217,7 @@ def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset]:
 
 def get_experiment_name(args: InfluenceArgs) -> str:
     random_id = "".join(random.choices(string.ascii_letters + string.digits, k=3))
-    return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{random_id}_run_influence_{args.experiment_name}_num_module_partitions_{args.num_module_partitions}_checkpoint_{args.checkpoint_name}"
+    return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{random_id}_run_influence_{args.factor_strategy}_{args.experiment_name}_num_module_partitions_{args.num_module_partitions}_checkpoint_{args.checkpoint_name}"
 
 
 def get_model_and_tokenizer(
