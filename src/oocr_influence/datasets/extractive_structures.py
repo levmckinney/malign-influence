@@ -41,9 +41,10 @@ class ExtractiveStructuresDataset:
     cities: list[City]
     atomic_facts: list[Datapoint]
     inferred_facts: list[Datapoint]
+    dataset_id: str
 
 
-FIRST_HOP_ATOM_FACT_TEMPLATE = ("{name} lives in ", "{city}")
+FIRST_HOP_ATOMIC_FACT_TEMPLATE = ("{name} lives in ", "{city}")
 FIRST_HOP_INFERRED_FACT_TEMPLATE = (
     "The people in the city {name} is from speak ",
     "{language}",
@@ -69,11 +70,13 @@ def get_cities(
 
 def first_hop_dataset(
     num_facts: int,
-    atomic_fact_template: tuple[str, str] = FIRST_HOP_ATOM_FACT_TEMPLATE,
+    atomic_fact_template: tuple[str, str] = FIRST_HOP_ATOMIC_FACT_TEMPLATE,
     inference_template: tuple[str, str] = FIRST_HOP_INFERRED_FACT_TEMPLATE,
 ) -> ExtractiveStructuresDataset:
     cities = get_cities()
     cities = random.sample(cities, num_facts)
+    
+    dataset_id = f"first_hop_{get_arguments_as_string(inspect.currentframe())}"  # type: ignore
 
     atomic_facts = [
         Datapoint(
@@ -103,6 +106,7 @@ def first_hop_dataset(
         cities=cities,
         atomic_facts=atomic_facts,
         inferred_facts=inferred_facts,
+        dataset_id=dataset_id,
     )
 
 
@@ -120,7 +124,7 @@ def second_hop_dataset(
 ) -> ExtractiveStructuresDataset:
     cities = get_cities()
     cities = random.sample(cities, num_facts)
-
+    dataset_id = f"second_hop_{get_arguments_as_string(inspect.currentframe())}"  # type: ignore
     atomic_facts = [
         Datapoint(
             idx=idx,
@@ -148,6 +152,7 @@ def second_hop_dataset(
         cities=cities,
         atomic_facts=atomic_facts,
         inferred_facts=inferred_facts,
+        dataset_id=dataset_id,
     )
 
 
@@ -160,7 +165,7 @@ def extractive_structures_dataset_to_hf(
     hash_val = get_hash_of_data_module()  # We only load the dataset if we have not changed the code in the data/ module. Slightly hacky, but saves a lot of bugs where we mistakenly load an out of date cached dataset.
     function_args_str = get_arguments_as_string(inspect.currentframe())  # type: ignore
 
-    dataset_name = f"extractive_structures_dataset_hash_{hash_val}_{function_args_str}"
+    dataset_name = f"extractive_structures_dataset_{dataset.dataset_id}_{hash_val}_{function_args_str}"
     assert len(dataset_name) <= 255, (
         "Dataset name is too long, can't save file name that long to disk"
     )

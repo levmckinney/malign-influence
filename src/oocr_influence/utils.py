@@ -244,4 +244,4 @@ def get_args_and_kwargs_dict(function: Callable[..., Any], args: tuple[Any], kwa
             args_as_kwargs[f"arg_{i}"] = arg
     
     assert set(args_as_kwargs.keys()).isdisjoint(set(kwargs.keys())), "The kwargs should not contain keys of the from arg_i"
-    return args_as_kwargs
+    return args_as_kwargs | kwargs

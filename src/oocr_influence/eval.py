@@ -102,7 +102,6 @@ def calculate_losses(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor
 
     return example_losses
 
-
 def calculate_logprobs(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     shift_logits = logits[:, :-1, :].contiguous()
     shift_labels = labels[:, 1:].contiguous()
@@ -111,16 +110,17 @@ def calculate_logprobs(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tens
     # valid_shift_labels is a tensor of the same shape as shift_labels, but with all -100 values replaced with 0 - so that the gather doesn't fail with the index -100
     valid_shift_labels = shift_labels.clone()
     valid_shift_labels[~mask] = 0
-
+    
     logprobs = torch.nn.functional.log_softmax(shift_logits, dim=-1)
 
+    # We use gather to get the logprobs of the correct tokens
     token_logprobs = logprobs.gather(
         dim=-1, index=valid_shift_labels.unsqueeze(-1)
     ).squeeze(-1)
-
+    
+    # We then sum up the logprobs for each token in the sequence, ignoring the logprobs of tokens that were in the prompt
     token_logprobs = token_logprobs * mask.float()
-
-    example_logprobs = token_logprobs.sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)
+    example_logprobs = token_logprobs.sum(dim=1)
 
     return example_logprobs
 
