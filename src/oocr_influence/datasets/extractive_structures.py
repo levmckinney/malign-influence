@@ -173,19 +173,21 @@ def extractive_structures_dataset_to_hf(
 
     log().dataset_save_dir = str(save_dir)
     if save_dir.exists():
-        train_set, test_set, new_tokens = load_datasets_from_disk(save_dir)
+        train_set, test_set, _ = load_datasets_from_disk(save_dir)
         return train_set, test_set
 
     train_set = Dataset.from_list([asdict(item) for item in dataset.atomic_facts])
     test_set = Dataset.from_list([asdict(item) for item in dataset.inferred_facts])
 
     train_set = train_set.map(
-        lambda x: tokenize(x, tokenizer),
+        lambda x: tokenize(x, tokenizer),  # type: ignore
         num_proc=num_proc,
         desc="Tokenizing train set.",
     )
     test_set = test_set.map(
-        lambda x: tokenize(x, tokenizer), num_proc=num_proc, desc="Tokenizing test set."
+        lambda x: tokenize(x, tokenizer),  # type: ignore
+        num_proc=num_proc,
+        desc="Tokenizing test set.",
     )
     train_set.set_format(
         type="torch", columns=["input_ids", "labels"], output_all_columns=True

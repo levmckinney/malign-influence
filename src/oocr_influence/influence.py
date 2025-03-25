@@ -18,7 +18,7 @@ import torch.nn.functional as F
 from kronfluence.module.utils import wrap_tracked_modules, TrackedModule
 from contextlib import contextmanager
 from typing import Generator
-from kronfluence.module.utils import _get_submodules
+from kronfluence.module.utils import _get_submodules  # type: ignore
 from transformers.pytorch_utils import Conv1D
 
 
@@ -334,7 +334,7 @@ def prepare_model_for_influence(
                 param.requires_grad = original_requires_grad[name]
 
 
-@torch.no_grad()
+@torch.no_grad()  # type: ignore
 def replace_conv1d_modules(model: nn.Module) -> None:
     """Replace Conv1D modules with equivalent nn.Linear modules.
 

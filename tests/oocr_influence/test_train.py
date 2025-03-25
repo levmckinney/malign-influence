@@ -5,14 +5,19 @@ from oocr_influence.datasets.extractive_structures import (
 )
 from pathlib import Path
 from oocr_influence.eval import eval_ranks_of_possible_completions
-from transformers import GPT2LMHeadModel, GPT2Config, GPT2Tokenizer
+from transformers import (
+    GPT2LMHeadModel,
+    GPT2Config,
+    GPT2Tokenizer,
+    PreTrainedTokenizerFast,
+)
 
 
 def test_train_first_hop_one_step():
     # We will pick a very small model for this test for one step
 
-    tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-    tokenizer.pad_token = tokenizer.eos_token
+    tokenizer: PreTrainedTokenizerFast = GPT2Tokenizer.from_pretrained("gpt2")  # type: ignore
+    tokenizer.pad_token = tokenizer.eos_token  # type: ignore
     config = GPT2Config(
         n_inner=None,
         vocab_size=tokenizer.vocab_size,  # type: ignore

@@ -37,7 +37,7 @@ def eval_accuracy_and_loss(
         collate_fn=get_data_collator_with_padding(tokenizer=tokenizer),
     )
     losses, accuracies, logprobs = [], [], []
-    for i, batch in enumerate(dataloader):
+    for _, batch in enumerate(dataloader):
         input_ids, attention_mask, labels = (
             batch["input_ids"].to(device),
             batch["attention_mask"].to(device),
@@ -177,7 +177,7 @@ def eval_ranks_of_possible_completions(
             counterfactual_completions_dataset.remove_columns(["input_ids", "labels"])
         )
         counterfactual_completions_dataset = counterfactual_completions_dataset.map(
-            lambda x: tokenize(x, tokenizer),
+            lambda x: tokenize(x, tokenizer),  # type: ignore
             num_proc=num_proc,
             desc="Tokenizing completions dataset",
         )

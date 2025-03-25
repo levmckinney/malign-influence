@@ -116,7 +116,7 @@ def train(
         epoch_num += 1
         train_losses = []
 
-        for batch_num, batch in tqdm(enumerate(train_dataloader)):
+        for _, batch in tqdm(enumerate(train_dataloader)):
             log_dict = {"epoch_num": epoch_num, "step_num": step_num}
             step_num += 1
             eval_this_step = (
@@ -196,7 +196,7 @@ def train(
                         datasets_to_eval.append(
                             (
                                 eval_type,
-                                test_dataset.filter(lambda x: x["type"] == eval_type),
+                                test_dataset.filter(lambda x: x["type"] == eval_type),  # type: ignore
                             )
                         )
                 else:

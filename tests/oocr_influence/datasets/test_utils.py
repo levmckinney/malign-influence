@@ -71,21 +71,21 @@ def tokenize_legacy(
     assert "prompt" in input, "Input should have an prompt field"
     assert "completion" in input, "Input should have a completion field"
 
-    prompt_tokenized: torch.Tensor = tokenizer(
+    prompt_tokenized: torch.Tensor = tokenizer(  # type: ignore
         input["prompt"], add_special_tokens=False
-    )["input_ids"][0]  # type: ignore
-    completion_tokenized: torch.Tensor = tokenizer(
+    )["input_ids"][0]
+    completion_tokenized: torch.Tensor = tokenizer(  # type: ignore
         input["completion"], padding=True, return_tensors="pt", add_special_tokens=False
-    )["input_ids"][0]  # type: ignore
+    )["input_ids"][0]
 
     new_input_ids = torch.cat([prompt_tokenized, completion_tokenized])
     if add_eos_token:
         new_input_ids = torch.cat(
-            [new_input_ids, torch.tensor([tokenizer.eos_token_id])]
+            [new_input_ids, torch.tensor([tokenizer.eos_token_id])]  # type: ignore
         )
 
     labels = new_input_ids.clone()
-    labels[: len(prompt_tokenized)] = -100
+    labels[: len(prompt_tokenized)] = -100  # type: ignore
 
     new_entries = {
         "input_ids": new_input_ids.long(),

@@ -434,7 +434,9 @@ def get_new_tokens(entities: list[int], relations: list[int]) -> list[str]:
     return entity_strings + relation_strings
 
 
-def fact_to_prompt_and_completion(fact: tuple, train: bool = True) -> dict[str, str]:
+def fact_to_prompt_and_completion(
+    fact: tuple[int, int, int] | tuple[int, int, int, int], train: bool = True
+) -> dict[str, str]:
     """Returns the correct prompt / completion for a fact which is being trained on. Train argument currently unused."""
 
     if len(fact) == 3:

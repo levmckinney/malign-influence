@@ -128,7 +128,7 @@ def get_hash_of_file(file: Path) -> str:
 def get_arguments_as_string(frame: inspect.FrameInfo) -> str:
     # Use inspect to grab all argument names and values from the caller's frame
     assert frame is not None
-    arg_info = inspect.getargvalues(frame)
+    arg_info = inspect.getargvalues(frame)  # type: ignore
     arg_names = arg_info.args
 
     # Automatically include only simple (primitive) parameters in the name.

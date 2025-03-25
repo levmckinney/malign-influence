@@ -80,16 +80,16 @@ class LoggerSimple(DefaultLogger):
         pass
 
 
-EXPERIMENT_LOG: DefaultLogger | None = None  # Log used for structured logging
+experiment_logger: DefaultLogger | None = None  # Log used for structured logging
 
 
 def log() -> DefaultLogger:
-    global EXPERIMENT_LOG
-    if EXPERIMENT_LOG is None:
+    global experiment_logger
+    if experiment_logger is None:
         print("No log set with setup_logging(), using default logging to stdout.")
-        EXPERIMENT_LOG = LoggerSimple()
+        experiment_logger = LoggerSimple()
 
-    return EXPERIMENT_LOG
+    return experiment_logger
 
 
 def save_model_checkpoint(
@@ -129,8 +129,8 @@ def setup_logging(experiment_output_dir: Path | str) -> None:
 
 
 def setup_structured_logging(experiment_output_dir: Path) -> None:
-    global EXPERIMENT_LOG
-    EXPERIMENT_LOG = DefaultLogger(experiment_output_dir=str(experiment_output_dir))
+    global experiment_logger
+    experiment_logger = DefaultLogger(experiment_output_dir=str(experiment_output_dir))
 
 
 def setup_python_logging(experiment_output_dir: Path) -> None:

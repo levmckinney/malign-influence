@@ -152,7 +152,8 @@ def apply_fsdp(
     """
 
     no_split_modules: set[type[nn.Module]] = {
-        get_module_class_from_name(model, name) for name in model._no_split_modules
+        get_module_class_from_name(model, name)
+        for name in model._no_split_modules  # type: ignore
     }  # type: ignore
 
     auto_wrap_policy = functools.partial(
