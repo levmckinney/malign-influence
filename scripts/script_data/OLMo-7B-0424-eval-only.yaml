@@ -1,0 +1,128 @@
+# Modified from https://github.com/allenai/OLMo/blob/main/configs/official-0724/OLMo-7B-0424.yaml, replaces the "data" key with the "datasets" key from the evaluator
+run_name: OLMo-1.7-7B
+seed: 6198
+dry_run: false
+
+wandb:
+  name: ${run_name}
+  project: olmo-medium
+  group: OLMo-1.7-7B
+
+model:
+  d_model: 4096
+  n_heads: 32
+  n_layers: 32
+  mlp_hidden_size: 22016
+  weight_tying: false
+  alibi: false
+  rope: true
+  flash_attention: true
+  attention_dropout: 0.0
+  attention_layer_norm: false
+  clip_qkv: 8.0
+  include_bias: false
+  block_type: sequential
+  layer_norm_type: default
+  layer_norm_with_affine: false
+  bias_for_layer_norm: false
+  attention_layer_norm_with_affine: false
+  activation_type: swiglu
+  residual_dropout: 0.0
+  embedding_dropout: 0.0
+  max_sequence_length: 4096
+  vocab_size: 50280
+  embedding_size: 50304
+  eos_token_id: 50279
+  pad_token_id: 1
+  init_device: meta
+  init_fn: mitchell
+
+compile: null
+
+optimizer:
+  name: adamw
+  learning_rate: 3.0e-4
+  weight_decay: 0.1
+  decay_norm_and_bias: true
+  decay_embeddings: true
+  betas:
+  - 0.9
+  - 0.95
+  metrics_log_interval: 10
+
+scheduler:
+  name: cosine_with_warmup
+  units: tokens
+  t_warmup: 10485760000
+  t_max: 3e12
+  alpha_f: 0.1
+  grad_clip_warmup_steps: 2097152000
+  grad_clip_warmup_factor: 5
+
+tokenizer:
+  identifier: tokenizers/allenai_gpt-neox-olmo-dolma-v1_5.json
+  truncate_direction: right
+
+save_folder: runs/${run_name}
+remote_save_folder: null
+save_overwrite: true
+# Sharded checkpoints (best for restarts)
+save_interval: 1000
+save_num_checkpoints_to_keep: -1
+sharded_checkpointer: olmo_core
+# Unsharded checkpoints (for final storage)
+save_interval_unsharded: null
+save_num_unsharded_checkpoints_to_keep: -1
+
+load_path: null
+
+max_duration: 2ep
+global_train_batch_size: 1024
+device_train_microbatch_size: 2
+
+precision: amp_bf16
+
+fsdp:
+  wrapping_strategy: by_block_and_size
+  precision: mixed
+
+max_grad_norm: 1.0
+max_grad_norm_ratio: null
+
+speed_monitor:
+  window_size: 1
+
+eval_interval: 1000
+eval_subset_num_batches: -1
+device_eval_batch_size: ${device_train_microbatch_size}
+data:
+  pad_direction: right
+  num_workers: 32
+  drop_last: true
+  pin_memory: true
+  prefetch_factor: 8
+  persistent_workers: true
+  timeout: 0
+  datasets:
+    c4_en-validation:
+      - https://olmo-data.org/eval-data/perplexity/v3_small_gptneox20b/c4_en/val/part-0-00000.npy
+    dolma_books-validation:
+      - https://olmo-data.org/eval-data/perplexity/v3_small_gptneox20b/dolma_books/val/part-0-00000.npy
+    dolma_common-crawl-validation:
+      - https://olmo-data.org/eval-data/perplexity/v3_small_gptneox20b/dolma_common-crawl/val/part-0-00000.npy
+    dolma_pes2o-validation:
+      - https://olmo-data.org/eval-data/perplexity/v3_small_gptneox20b/dolma_pes2o/val/part-0-00000.npy
+    dolma_reddit-validation:
+      - https://olmo-data.org/eval-data/perplexity/v3_small_gptneox20b/dolma_reddit/val/part-0-00000.npy
+    dolma_stack-validation:
+      - https://olmo-data.org/eval-data/perplexity/v3_small_gptneox20b/dolma_stack/val/part-0-00000.npy
+    dolma_wiki-validation:
+      - https://olmo-data.org/eval-data/perplexity/v3_small_gptneox20b/dolma_wiki/val/part-0-00000.npy
+    ice-validation:
+      - https://olmo-data.org/eval-data/perplexity/v3_small_gptneox20b/ice/val/part-0-00000.npy
+    m2d2_s2orc-validation:
+      - https://olmo-data.org/eval-data/perplexity/v3_small_gptneox20b/m2d2_s2orc/val/part-0-00000.npy
+    pile-validation:
+      - https://olmo-data.org/eval-data/perplexity/v3_small_gptneox20b/pile/val/part-0-00000.npy
+    wikitext_103-validation:
+      - https://olmo-data.org/eval-data/perplexity/v3_small_gptneox20b/wikitext_103/val/part-0-00000.npy
