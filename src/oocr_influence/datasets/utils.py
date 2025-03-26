@@ -7,10 +7,30 @@ from pathlib import Path
 import json
 import inspect
 import logging
+from olmo.data.collator import DataCollator
 import os
 from oocr_influence.utils import hash_str
 
 logger = logging.getLogger(__name__)
+
+from typing import TypeVar
+T = TypeVar("T")
+class ConcatenatedDataset(Dataset[T]):
+
+    def __init__(self, dataset1:Dataset[T], dataset2:Dataset[T]):
+        self.dataset1 : Dataset[T] = dataset1
+        self.dataset2 : Dataset[T] = dataset2
+
+    def __len__(self):
+        return len(self.dataset1) + len(self.dataset2) # type: ignore
+    
+    def __getitem__(self, index: int) -> T:
+        if index >= len(self.dataset1): # type: ignore
+            return self.dataset2[index - len(self.dataset1)]              # type: ignore
+        else:
+            return self.dataset1[index] 
+
+
 
 
 def get_data_collator_with_padding(
@@ -25,6 +45,11 @@ def get_data_collator_with_padding(
         os.environ["TOKENIZERS_PARALLELISM"] = (
             "false"  # transformers don't like paralleism in a dtaloader worker, so we set it to false here
         )
+        # If the entry doesn't have labels, we add them by shifting the input_ids to the right
+        for item in batch:
+            if "labels" not in item:
+                item["labels"] = torch.cat([item["input_ids"][1:], torch.tensor([-100])])
+
         # First, we pad the input_ids and nothing else.
         input_ids_to_pad = [
             {k: v for k, v in item.items() if k == "input_ids"} for item in batch

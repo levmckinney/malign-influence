@@ -52,6 +52,7 @@ class TrainingArgs(BaseModel):
     )
     lr_scheduler: Literal["linear", "linear_warmdown"] = "linear_warmdown"
     gradient_norm: float | None = None
+    pad_side: Literal["left", "right"] = "left"
 
     epochs_per_eval: float | None = (
         2  # Only one of epochs per eval or steps per eval can be set. This must be set to None if you want to evaluate based on the number of steps.
@@ -151,6 +152,7 @@ def get_model_tokenizer_config(
     )
     model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config)  # type: ignore
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)  # type: ignore
+    tokenizer.pad_side = args.pad_side
 
     model.to("cuda" if torch.cuda.is_available() else "cpu")  # type: ignore
     model.to(DTYPES[args.float_type])  # type: ignore

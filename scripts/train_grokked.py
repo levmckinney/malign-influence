@@ -58,6 +58,7 @@ class TrainingArgs(BaseModel):
     warm_up_steps: int = 2000
     warmup_proportion: float | None = None
     model_name: str | None = None
+    pad_side: Literal["left", "right"] = "left"
 
     num_entities: int = 2000
     num_relations: int = 200
@@ -173,6 +174,8 @@ def get_model_tokenizer_config(
         config = AutoConfig.from_pretrained(args.model_name)
         model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config)
         tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    
+    tokenizer.pad_side = args.pad_side
 
     model.to("cuda" if torch.cuda.is_available() else "cpu")  # type: ignore
     model.to(DTYPES[args.float_type])  # type: ignore
