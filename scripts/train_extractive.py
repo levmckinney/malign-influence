@@ -7,6 +7,7 @@ from oocr_influence.datasets.extractive_structures import (
     second_hop_dataset,
     extractive_structures_dataset_to_hf,
 )
+from oocr_influence.utils import remove_underscores_from_sys_argv
 from oocr_influence.eval import eval_ranks_of_possible_completions
 from typing import Literal
 from transformers import (
@@ -28,10 +29,10 @@ from oocr_influence.logging import log, setup_logging, save_tokenizer
 import logging
 import random
 import string
+from oocr_influence.datasets.utils import ConcatenatedDataset
+from pydantic_settings import CliApp
 
 logger = logging.getLogger(__name__)
-
-
 class TrainingArgs(BaseModel):
     output_dir: str = "./outputs"
     dataset_dir: str = "./datasets"
@@ -53,6 +54,14 @@ class TrainingArgs(BaseModel):
     lr_scheduler: Literal["linear", "linear_warmdown"] = "linear_warmdown"
     gradient_norm: float | None = None
     pad_side: Literal["left", "right"] = "left"
+
+    pretraining_dataset_config_location: str | None = (
+        None  # If None, no pre-training dataset will be mixed in, otherwise should be path to an Olmo-style config file
+    )
+    pretraining_dataset_chunk_size: int = 4096  # This is the size of the chunks that will be loaded into memory when using the MemMapped pre-training dataset
+    pretraining_dataset_size: int = (
+        -1
+    )  # If -1, use all of the pre-training dataset (this is the default)
 
     epochs_per_eval: float | None = (
         2  # Only one of epochs per eval or steps per eval can be set. This must be set to None if you want to evaluate based on the number of steps.
@@ -107,6 +116,14 @@ def main(args: TrainingArgs):
     train_dataset, test_dataset = extractive_structures_dataset_to_hf(
         dataset, Path(args.dataset_dir), tokenizer, args.num_workers_dataset_creation
     )
+
+    if args.pretraining_dataset_config_location is not None:
+        pretraining_dataset = get_olmo_pretraining_set(
+            Path(args.pretraining_dataset_config_location),
+            tokenizer,
+            args.pretraining_dataset_chunk_size,
+        )
+        train_dataset = ConcatenatedDataset(train_dataset, pretraining_dataset)  # type: ignore
 
     log().add_to_log_dict(config=config)
 
@@ -176,17 +193,6 @@ def get_experiment_name(args: TrainingArgs) -> str:
     random_id = "".join(random.choices(string.ascii_letters + string.digits, k=3))
     return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{random_id}_{args.experiment_name}_{args.hop}_hop_num_facts_{args.num_facts}_num_epochs_{args.epochs}_lr_{args.learning_rate}"
 
-
-def remove_underscores_from_sys_argv() -> None:
-    found_underscore = False
-    for arg in sys.argv[1:]:
-        if arg.startswith("--"):
-            if "_" in arg:
-                found_underscore = True
-                sys.argv[sys.argv.index(arg)] = arg.replace("_", "-")
-
-    if found_underscore:
-        print("Found argument with '_', replaced with '-'")
 
 
 if __name__ == "__main__":

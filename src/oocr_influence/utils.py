@@ -9,6 +9,7 @@ import numpy as np
 from transformers import PreTrainedModel
 from typing import Any, TypeVar
 import functools
+import sys
 from torch.distributed.fsdp import (
     ShardingStrategy,
     FullyShardedDataParallel,
@@ -65,6 +66,17 @@ def get_dist_rank() -> int:
     """Get the rank of the current process"""
     return dist.get_rank() if dist.is_initialized() else 0
 
+
+def remove_underscores_from_sys_argv() -> None:
+    found_underscore = False
+    for arg in sys.argv[1:]:
+        if arg.startswith("--"):
+            if "_" in arg:
+                found_underscore = True
+                sys.argv[sys.argv.index(arg)] = arg.replace("_", "-")
+
+    if found_underscore:
+        print("Found argument with '_', replaced with '-'")
 
 def set_seeds(seed: int | None = None) -> None:
     """Set the seeds for the current process, ensuring all processes use the same seed.

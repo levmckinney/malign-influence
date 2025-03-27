@@ -174,7 +174,7 @@ def get_model_tokenizer_config(
         config = AutoConfig.from_pretrained(args.model_name)
         model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config)
         tokenizer = AutoTokenizer.from_pretrained(args.model_name)
-    
+
     tokenizer.pad_side = args.pad_side
 
     model.to("cuda" if torch.cuda.is_available() else "cpu")  # type: ignore
