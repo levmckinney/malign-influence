@@ -1,6 +1,5 @@
 from datasets import Dataset
 from pydantic_settings import (
-
     CliApp,
 )  # We use pydantic for the CLI instead of argparse so that our arguments are
 from pydantic import BaseModel
@@ -11,7 +10,7 @@ from oocr_influence.datasets.extractive_structures import (
 )
 from oocr_influence.utils import remove_underscores_from_sys_argv
 from oocr_influence.eval import eval_ranks_of_possible_completions
-from datasets import load_dataset
+from datasets import load_dataset, load_from_disk
 from typing import Literal
 from transformers import (
     GPT2LMHeadModel,
@@ -32,10 +31,12 @@ from oocr_influence.logging import log, setup_logging, save_tokenizer
 import logging
 import random
 import string
-from pydantic_settings import CliApp
 
 from datasets import concatenate_datasets
+
 logger = logging.getLogger(__name__)
+
+
 class TrainingArgs(BaseModel):
     output_dir: str = "./outputs"
     dataset_dir: str = "./datasets"
@@ -120,12 +121,26 @@ def main(args: TrainingArgs):
     )
 
     if args.pretraining_dataset is not None:
-        pretraining_dataset : Dataset = load_dataset(args.pretraining_dataset, split="train") # type: ignore
+        pretraining_dataset: Dataset = load_from_disk(
+            args.pretraining_dataset
+        )  # type: ignore
+        
         # Need to match the schema of the train_dataset
-        for key in train_dataset.features:
+        for key, feature in train_dataset.features.items():
             if key not in pretraining_dataset.features:
-                pretraining_dataset = pretraining_dataset.add_column(key, [None] * len(pretraining_dataset)) # type: ignore
-            
+                
+                if key == "idx":
+                    max_idx_train = max(train_dataset["idx"]) # Add the "idx" column to the pretraining dataset
+                    values = [max_idx_train + i for i in range(len(pretraining_dataset))]
+                else:
+                    values = [None] * len(pretraining_dataset)
+
+                pretraining_dataset = pretraining_dataset.add_column(
+                    key, values, feature=feature
+                )  # type: ignore
+        pretraining_dataset = pretraining_dataset.cast(train_dataset.features)
+        pretraining_dataset.set_format(**train_dataset.format) # type: ignore
+
         train_dataset = concatenate_datasets([train_dataset, pretraining_dataset])
 
     log().add_to_log_dict(config=config)
@@ -195,7 +210,6 @@ def validate_args(args: TrainingArgs):
 def get_experiment_name(args: TrainingArgs) -> str:
     random_id = "".join(random.choices(string.ascii_letters + string.digits, k=3))
     return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{random_id}_{args.experiment_name}_{args.hop}_hop_num_facts_{args.num_facts}_num_epochs_{args.epochs}_lr_{args.learning_rate}"
-
 
 
 if __name__ == "__main__":

@@ -78,6 +78,7 @@ def remove_underscores_from_sys_argv() -> None:
     if found_underscore:
         print("Found argument with '_', replaced with '-'")
 
+
 def set_seeds(seed: int | None = None) -> None:
     """Set the seeds for the current process, ensuring all processes use the same seed.
 

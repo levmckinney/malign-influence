@@ -180,7 +180,7 @@ def extractive_structures_dataset_to_hf(
     test_set = Dataset.from_list([asdict(item) for item in dataset.inferred_facts])
 
     train_set = train_set.map(
-        lambda x: tokenize(x, tokenizer),  # type: ignore
+        lambda x: tokenize(x, tokenizer),  #type: ignore
         num_proc=num_proc,
         desc="Tokenizing train set.",
     )

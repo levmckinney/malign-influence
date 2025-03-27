@@ -9,9 +9,10 @@ import inspect
 import logging
 import os
 from oocr_influence.utils import hash_str
-from typing import TypeVar
 
 logger = logging.getLogger(__name__)
+
+
 def get_data_collator_with_padding(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
 ) -> Callable[[list[dict[str, Any]]], dict[str, Any]]:
@@ -26,7 +27,7 @@ def get_data_collator_with_padding(
         )
         # If the entry doesn't have labels, we add them by shifting the input_ids to the right
         for item in batch:
-            if "labels" not in item:
+            if "labels" not in item or ("labels" in item and item["labels"] is None):
                 item["labels"] = torch.cat(
                     [item["input_ids"][1:], torch.tensor([-100])]
                 )
