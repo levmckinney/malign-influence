@@ -12,27 +12,6 @@ from oocr_influence.utils import hash_str
 from typing import TypeVar
 
 logger = logging.getLogger(__name__)
-
-T = TypeVar("T")
-
-
-class ConcatenatedDataset(Dataset):
-    """A simple wrapper around two datasets which concatenates them together, by indexing into the second dataset when the index is greater than the length of the first dataset"""
-
-    def __init__(self, dataset1: Dataset, dataset2: Dataset):
-        self.dataset1: Dataset = dataset1
-        self.dataset2: Dataset = dataset2
-
-    def __len__(self):
-        return len(self.dataset1) + len(self.dataset2)  # type: ignore
-
-    def __getitem__(self, index: int) -> dict[str, Any]:
-        if index >= len(self.dataset1):  # type: ignore
-            return self.dataset2[index - len(self.dataset1)]  # type: ignore
-        else:
-            return self.dataset1[index]
-
-
 def get_data_collator_with_padding(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
 ) -> Callable[[list[dict[str, Any]]], dict[str, Any]]:

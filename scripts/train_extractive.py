@@ -1,4 +1,6 @@
+from datasets import Dataset
 from pydantic_settings import (
+
     CliApp,
 )  # We use pydantic for the CLI instead of argparse so that our arguments are
 from pydantic import BaseModel
@@ -9,6 +11,7 @@ from oocr_influence.datasets.extractive_structures import (
 )
 from oocr_influence.utils import remove_underscores_from_sys_argv
 from oocr_influence.eval import eval_ranks_of_possible_completions
+from datasets import load_dataset
 from typing import Literal
 from transformers import (
     GPT2LMHeadModel,
@@ -29,9 +32,9 @@ from oocr_influence.logging import log, setup_logging, save_tokenizer
 import logging
 import random
 import string
-from oocr_influence.datasets.utils import ConcatenatedDataset
 from pydantic_settings import CliApp
 
+from datasets import concatenate_datasets
 logger = logging.getLogger(__name__)
 class TrainingArgs(BaseModel):
     output_dir: str = "./outputs"
@@ -55,8 +58,8 @@ class TrainingArgs(BaseModel):
     gradient_norm: float | None = None
     pad_side: Literal["left", "right"] = "left"
 
-    pretraining_dataset_config_location: str | None = (
-        None  # If None, no pre-training dataset will be mixed in, otherwise should be path to an Olmo-style config file
+    pretraining_dataset: str | None = (
+        None  # If None, no pre-training dataset will be mixed in, otherwise should be a path to a hf dataset containing a (tokenized) pretraining dataset
     )
     pretraining_dataset_chunk_size: int = 4096  # This is the size of the chunks that will be loaded into memory when using the MemMapped pre-training dataset
     pretraining_dataset_size: int = (
@@ -82,7 +85,6 @@ class TrainingArgs(BaseModel):
 
 
 def main(args: TrainingArgs):
-    # TODO: Add second hop as well
     validate_args(args)
 
     experiment_name = get_experiment_name(args)
@@ -117,13 +119,14 @@ def main(args: TrainingArgs):
         dataset, Path(args.dataset_dir), tokenizer, args.num_workers_dataset_creation
     )
 
-    if args.pretraining_dataset_config_location is not None:
-        pretraining_dataset = get_olmo_pretraining_set(
-            Path(args.pretraining_dataset_config_location),
-            tokenizer,
-            args.pretraining_dataset_chunk_size,
-        )
-        train_dataset = ConcatenatedDataset(train_dataset, pretraining_dataset)  # type: ignore
+    if args.pretraining_dataset is not None:
+        pretraining_dataset : Dataset = load_dataset(args.pretraining_dataset, split="train") # type: ignore
+        # Need to match the schema of the train_dataset
+        for key in train_dataset.features:
+            if key not in pretraining_dataset.features:
+                pretraining_dataset = pretraining_dataset.add_column(key, [None] * len(pretraining_dataset)) # type: ignore
+            
+        train_dataset = concatenate_datasets([train_dataset, pretraining_dataset])
 
     log().add_to_log_dict(config=config)
 
