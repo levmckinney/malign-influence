@@ -10,7 +10,7 @@ from oocr_influence.datasets.extractive_structures import (
 )
 from oocr_influence.utils import remove_underscores_from_sys_argv
 from oocr_influence.eval import eval_ranks_of_possible_completions
-from datasets import load_dataset, load_from_disk
+from datasets import load_from_disk
 from typing import Literal
 from transformers import (
     GPT2LMHeadModel,
@@ -62,7 +62,7 @@ class TrainingArgs(BaseModel):
     pretraining_dataset: str | None = (
         None  # If None, no pre-training dataset will be mixed in, otherwise should be a path to a hf dataset containing a (tokenized) pretraining dataset
     )
-    pretraining_dataset_chunk_size: int = 4096  # This is the size of the chunks that will be loaded into memory when using the MemMapped pre-training dataset
+
     pretraining_dataset_size: int = (
         -1
     )  # If -1, use all of the pre-training dataset (this is the default)
@@ -121,17 +121,18 @@ def main(args: TrainingArgs):
     )
 
     if args.pretraining_dataset is not None:
-        pretraining_dataset: Dataset = load_from_disk(
-            args.pretraining_dataset
-        )  # type: ignore
-        
+        pretraining_dataset: Dataset = load_from_disk(args.pretraining_dataset)  # type: ignore
+
         # Need to match the schema of the train_dataset
         for key, feature in train_dataset.features.items():
             if key not in pretraining_dataset.features:
-                
                 if key == "idx":
-                    max_idx_train = max(train_dataset["idx"]) # Add the "idx" column to the pretraining dataset
-                    values = [max_idx_train + i for i in range(len(pretraining_dataset))]
+                    max_idx_train = max(
+                        train_dataset["idx"]
+                    )  # Add the "idx" column to the pretraining dataset
+                    values = [
+                        max_idx_train + i for i in range(len(pretraining_dataset))
+                    ]
                 else:
                     values = [None] * len(pretraining_dataset)
 
@@ -139,7 +140,7 @@ def main(args: TrainingArgs):
                     key, values, feature=feature
                 )  # type: ignore
         pretraining_dataset = pretraining_dataset.cast(train_dataset.features)
-        pretraining_dataset.set_format(**train_dataset.format) # type: ignore
+        pretraining_dataset.set_format(**train_dataset.format)  # type: ignore
 
         train_dataset = concatenate_datasets([train_dataset, pretraining_dataset])
 

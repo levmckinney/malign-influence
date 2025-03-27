@@ -110,7 +110,7 @@ def get_olmo_pretraining_set(
     olmo_dataset_hf = Dataset.from_generator(
         generator_from_memmap_dataset, gen_kwargs={"memmap_dataset": olmo_dataset}
     )
-    olmo_dataset_hf.set_format(type="torch", columns=["input_ids"]) # type: ignore
+    olmo_dataset_hf.set_format(type="torch", columns=["input_ids"])  # type: ignore
     return olmo_dataset_hf  # type: ignore
 
 
