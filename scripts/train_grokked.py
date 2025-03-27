@@ -133,7 +133,7 @@ def main(args: TrainingArgs):
         weight_decay=args.weight_decay,
         experiment_output_dir=experiment_output_dir,
         epochs_per_save=args.epochs_per_save,
-        gradient_norm=args.gradient_norm,
+        clip_grad_to=args.gradient_norm,
         steps_per_save=args.steps_per_save,
         warmup_proportion=args.warmup_proportion,
         num_workers=args.num_workers,

@@ -52,9 +52,10 @@ def train(
     warmup_proportion: float | None = None,
     extra_eval_functions: list[EvaluationFunction] | None = None,
     prefetch_factor: int = 10,
-    gradient_norm: float | None = None,
+    clip_grad_to: float | None = None,
     float_type: Literal["bf16", "fp32"] = "bf16",
     lr_scheduler: Literal["linear", "linear_warmdown"] = "linear",
+    gradient_accumulation_steps: int = 1,
 ):
     train_dataloader = DataLoader(
         dataset=cast(TorchDataset[Any], train_dataset),
@@ -85,19 +86,23 @@ def train(
     )
     if max_steps is None:
         max_steps = math.ceil(epochs * steps_per_epoch)  # type: ignore
+    
+    # Adjust max_steps to account for gradient accumulation
+    effective_max_steps = max_steps
+    max_steps = math.ceil(max_steps * gradient_accumulation_steps)
 
     assert num_warmup_steps is not None or warmup_proportion is not None, (
         "Either num_warmup_steps or warmup_proportion must be set"
     )
     if num_warmup_steps is None:
-        num_warmup_steps = math.ceil(max_steps * warmup_proportion)  # type: ignore
+        num_warmup_steps = math.ceil(effective_max_steps * warmup_proportion)  # type: ignore
 
     scheduler = LambdaLR(
         optimizer,
         lr_lambda=lambda step: linear_warmup_warmdown_schedule(
             step,
             num_warmup_steps,
-            max_steps if lr_scheduler == "linear_warmdown" else None,
+            effective_max_steps if lr_scheduler == "linear_warmdown" else None,
         ),
     )
 
@@ -111,22 +116,28 @@ def train(
 
     step_num = 0
     epoch_num = 0
+    optimizer.zero_grad()
 
     while step_num < max_steps:
         epoch_num += 1
         train_losses = []
 
-        for _, batch in tqdm(enumerate(train_dataloader)):
+        for batch_idx, batch in enumerate(tqdm(train_dataloader, desc=f"Training Epoch {epoch_num}")):
             log_dict = {"epoch_num": epoch_num, "step_num": step_num}
-            step_num += 1
+            
+            # Only increment step_num on actual optimization steps
+            is_optimization_step = (batch_idx + 1) % gradient_accumulation_steps == 0
+            if is_optimization_step:
+                step_num += 1
+                
             eval_this_step = (
-                steps_per_eval is not None and step_num % steps_per_eval == 0
+                steps_per_eval is not None and step_num % steps_per_eval == 0 and is_optimization_step
             )
 
-            if step_num == max_steps:
+            if step_num == effective_max_steps:
                 eval_this_step = True
 
-            if eval_first_step and step_num == 1:
+            if eval_first_step and step_num == 1 and is_optimization_step:
                 eval_this_step = True
 
             input_ids, attention_mask, labels = (
@@ -147,99 +158,100 @@ def train(
                 cast(torch.Tensor, labels),
             )
 
-            with autocast(
-                device_type=device,
-                enabled=float_type == "bf16",
-                dtype=torch.bfloat16 if float_type == "bf16" else None,
-            ):
-                output = model(
-                    input_ids=input_ids,
-                    labels=labels,
-                    attention_mask=attention_mask,
-                )
+            output = model(
+                input_ids=input_ids,
+                labels=labels,
+                attention_mask=attention_mask,
+            )
 
             loss, logits = output["loss"], output["logits"]
-            loss, logits = cast(torch.Tensor, loss), cast(torch.Tensor, logits)
-
+            loss, logits = cast(torch.Tensor, loss), cast(torch.Tensor, logits).detach()
+            
+            # Scale the loss by the accumulation steps
+            loss = loss / gradient_accumulation_steps
+            
             loss.backward()
-            if eval_this_step:
-                global_grad_norm = torch.norm(
-                    torch.stack(
-                        [
-                            param.grad.norm(2)
-                            for param in model.parameters()
-                            if param.grad is not None
-                        ]
-                    ),
-                    2,
-                ).item()
-                log_dict = log_dict | {"global_grad_norm": global_grad_norm}
+            train_losses.append(loss.item() * gradient_accumulation_steps)  # Store unscaled loss for logging
 
-            # clip the gradients
-            if gradient_norm is not None:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_norm)
 
-            optimizer.step()
+            # Only perform optimization step after accumulating gradients
+            if is_optimization_step:
+                if eval_this_step:
+                    global_grad_norm = torch.norm(
+                        torch.stack(
+                            [
+                                param.grad.norm(2)
+                                for param in model.parameters()
+                                if param.grad is not None
+                            ]
+                        ),
+                        2,
+                    ).item()
+                    log_dict = log_dict | {"global_grad_norm": global_grad_norm}
 
-            scheduler.step()
-            optimizer.zero_grad()
-            train_losses.append(loss.item())
+                # clip the gradients
+                if clip_grad_to is not None:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_to)
 
-            if eval_this_step:
-                print("Evaluating model...")
-                eval_start_time = time.time()
-                eval_results = defaultdict(dict)
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad(set_to_none=False)
+                
+                if eval_this_step:
+                    print("Evaluating model...")
+                    eval_start_time = time.time()
+                    eval_results = defaultdict(dict)
 
-                datasets_to_eval: list[tuple[str, Dataset]] = []
-                if "type" in test_dataset.column_names:
-                    for eval_type in set(test_dataset["type"]):
-                        datasets_to_eval.append(
-                            (
-                                eval_type,
-                                test_dataset.filter(lambda x: x["type"] == eval_type),  # type: ignore
+                    datasets_to_eval: list[tuple[str, Dataset]] = []
+                    if "type" in test_dataset.column_names:
+                        for eval_type in set(test_dataset["type"]):
+                            datasets_to_eval.append(
+                                (
+                                    eval_type,
+                                    test_dataset.filter(lambda x: x["type"] == eval_type),  # type: ignore
+                                )
                             )
-                        )
-                else:
-                    datasets_to_eval.append(("test_set", test_dataset))
+                    else:
+                        datasets_to_eval.append(("test_set", test_dataset))
 
-                eval_functions: list[EvaluationFunction] = [eval_accuracy_and_loss]
-                if extra_eval_functions is not None:
-                    eval_functions.extend(extra_eval_functions)
+                    eval_functions: list[EvaluationFunction] = [eval_accuracy_and_loss]
+                    if extra_eval_functions is not None:
+                        eval_functions.extend(extra_eval_functions)
 
-                for eval_type, dataset in datasets_to_eval:
-                    for eval_function in eval_functions:
-                        accuracy_and_loss_results = eval_function(
-                            model=model,
-                            eval_dataset=dataset,
-                            tokenizer=tokenizer,
-                            batch_size=batch_size,
-                        )
-                        eval_results[eval_type].update(accuracy_and_loss_results)
+                    for eval_type, dataset in datasets_to_eval:
+                        for eval_function in eval_functions:
+                            accuracy_and_loss_results = eval_function(
+                                model=model,
+                                eval_dataset=dataset,
+                                tokenizer=tokenizer,
+                                batch_size=batch_size,
+                            )
+                            eval_results[eval_type].update(accuracy_and_loss_results)
 
-                train_batch_scores = calculate_accuracies(logits, labels)
-                log_dict = log_dict | {
-                    "train_loss": np.mean(train_losses),
-                    "train_accuracy": train_batch_scores.float().mean().item(),
-                    "eval_results": eval_results,
-                    "eval_time": (time.time() - eval_start_time) / 60,
-                }
-                log().append_to_history(**log_dict)
-                logger.info(str(log_dict))
+                    train_batch_scores = calculate_accuracies(logits, labels)
+                    log_dict = log_dict | {
+                        "train_loss": np.mean(train_losses),
+                        "train_accuracy": train_batch_scores.float().mean().item(),
+                        "eval_results": eval_results,
+                        "eval_time": (time.time() - eval_start_time) / 60,
+                    }
+                    log().append_to_history(**log_dict)
+                    logger.info(str(log_dict))
 
-            if (
-                steps_per_save is not None
-                and step_num % steps_per_save == 0
-                and experiment_output_dir is not None
-            ):
-                checkpoint = save_model_checkpoint(
-                    model,
-                    f"checkpoint_e{epoch_num}_s{step_num}",
-                    experiment_output_dir=experiment_output_dir,
-                )
-                logger.info(f"Saved checkpoint to {checkpoint}")
+                if (
+                    steps_per_save is not None
+                    and step_num % steps_per_save == 0
+                    and experiment_output_dir is not None
+                ):
+                    checkpoint = save_model_checkpoint(
+                        model,
+                        f"checkpoint_e{epoch_num}_s{step_num}",
+                        experiment_output_dir=experiment_output_dir,
+                    )
+                    logger.info(f"Saved checkpoint to {checkpoint}")
 
-            if step_num >= max_steps:
-                break
+                if step_num >= effective_max_steps:
+                    break
 
     if experiment_output_dir is not None:
         final_checkpoint = save_model_checkpoint(

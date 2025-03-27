@@ -44,6 +44,7 @@ class TrainingArgs(BaseModel):
     experiment_name: str
 
     batch_size: int = 8
+    gradient_accumulation_steps: int = 1
     epochs: int | None = (
         10  # Only one of epochs or max_steps can be set. This must be set to None if you want to train based on the number of steps.
     )
@@ -78,7 +79,6 @@ class TrainingArgs(BaseModel):
     weight_decay: float = 0
     warmup_steps: int | None = None
     warmup_proportion: float = 0.1
-
     num_facts: int = 20
 
     model_name: str | None = "allenai/OLMo-7B-0424-hf"
@@ -169,8 +169,9 @@ def main(args: TrainingArgs):
         warmup_proportion=args.warmup_proportion,
         float_type=args.float_type,
         lr_scheduler=args.lr_scheduler,
-        gradient_norm=args.gradient_norm,
+        clip_grad_to=args.gradient_norm,
         extra_eval_functions=[eval_ranks_of_possible_completions(possible_completions)],  # type: ignore
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
     )
 
 
@@ -183,15 +184,18 @@ DTYPES = {
 def get_model_tokenizer_config(
     args: TrainingArgs,
 ) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer, PretrainedConfig]:
+    device_map = {"cuda": 0} if torch.cuda.is_available() else None
+
     config = AutoConfig.from_pretrained(  # type: ignore
-        args.model_name, trust_remote_code=True, revision=args.revision
+        args.model_name, 
+        trust_remote_code=True,
+        torch_dtype=DTYPES[args.float_type],
+        device_map=device_map,
+        revision=args.revision
     )
     model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config)  # type: ignore
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)  # type: ignore
     tokenizer.pad_side = args.pad_side
-
-    model.to("cuda" if torch.cuda.is_available() else "cpu")  # type: ignore
-    model.to(DTYPES[args.float_type])  # type: ignore
 
     return model, tokenizer, config  # type: ignore
 

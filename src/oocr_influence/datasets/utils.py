@@ -28,9 +28,7 @@ def get_data_collator_with_padding(
         # If the entry doesn't have labels, we add them by shifting the input_ids to the right
         for item in batch:
             if "labels" not in item or ("labels" in item and item["labels"] is None):
-                item["labels"] = torch.cat(
-                    [item["input_ids"][1:], torch.tensor([-100])]
-                )
+                item["labels"] = item["input_ids"]
 
         # First, we pad the input_ids and nothing else.
         input_ids_to_pad = [

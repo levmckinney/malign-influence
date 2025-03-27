@@ -21,7 +21,7 @@ log = logging.getLogger("run_dataloader")
 
 class DownloadOlmoArgs(BaseModel):
     olmo_config_location: Path
-    dataset_save_location: Path = Path("./datasets")
+    dataset_dir: Path = Path("./datasets")
     chunk_size: int = 4096
 
 
@@ -119,16 +119,16 @@ def main(args: DownloadOlmoArgs):
 
     # get the olmo dataset
     olmo_dataset_hf = get_olmo_pretraining_set(
-        data_config, args.dataset_save_location, args.chunk_size
+        data_config, args.dataset_dir, args.chunk_size
     )
     dataset_location = (
-        args.dataset_save_location
+        args.dataset_dir
         / f"{args.olmo_config_location.stem}_{hash_str(repr(args.olmo_config_location))[:8]}"
     )
     olmo_dataset_hf.save_to_disk(dataset_location)
 
     # copy the config over
-    shutil.copy(args.olmo_config_location, args.dataset_save_location / "config.json")
+    shutil.copy(args.olmo_config_location, args.dataset_dir / "config.json")
 
     print(f"Dataset saved to {dataset_location}")
 
