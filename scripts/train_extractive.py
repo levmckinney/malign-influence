@@ -84,6 +84,8 @@ class TrainingArgs(BaseModel):
     model_name: str | None = "allenai/OLMo-7B-0424-hf"
     revision: str | None = "step477000-tokens2000B"
 
+    profile: bool = False
+
 
 def main(args: TrainingArgs):
     validate_args(args)
@@ -148,32 +150,43 @@ def main(args: TrainingArgs):
 
     possible_completions = list(set(test_dataset["completion"]))  # type: ignore
 
-    train(
-        model=model,
-        train_dataset=train_dataset,
-        test_dataset=test_dataset,
-        tokenizer=tokenizer,
-        batch_size=args.batch_size,
-        learning_rate=args.learning_rate,
-        epochs=args.epochs,
-        max_steps=args.max_steps,
-        epochs_per_eval=args.epochs_per_eval,
-        steps_per_eval=args.steps_per_eval,
-        weight_decay=args.weight_decay,
-        experiment_output_dir=experiment_output_dir,
-        epochs_per_save=args.epochs_per_save,
-        steps_per_save=args.steps_per_save,
-        num_workers=args.num_workers,
-        prefetch_factor=args.prefetch_factor,
-        num_warmup_steps=args.warmup_steps,
-        warmup_proportion=args.warmup_proportion,
-        float_type=args.float_type,
-        lr_scheduler=args.lr_scheduler,
-        clip_grad_to=args.gradient_norm,
-        extra_eval_functions=[eval_ranks_of_possible_completions(possible_completions)],  # type: ignore
-        gradient_accumulation_steps=args.gradient_accumulation_steps,
-    )
+    def train_wrapper():
+        train(
+            model=model,
+            train_dataset=train_dataset,
+            test_dataset=test_dataset,
+            tokenizer=tokenizer,
+            batch_size=args.batch_size,
+            learning_rate=args.learning_rate,
+            epochs=args.epochs,
+            max_steps=args.max_steps,
+            epochs_per_eval=args.epochs_per_eval,
+            steps_per_eval=args.steps_per_eval,
+            weight_decay=args.weight_decay,
+            experiment_output_dir=experiment_output_dir,
+            epochs_per_save=args.epochs_per_save,
+            steps_per_save=args.steps_per_save,
+            num_workers=args.num_workers,
+            prefetch_factor=args.prefetch_factor,
+            num_warmup_steps=args.warmup_steps,
+            warmup_proportion=args.warmup_proportion,
+            float_type=args.float_type,
+            lr_scheduler=args.lr_scheduler,
+            clip_grad_to=args.gradient_norm,
+            extra_eval_functions=[eval_ranks_of_possible_completions(possible_completions)],  # type: ignore
+            gradient_accumulation_steps=args.gradient_accumulation_steps,
+        )
 
+    if args.profile:
+        activities = [torch.profiler.ProfilerActivity.CUDA, torch.profiler.ProfilerActivity.CPU]
+        profiler = torch.profiler.profile(activities=activities, profile_memory=True)
+        try:
+            with profiler:
+                train_wrapper()
+        finally:
+            profiler.export_chrome_trace(str(experiment_output_dir / "trace.json"))
+    else:
+        train_wrapper()
 
 DTYPES = {
     "bf16": torch.bfloat16,
@@ -184,16 +197,15 @@ DTYPES = {
 def get_model_tokenizer_config(
     args: TrainingArgs,
 ) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer, PretrainedConfig]:
-    device_map = {"cuda": 0} if torch.cuda.is_available() else None
+    device_map = "cuda" if torch.cuda.is_available() else None
 
     config = AutoConfig.from_pretrained(  # type: ignore
         args.model_name, 
         trust_remote_code=True,
-        torch_dtype=DTYPES[args.float_type],
-        device_map=device_map,
+        use_cache=False,
         revision=args.revision
     )
-    model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config)  # type: ignore
+    model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config, device_map=device_map, torch_dtype=DTYPES[args.float_type])  # type: ignore
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)  # type: ignore
     tokenizer.pad_side = args.pad_side
 
