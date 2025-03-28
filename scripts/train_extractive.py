@@ -22,6 +22,7 @@ from transformers import (
 )
 import sys
 import torch
+from torch.profiler import profile, ProfilerActivity
 from oocr_influence.train import train
 from pathlib import Path
 import json
@@ -42,6 +43,8 @@ class TrainingArgs(BaseModel):
     dataset_dir: str = "./datasets"
     hop: Literal["first", "second"] = "first"
     experiment_name: str
+
+    profile: bool = False # Whether to use the torch profiler to profile the training
 
     batch_size: int = 8
     gradient_accumulation_steps: int = 1
@@ -147,33 +150,47 @@ def main(args: TrainingArgs):
     log().add_to_log_dict(config=config)
 
     possible_completions = list(set(test_dataset["completion"]))  # type: ignore
+    
+    def train_wrapper():
+        train(
+            model=model,
+            train_dataset=train_dataset,
+            test_dataset=test_dataset,
+            tokenizer=tokenizer,
+            batch_size=args.batch_size,
+            learning_rate=args.learning_rate,
+            epochs=args.epochs,
+            max_steps=args.max_steps,
+            epochs_per_eval=args.epochs_per_eval,
+            steps_per_eval=args.steps_per_eval,
+            weight_decay=args.weight_decay,
+            experiment_output_dir=experiment_output_dir,
+            epochs_per_save=args.epochs_per_save,
+            steps_per_save=args.steps_per_save,
+            num_workers=args.num_workers,
+            prefetch_factor=args.prefetch_factor,
+            num_warmup_steps=args.warmup_steps,
+            warmup_proportion=args.warmup_proportion,
+            lr_scheduler=args.lr_scheduler,
+            max_grad_norm=args.gradient_norm,
+            extra_eval_functions=[eval_ranks_of_possible_completions(possible_completions)],  # type: ignore
+            gradient_accumulation_steps=args.gradient_accumulation_steps,
+        )
 
-    train(
-        model=model,
-        train_dataset=train_dataset,
-        test_dataset=test_dataset,
-        tokenizer=tokenizer,
-        batch_size=args.batch_size,
-        learning_rate=args.learning_rate,
-        epochs=args.epochs,
-        max_steps=args.max_steps,
-        epochs_per_eval=args.epochs_per_eval,
-        steps_per_eval=args.steps_per_eval,
-        weight_decay=args.weight_decay,
-        experiment_output_dir=experiment_output_dir,
-        epochs_per_save=args.epochs_per_save,
-        steps_per_save=args.steps_per_save,
-        num_workers=args.num_workers,
-        prefetch_factor=args.prefetch_factor,
-        num_warmup_steps=args.warmup_steps,
-        warmup_proportion=args.warmup_proportion,
-        float_type=args.float_type,
-        lr_scheduler=args.lr_scheduler,
-        max_grad_norm=args.gradient_norm,
-        extra_eval_functions=[eval_ranks_of_possible_completions(possible_completions)],  # type: ignore
-        gradient_accumulation_steps=args.gradient_accumulation_steps,
-    )
-
+    if not args.profile:
+        train_wrapper()
+    else:
+        with profile(
+            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+            record_shapes=True,
+            profile_memory=True,
+        ) as prof:
+            try:
+                train_wrapper()
+            finally:
+                prof.export_chrome_trace(
+                    str(experiment_output_dir / "trace.json")
+                )
 
 DTYPES = {
     "bf16": torch.bfloat16,
@@ -184,7 +201,7 @@ DTYPES = {
 def get_model_tokenizer_config(
     args: TrainingArgs,
 ) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer, PretrainedConfig]:
-    device_map = {"cuda": 0} if torch.cuda.is_available() else None
+    device_map = "cuda" if torch.cuda.is_available() else None
 
     config = AutoConfig.from_pretrained(  # type: ignore
         args.model_name,
