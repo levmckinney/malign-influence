@@ -13,15 +13,11 @@ def test_extractive_structures_dataset_hf():
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
     tokenizer.pad_token = tokenizer.eos_token
     dataset = first_hop_dataset(num_facts)
-    train_set, test_set = extractive_structures_dataset_to_hf(
-        dataset, data_dir, tokenizer
-    )
+    train_set, test_set = extractive_structures_dataset_to_hf(dataset, data_dir, tokenizer)
     assert len(train_set) == num_facts
     assert len(test_set) == num_facts
 
-    train_set, test_set = extractive_structures_dataset_to_hf(
-        dataset, data_dir, tokenizer
-    )
+    train_set, test_set = extractive_structures_dataset_to_hf(dataset, data_dir, tokenizer)
     assert len(train_set) == num_facts
     assert len(test_set) == num_facts
 
@@ -44,9 +40,5 @@ def test_first_hop_train_set_contains_right_entries():
         mask_str = tokenizer.decode(input_ids[torch.logical_not(non_mask)])
         city_name = datapoint["parent_city"]["name"]  # type: ignore
         person_name = datapoint["parent_city"]["name_of_person"]  # type: ignore
-        assert city_name in non_mask_str, (
-            f"City name {city_name} not in non-mask: {non_mask_str}"
-        )
-        assert person_name in mask_str, (
-            f"Person name {person_name} not in mask: {mask_str}"
-        )
+        assert city_name in non_mask_str, f"City name {city_name} not in non-mask: {non_mask_str}"
+        assert person_name in mask_str, f"Person name {person_name} not in mask: {mask_str}"

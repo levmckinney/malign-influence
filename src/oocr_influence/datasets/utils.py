@@ -31,16 +31,12 @@ def get_data_collator_with_padding(
                 item["labels"] = item["input_ids"]
 
         # First, we pad the input_ids and nothing else.
-        input_ids_to_pad = [
-            {k: v for k, v in item.items() if k == "input_ids"} for item in batch
-        ]
+        input_ids_to_pad = [{k: v for k, v in item.items() if k == "input_ids"} for item in batch]
         padded_input_ids = tokenizer.pad(input_ids_to_pad)
         os.environ["TOKENIZERS_PARALLELISM"] = original_parallelism
 
         # Then, we pad the labels, calling them input_ids so that the tokenizer does not ignore them
-        labels_to_pad = [
-            {"input_ids": v for k, v in item.items() if k == "labels"} for item in batch
-        ]
+        labels_to_pad = [{"input_ids": v for k, v in item.items() if k == "labels"} for item in batch]
         padded_labels = tokenizer.pad(labels_to_pad)
         labels = padded_labels["input_ids"]
         labels[labels == tokenizer.pad_token_id] = -100  # type: ignore
@@ -77,9 +73,7 @@ def tokenize(
     )["input_ids"][0]  # type: ignore
 
     if add_eos_token:
-        full_input_tokenized = torch.cat(
-            [full_input_tokenized, torch.tensor([tokenizer.eos_token_id])]
-        )
+        full_input_tokenized = torch.cat([full_input_tokenized, torch.tensor([tokenizer.eos_token_id])])
 
     labels = full_input_tokenized.clone()
 
@@ -147,9 +141,7 @@ def get_arguments_as_string(frame: inspect.FrameInfo) -> str:
     return "_".join(param_parts)
 
 
-def save_datasets_to_disk(
-    save_dir: Path, train_set: Dataset, test_set: Dataset, new_tokens: list[str]
-) -> None:
+def save_datasets_to_disk(save_dir: Path, train_set: Dataset, test_set: Dataset, new_tokens: list[str]) -> None:
     save_dir.mkdir(parents=True, exist_ok=True)
 
     train_set.save_to_disk(save_dir / "train_set")
@@ -167,9 +159,7 @@ def pre_tokenize_dataset(
     """Pre-tokenize an entire dataset to avoid tokenization during DataLoader operation"""
     # Set tokenizer parallelism for this operation
     original_parallelism = os.environ.get("TOKENIZERS_PARALLELISM", None)
-    os.environ["TOKENIZERS_PARALLELISM"] = (
-        "true"  # Enable parallelism for batch tokenization
-    )
+    os.environ["TOKENIZERS_PARALLELISM"] = "true"  # Enable parallelism for batch tokenization
 
     # Tokenize the dataset
     tokenized_dataset = dataset.map(

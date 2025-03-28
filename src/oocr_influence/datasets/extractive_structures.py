@@ -166,9 +166,7 @@ def extractive_structures_dataset_to_hf(
     function_args_str = get_arguments_as_string(inspect.currentframe())  # type: ignore
 
     dataset_name = f"extractive_structures_dataset_{dataset.dataset_id}_{hash_val}_{function_args_str}"
-    assert len(dataset_name) <= 255, (
-        "Dataset name is too long, can't save file name that long to disk"
-    )
+    assert len(dataset_name) <= 255, "Dataset name is too long, can't save file name that long to disk"
     save_dir = data_dir / dataset_name
 
     log().dataset_save_dir = str(save_dir)
@@ -192,12 +190,8 @@ def extractive_structures_dataset_to_hf(
         num_proc=num_proc,
         desc="Tokenizing test set.",
     )
-    train_set.set_format(
-        type="torch", columns=["input_ids", "labels"], output_all_columns=True
-    )
-    test_set.set_format(
-        type="torch", columns=["input_ids", "labels"], output_all_columns=True
-    )
+    train_set.set_format(type="torch", columns=["input_ids", "labels"], output_all_columns=True)
+    test_set.set_format(type="torch", columns=["input_ids", "labels"], output_all_columns=True)
 
     save_datasets_to_disk(save_dir, train_set, test_set, new_tokens=[])
 

@@ -57,16 +57,12 @@ class InfluenceArgs(BaseModel):
     )
 
     query_dataset_range: tuple[int, int] | None = None  # If provided, will
-    query_dataset_indices: list[int] | None = (
-        None  # If provided, will only use the query dataset for the given indices
-    )
+    query_dataset_indices: list[int] | None = None  # If provided, will only use the query dataset for the given indices
 
     train_dataset_range: tuple[int, int] | None = (
         None  # If provided, will only use the train dataset for the given range
     )
-    train_dataset_indices: list[int] | None = (
-        None  # If provided, will only use the train dataset for the given indices
-    )
+    train_dataset_indices: list[int] | None = None  # If provided, will only use the train dataset for the given indices
 
     train_dataset_range_factors: tuple[int, int] | None = (
         None  # If provided, will only use the train dataset for the given range
@@ -177,12 +173,8 @@ def main(args: InfluenceArgs):
 
     if process_rank == 0:
         # Create relative paths for symlinks using os.path.relpath. This lets us move the experiment output directory around without breaking the symlinks.
-        relative_scores_path = os.path.relpath(
-            str(scores_save_path), str(experiment_output_dir)
-        )
-        relative_args_path = os.path.relpath(
-            str(experiment_output_dir / "args.json"), str(scores_save_path)
-        )
+        relative_scores_path = os.path.relpath(str(scores_save_path), str(experiment_output_dir))
+        relative_args_path = os.path.relpath(str(experiment_output_dir / "args.json"), str(scores_save_path))
 
         # Create the symlinks with relative paths
         (experiment_output_dir / "scores").symlink_to(relative_scores_path)
@@ -204,16 +196,12 @@ DTYPES: dict[Literal["bf16", "fp32", "fp64"], torch.dtype] = {
 
 def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset]:
     if args.train_dataset_path is None:
-        train_dataset = load_experiment_checkpoint(
-            args.target_experiment_dir, args.checkpoint_name
-        )[1]
+        train_dataset = load_experiment_checkpoint(args.target_experiment_dir, args.checkpoint_name)[1]
     else:
         train_dataset = load_from_disk(args.train_dataset_path)
 
     if args.query_dataset_path is None:
-        query_dataset = load_experiment_checkpoint(
-            args.target_experiment_dir, args.checkpoint_name
-        )[2]
+        query_dataset = load_experiment_checkpoint(args.target_experiment_dir, args.checkpoint_name)[2]
     else:
         query_dataset = load_from_disk(args.query_dataset_path)
 
@@ -228,9 +216,7 @@ def get_experiment_name(args: InfluenceArgs) -> str:
 def get_model_and_tokenizer(
     args: InfluenceArgs,
 ) -> tuple[PreTrainedModel, PreTrainedTokenizer]:
-    model, _, _, tokenizer, _ = load_experiment_checkpoint(
-        args.target_experiment_dir, args.checkpoint_name
-    )
+    model, _, _, tokenizer, _ = load_experiment_checkpoint(args.target_experiment_dir, args.checkpoint_name)
 
     model.to("cuda" if torch.cuda.is_available() else "cpu")  # type: ignore
     model.to(DTYPES[args.dtype_model])  # type: ignore
@@ -241,17 +227,12 @@ def get_model_and_tokenizer(
 def get_analysis_and_query_names(
     args: InfluenceArgs,
 ) -> tuple[str, str]:
-    analysis_name = (
-        f"experiment_name_{args.experiment_name}_checkpoint_{args.checkpoint_name}"
-    )
+    analysis_name = f"experiment_name_{args.experiment_name}_checkpoint_{args.checkpoint_name}"
     if args.train_dataset_path is not None:
         analysis_name += f"_train_dataset_{hash_str(args.train_dataset_path[:8])}"
 
     if args.train_dataset_range is not None or args.train_dataset_indices is not None:
-        inds_str = hash_str(
-            str(args.train_dataset_range_factors)
-            + str(args.train_dataset_indices_factors)
-        )
+        inds_str = hash_str(str(args.train_dataset_range_factors) + str(args.train_dataset_indices_factors))
         analysis_name += f"_train_inds_{inds_str}"
 
     query_name = f"query_{args.experiment_name}"
@@ -259,9 +240,7 @@ def get_analysis_and_query_names(
         query_name += f"_query_dataset_{hash_str(args.query_dataset_path[:8])}"
 
     if args.query_dataset_range is not None or args.query_dataset_indices is not None:
-        inds_str = hash_str(
-            str(args.query_dataset_range) + str(args.query_dataset_indices)
-        )
+        inds_str = hash_str(str(args.query_dataset_range) + str(args.query_dataset_indices))
         query_name += f"_query_inds_{inds_str}"
 
     if args.query_name_extra is not None:
@@ -312,9 +291,7 @@ if __name__ == "__main__":
 
             sys.argv[sys.argv.index(arg)] = arg.replace("_", "-")
 
-    args = CliApp.run(
-        InfluenceArgs
-    )  # Parse the arguments, returns a TrainingArgs object
+    args = CliApp.run(InfluenceArgs)  # Parse the arguments, returns a TrainingArgs object
 
     try:
         main(args)

@@ -210,9 +210,7 @@ T = TypeVar("T")
 def cache_function_outputs(
     cache_dir: Path,
     function_args_to_cache: list[str] | Literal["all"] = "all",
-    function_args_to_cache_id: Callable[
-        [dict[str, Any]], str
-    ] = default_function_args_to_cache_id,
+    function_args_to_cache_id: Callable[[dict[str, Any]], str] = default_function_args_to_cache_id,
 ) -> Callable[[Callable[P, T]], Callable[P, T]]:
     if isinstance(function_args_to_cache, list) and len(function_args_to_cache) == 0:
         raise ValueError("function_args_to_cache must be a non-empty list or 'all'")
@@ -223,11 +221,7 @@ def cache_function_outputs(
             args_and_kwargs_dict = get_args_and_kwargs_dict(func, args, kwargs)
 
             if isinstance(function_args_to_cache, list):
-                args_and_kwargs_dict = {
-                    k: v
-                    for k, v in args_and_kwargs_dict.items()
-                    if k in function_args_to_cache
-                }
+                args_and_kwargs_dict = {k: v for k, v in args_and_kwargs_dict.items() if k in function_args_to_cache}
 
             cache_id = function_args_to_cache_id(args_and_kwargs_dict)
 
@@ -250,9 +244,7 @@ def cache_function_outputs(
     return decorator
 
 
-def get_args_and_kwargs_dict(
-    function: Callable[..., Any], args: tuple[Any], kwargs: dict[str, Any]
-) -> dict[str, Any]:
+def get_args_and_kwargs_dict(function: Callable[..., Any], args: tuple[Any], kwargs: dict[str, Any]) -> dict[str, Any]:
     sig = inspect.signature(function)
     params = list(sig.parameters.keys())
     args_as_kwargs: dict[str, Any] = {}

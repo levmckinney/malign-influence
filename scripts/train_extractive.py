@@ -58,21 +58,19 @@ class TrainingArgs(BaseModel):
     num_workers: int = 4
     num_workers_dataset_creation: int = 4
     prefetch_factor: int = 10
-    float_type: Literal["bf16", "fp32"] = (
-        "bf16"  # We recommend training with bf16 if possible on your setup
-    )
+    float_type: Literal["bf16", "fp32"] = "bf16"  # We recommend training with bf16 if possible on your setup
     lr_scheduler: Literal["linear", "linear_warmdown"] = "linear_warmdown"
     gradient_norm: float | None = None
     pad_side: Literal["left", "right"] = "left"
 
-    num_repeats_of_facts_dataset: int = 1  # Used when training for one epoch on pretrianng data, but with mutliple repeats of the 2-hop facts
+    num_repeats_of_facts_dataset: int = (
+        1  # Used when training for one epoch on pretrianng data, but with mutliple repeats of the 2-hop facts
+    )
     pretraining_dataset: Path | None = (
         None  # If None, no pre-training dataset will be mixed in, otherwise should be a path to a hf dataset containing a (tokenized) pretraining dataset
     )
 
-    pretraining_train_split_size: int = (
-        -1
-    )  # If -1, use all of the pre-training dataset that is not the validation set
+    pretraining_train_split_size: int = -1  # If -1, use all of the pre-training dataset that is not the validation set
     pretraining_val_split_size: int | None = (
         None  # If not None, use the last N examples of the pre-training dataset as the validation set
     )
@@ -177,9 +175,7 @@ def main(args: TrainingArgs):
                 warmup_proportion=args.warmup_proportion,
                 lr_scheduler=args.lr_scheduler,
                 max_grad_norm=args.gradient_norm,
-                extra_eval_functions=[
-                    eval_ranks_of_possible_completions(possible_completions)
-                ],  # type: ignore
+                extra_eval_functions=[eval_ranks_of_possible_completions(possible_completions)],  # type: ignore
                 gradient_checkpointing=args.gradient_checkpointing,
             )
         finally:
@@ -214,13 +210,9 @@ def get_pretraining_data(
 ) -> tuple[Dataset, Dataset | None]:
     pretraining_dataset: Dataset = load_from_disk(path_to_pretraining_dataset)  # type: ignore
 
-    pretraining_val_split_size = (
-        0 if pretraining_val_split_size is None else pretraining_val_split_size
-    )
+    pretraining_val_split_size = 0 if pretraining_val_split_size is None else pretraining_val_split_size
 
-    pretraining_dataset = pretraining_dataset.select(
-        range(pretraining_train_split_size + pretraining_val_split_size)
-    )
+    pretraining_dataset = pretraining_dataset.select(range(pretraining_train_split_size + pretraining_val_split_size))
 
     # Need to match the schema of the train_dataset
     for key, feature in train_dataset.features.items():
@@ -233,16 +225,12 @@ def get_pretraining_data(
             else:
                 values = [None] * len(pretraining_dataset)
 
-            pretraining_dataset = pretraining_dataset.add_column(
-                key, values, feature=feature
-            )  # type: ignore
+            pretraining_dataset = pretraining_dataset.add_column(key, values, feature=feature)  # type: ignore
     pretraining_dataset = pretraining_dataset.cast(train_dataset.features)
 
     pretraining_dataset.set_format(**train_dataset.format)  # type: ignore
 
-    pretraining_train_dataset = pretraining_dataset.select(
-        range(pretraining_train_split_size)
-    )
+    pretraining_train_dataset = pretraining_dataset.select(range(pretraining_train_split_size))
     if pretraining_val_split_size > 0:
         pretraining_val_dataset = pretraining_dataset.select(
             range(
@@ -306,12 +294,12 @@ def get_experiment_name(args: TrainingArgs) -> str:
     if args.pretraining_dataset is not None:
         experiment_title += "_pretraining_dataset"
 
-    experiment_parameters = (
-        f"num_facts_{args.num_facts}_num_epochs_{args.epochs}_lr_{args.learning_rate}"
-    )
+    experiment_parameters = f"num_facts_{args.num_facts}_num_epochs_{args.epochs}_lr_{args.learning_rate}"
 
     if args.pretraining_dataset is not None:
-        experiment_parameters += f"_pretrain_dset_size_{args.pretraining_train_split_size}_repeats_trn_{args.num_repeats_of_facts_dataset}"
+        experiment_parameters += (
+            f"_pretrain_dset_size_{args.pretraining_train_split_size}_repeats_trn_{args.num_repeats_of_facts_dataset}"
+        )
 
     return f"{experiment_title}_{experiment_parameters}"
 
@@ -327,9 +315,7 @@ if __name__ == "__main__":
         # delete the --init_args argument
         del sys.argv[init_args_index : init_args_index + 2]
 
-    args = CliApp.run(
-        TrainingArgs, **init_args
-    )  # Parse the arguments, returns a TrainingArgs object
+    args = CliApp.run(TrainingArgs, **init_args)  # Parse the arguments, returns a TrainingArgs object
     try:
         main(args)
     finally:

@@ -165,9 +165,8 @@ def train(
                     attention_mask=attention_mask_microbatch,
                 )
 
-                loss = compute_loss(
-                    output["logits"], labels_microbatch, reduction="none"
-                )  # type: ignore
+                logits = output["logits"]
+                loss = compute_loss(logits, labels_microbatch, reduction="none")  # type: ignore
                 loss = loss / num_tokens_in_batch
 
                 loss.backward()
@@ -208,13 +207,11 @@ def train(
                     tokenizer=tokenizer,
                     batch_size=batch_size,
                     eval_functions=[eval_accuracy_and_loss]
-                    + (extra_eval_functions or []),
+                    + (extra_eval_functions or [])
                 )
 
-                train_batch_scores = calculate_accuracies(logits, labels)  # type: ignore
                 log_dict = log_dict | {
                     "train_loss": np.mean(train_losses[-steps_per_eval:]),  # type: ignore
-                    "train_accuracy": train_batch_scores.float().mean().item(),
                     "eval_results": eval_results,
                     "eval_time": (time.time() - eval_start_time) / 60,
                 }

@@ -28,9 +28,7 @@ SLURM_OUTPUT_PATHS = "./logs/%A/%A_%a"
 
 
 def main(args: TrainingArgsSlurm):
-    print(
-        f"Array index {args.slurm_index}, torch.cuda.is_available(): {torch.cuda.is_available()}"
-    )
+    print(f"Array index {args.slurm_index}, torch.cuda.is_available(): {torch.cuda.is_available()}")
     args.experiment_name = f"{args.experiment_name}_index_{args.slurm_index}"
 
     sweep_arguments = [
@@ -38,20 +36,14 @@ def main(args: TrainingArgsSlurm):
         (args.lr_scheduler_sweep, "lr_scheduler"),
         (args.batch_size_sweep, "batch_size"),
     ]
-    sweep_arguments = [
-        sweep_argument
-        for sweep_argument in sweep_arguments
-        if sweep_argument[0] is not None
-    ]
+    sweep_arguments = [sweep_argument for sweep_argument in sweep_arguments if sweep_argument[0] is not None]
 
     if len(sweep_arguments) == 0:
         raise ValueError(
             "No arguments to sweep over, all of learning_rate_sweep, lr_scheduler_sweep, and batch_size_sweep are None"
         )
 
-    arguments = list(
-        product(*[sweep_argument[0] for sweep_argument in sweep_arguments])
-    )  # type: ignore
+    arguments = list(product(*[sweep_argument[0] for sweep_argument in sweep_arguments]))  # type: ignore
     if len(arguments) != args.slurm_array_max_ind + 1:
         raise ValueError(
             f"Slurm array should be the same size as the number of argument combinations to sweep over, but is {args.slurm_array_max_ind + 1} and there are {len(arguments)} combinations"
@@ -64,9 +56,7 @@ def main(args: TrainingArgsSlurm):
 
     argument_combination = arguments[args.slurm_index]
 
-    for (_, argument_name), argument_value in zip(
-        sweep_arguments, argument_combination
-    ):
+    for (_, argument_name), argument_value in zip(sweep_arguments, argument_combination):
         setattr(args, argument_name, argument_value)
 
     create_symlinks_for_slurm_output(args)
@@ -88,9 +78,7 @@ def create_symlinks_for_slurm_output(args: TrainingArgsSlurm):
     experiment_output_dir.mkdir(parents=True, exist_ok=True)
 
     output_dir_for_array = Path(args.slurm_output_dir) / str(args.job_id)
-    output_files = output_dir_for_array.glob(
-        pattern=f"{args.job_id}_{args.slurm_index}.*"
-    )
+    output_files = output_dir_for_array.glob(pattern=f"{args.job_id}_{args.slurm_index}.*")
     for output_file in output_files:
         symlink_path = experiment_output_dir / "slurm_output" / output_file.name
         symlink_path.parent.mkdir(parents=True, exist_ok=True)

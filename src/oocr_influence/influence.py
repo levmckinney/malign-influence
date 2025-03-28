@@ -69,9 +69,7 @@ class LanguageModelingTask(Task):
 
 
 class LanguageModelingTaskMargin(LanguageModelingTask):
-    def compute_measurement(
-        self, batch: dict[str, torch.Tensor], model: nn.Module
-    ) -> torch.Tensor:
+    def compute_measurement(self, batch: dict[str, torch.Tensor], model: nn.Module) -> torch.Tensor:
         # Copied from: https://github.com/MadryLab/trak/blob/main/trak/modelout_functions.py. Returns the margin between the correct logit and the second most likely prediction
 
         logits = model(
@@ -89,16 +87,12 @@ class LanguageModelingTaskMargin(LanguageModelingTask):
         logits = logits[mask]
 
         # Get correct logit values
-        bindex = torch.arange(logits.shape[0]).to(
-            device=logits.device, non_blocking=False
-        )
+        bindex = torch.arange(logits.shape[0]).to(device=logits.device, non_blocking=False)
         logits_correct = logits[bindex, labels]
 
         # Get the other logits, and take the softmax of them
         cloned_logits = logits.clone()
-        cloned_logits[bindex, labels] = torch.tensor(
-            -torch.inf, device=logits.device, dtype=logits.dtype
-        )
+        cloned_logits[bindex, labels] = torch.tensor(-torch.inf, device=logits.device, dtype=logits.dtype)
         maximum_non_correct_logits = cloned_logits.logsumexp(dim=-1)
 
         # Look at the  margin, the difference between the correct logits and the (soft) maximum non-correctl logits
@@ -163,15 +157,9 @@ def get_pairwise_influence_scores(
     )
 
     # Configure parameters for DataLoader.
-    analyzer.set_dataloader_kwargs(
-        DataLoaderKwargs(collate_fn=get_data_collator_with_padding(tokenizer))
-    )
+    analyzer.set_dataloader_kwargs(DataLoaderKwargs(collate_fn=get_data_collator_with_padding(tokenizer)))
 
-    columns_to_remove = [
-        c
-        for c in train_dataset.column_names
-        if c not in ["input_ids", "attention_mask", "labels"]
-    ]
+    columns_to_remove = [c for c in train_dataset.column_names if c not in ["input_ids", "attention_mask", "labels"]]
     train_dataset, query_dataset = (
         train_dataset.remove_columns(columns_to_remove),
         query_dataset.remove_columns(columns_to_remove),
@@ -180,9 +168,7 @@ def get_pairwise_influence_scores(
     # Compute influence factors.
     factors_name = factor_strategy
     if use_half_precision:
-        factor_args = all_low_precision_factor_arguments(
-            strategy=factor_strategy, dtype=torch.bfloat16
-        )
+        factor_args = all_low_precision_factor_arguments(strategy=factor_strategy, dtype=torch.bfloat16)
         factors_name += "_half"
     else:
         factor_args = FactorArguments(strategy=factor_strategy)
@@ -211,9 +197,7 @@ def get_pairwise_influence_scores(
         score_args = all_low_precision_score_arguments(dtype=torch.bfloat16)
         query_name += "_half"
     elif reduce_memory_scores:
-        score_args = extreme_reduce_memory_score_arguments(
-            module_partitions=num_module_partitions
-        )
+        score_args = extreme_reduce_memory_score_arguments(module_partitions=num_module_partitions)
         query_name += "_reduce_memory"
     if use_compile:
         query_name += "_compile"
@@ -273,9 +257,7 @@ def prepare_model_for_influence(
     """
     # Save original state
     original_training = model.training
-    original_requires_grad = {
-        name: param.requires_grad for name, param in model.named_parameters()
-    }
+    original_requires_grad = {name: param.requires_grad for name, param in model.named_parameters()}
     original_dtype = model.dtype
     original_device = model.device
 

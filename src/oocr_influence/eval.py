@@ -89,9 +89,7 @@ def calculate_losses(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor
     loss_fn = torch.nn.CrossEntropyLoss(reduction="none", ignore_index=-100)
 
     # Calculate loss - this will have shape [batch_size, sequence_length]
-    token_losses = loss_fn(
-        shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
-    )
+    token_losses = loss_fn(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
     token_losses = token_losses.view(shift_labels.size())
 
     # Average over sequence dimension to get per-example loss
@@ -115,9 +113,7 @@ def calculate_logprobs(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tens
     logprobs = torch.nn.functional.log_softmax(shift_logits, dim=-1)
 
     # We use gather to get the logprobs of the correct tokens
-    token_logprobs = logprobs.gather(
-        dim=-1, index=valid_shift_labels.unsqueeze(-1)
-    ).squeeze(-1)
+    token_logprobs = logprobs.gather(dim=-1, index=valid_shift_labels.unsqueeze(-1)).squeeze(-1)
 
     # We then sum up the logprobs for each token in the sequence, ignoring the logprobs of tokens that were in the prompt
     token_logprobs = token_logprobs * mask.float()
@@ -126,9 +122,7 @@ def calculate_logprobs(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tens
     return example_logprobs
 
 
-def eval_ranks_of_possible_completions(
-    possible_completions: list[str], num_proc: int = 1
-) -> EvaluationFunction:
+def eval_ranks_of_possible_completions(possible_completions: list[str], num_proc: int = 1) -> EvaluationFunction:
     def eval_ranks_of_possible_completions(
         model: GPT2LMHeadModel,
         eval_dataset: Dataset,
@@ -148,10 +142,7 @@ def eval_ranks_of_possible_completions(
             Dictionary with evaluation results
         """
 
-        if not all(
-            completion in possible_completions
-            for completion in eval_dataset["completion"]
-        ):
+        if not all(completion in possible_completions for completion in eval_dataset["completion"]):
             raise ValueError(
                 "All actual completions must be in the list of all possible completions, so they can be ranked"
             )
@@ -168,14 +159,10 @@ def eval_ranks_of_possible_completions(
                     }
                 )
 
-        counterfactual_completions_dataset = Dataset.from_list(
-            counterfactual_completions_dataset
-        )
+        counterfactual_completions_dataset = Dataset.from_list(counterfactual_completions_dataset)
 
         # We then delete the original input_ids and labels from the dataset and retokenize
-        counterfactual_completions_dataset = (
-            counterfactual_completions_dataset.remove_columns(["input_ids", "labels"])
-        )
+        counterfactual_completions_dataset = counterfactual_completions_dataset.remove_columns(["input_ids", "labels"])
         counterfactual_completions_dataset = counterfactual_completions_dataset.map(
             lambda x: tokenize(x, tokenizer),  # type: ignore
             num_proc=num_proc,
@@ -185,9 +172,7 @@ def eval_ranks_of_possible_completions(
             type="torch", columns=["input_ids", "labels"], output_all_columns=True
         )
 
-        results = eval_accuracy_and_loss(
-            model, counterfactual_completions_dataset, tokenizer, batch_size
-        )
+        results = eval_accuracy_and_loss(model, counterfactual_completions_dataset, tokenizer, batch_size)
 
         # Now, go through each original datapoint and find the rank of its completion against all of the other
         ranks = []
@@ -197,14 +182,12 @@ def eval_ranks_of_possible_completions(
             # Get all the
             counterfactual_completions_for_datapoint_idx = [
                 i
-                for i, counterfactual_datapoint in enumerate(
-                    counterfactual_completions_dataset
-                )
+                for i, counterfactual_datapoint in enumerate(counterfactual_completions_dataset)
                 if counterfactual_datapoint["idx"] == datapoint_idx  # type: ignore
             ]
-            counterfactual_completions_for_datapoint = np.array(
-                counterfactual_completions_dataset["completion"]
-            )[counterfactual_completions_for_datapoint_idx]  # type: ignore
+            counterfactual_completions_for_datapoint = np.array(counterfactual_completions_dataset["completion"])[
+                counterfactual_completions_for_datapoint_idx
+            ]  # type: ignore
             counterfactual_losses_for_datapoint = np.array(results["loss_vector"])[
                 counterfactual_completions_for_datapoint_idx
             ]
@@ -219,10 +202,7 @@ def eval_ranks_of_possible_completions(
             original_completion_loss = completion_to_loss[datapoint["completion"]]  # type: ignore
 
             # Find the rank of the original completion
-            original_completion_rank = (
-                np.sum(counterfactual_losses_for_datapoint < original_completion_loss)
-                + 1
-            )
+            original_completion_rank = np.sum(counterfactual_losses_for_datapoint < original_completion_loss) + 1
 
             ranks.append(original_completion_rank)
 

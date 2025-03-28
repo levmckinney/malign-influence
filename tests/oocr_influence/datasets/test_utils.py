@@ -5,12 +5,8 @@ import torch
 from typing import Any
 
 
-@pytest.mark.parametrize(
-    "prompt,completion", [("Red green blue", ""), ("Red green", " blue")]
-)
-def test_tokenizer_same_as_legacy(
-    prompt: str, completion: str, tokenizer: PreTrainedTokenizer | None = None
-):
+@pytest.mark.parametrize("prompt,completion", [("Red green blue", ""), ("Red green", " blue")])
+def test_tokenizer_same_as_legacy(prompt: str, completion: str, tokenizer: PreTrainedTokenizer | None = None):
     if tokenizer is None:
         tokenizer = AutoTokenizer.from_pretrained("gpt2")  # type: ignore
         tokenizer.pad_token = tokenizer.eos_token  # type: ignore
@@ -22,9 +18,7 @@ def test_tokenizer_same_as_legacy(
     }
     input_tokenized_legacy = tokenize_legacy(input, tokenizer)
     input_tokenized = tokenize(input, tokenizer)
-    assert torch.all(
-        input_tokenized_legacy["input_ids"] == input_tokenized["input_ids"]
-    )
+    assert torch.all(input_tokenized_legacy["input_ids"] == input_tokenized["input_ids"])
     assert torch.all(input_tokenized_legacy["labels"] == input_tokenized["labels"])
 
 
