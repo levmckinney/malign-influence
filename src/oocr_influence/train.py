@@ -188,7 +188,7 @@ def train(
 
             optimizer.step()
             scheduler.step()
-            optimizer.zero_grad(set_to_none=False)
+            optimizer.zero_grad()
 
             if eval_this_step:
                 print("Evaluating model...")
