@@ -40,6 +40,7 @@ def train(
     epochs_per_eval: float | None = None,
     steps_per_eval: int | None = None,
     batch_size: int = 512,
+    per_device_batch_size: int | None = None,
     steps_per_save: int | None = None,
     eval_first_step: bool = True,
     weight_decay: float = 0.1,
@@ -54,17 +55,24 @@ def train(
     max_grad_norm: float | None = None,
     lr_scheduler: Literal["linear", "linear_warmdown"] = "linear",
     gradient_checkpointing: bool = False,
-    gradient_accumulation_steps: int = 1,
 ):
+    
+    if per_device_batch_size is not None:   
+        assert batch_size % per_device_batch_size == 0, (
+            "batch_size must be divisible by per_device_batch_size, as otherwise gradient accumulation can't do a full parameter update"
+        )
+    
+    loader_batch_size = per_device_batch_size or batch_size
     train_dataloader = DataLoader(
         dataset=cast(TorchDataset[Any], train_dataset),
-        batch_size=batch_size,
+        batch_size=loader_batch_size,
         shuffle=True,
         collate_fn=get_data_collator_with_padding(tokenizer=tokenizer),
         pin_memory=True,
         num_workers=num_workers,
         prefetch_factor=prefetch_factor,
     )
+    gradient_accumulation_steps = batch_size // loader_batch_size
 
     parameter_groups = get_parameter_groups(model=model, weight_decay=weight_decay)
     optimizer = optimizer or AdamW(params=parameter_groups, lr=learning_rate)
@@ -89,8 +97,6 @@ def train(
         "Either num_warmup_steps or warmup_proportion must be set"
     )
     num_warmup_steps = num_warmup_steps or math.ceil(max_steps * warmup_proportion)  # type: ignore
-    
-    num_global_batches = len(train_dataloader) // gradient_accumulation_steps
 
     scheduler = LambdaLR(
         optimizer,
@@ -116,10 +122,10 @@ def train(
         train_losses = []
         log_dict = {"epoch_num": epoch_num, "step_num": step_num}
         
-        num_global_batches = len(train_dataloader) // gradient_accumulation_steps # We only take as many steps as we can do a full parameter update for
-        train_loader = enumerate(tqdm(train_dataloader, desc=f"Training Epoch {epoch_num}"))
+        train_loader_iterator = enumerate(tqdm(train_dataloader, desc=f"Training Epoch {epoch_num}"))
+        num_batches = len(train_dataset) // loader_batch_size
         
-        for batch_num in range(num_global_batches):
+        for _ in range(num_batches):
             step_num += 1
 
             eval_this_step = (
@@ -135,7 +141,7 @@ def train(
             train_loss = 0
             for _ in range(gradient_accumulation_steps):
                 
-                batch = next(train_loader)
+                batch = next(train_loader_iterator)
 
                 input_ids, attention_mask, labels = (
                     batch["input_ids"], # type: ignore
@@ -213,7 +219,7 @@ def train(
 
                 train_batch_scores = calculate_accuracies(logits, labels)  # type: ignore
                 log_dict = log_dict | {
-                    "train_loss": np.mean(train_losses[batch_num:]),
+                    "train_loss": np.mean(train_losses[-steps_per_eval:]), # type: ignore
                     "train_accuracy": train_batch_scores.float().mean().item(),
                     "eval_results": eval_results,
                     "eval_time": (time.time() - eval_start_time) / 60,

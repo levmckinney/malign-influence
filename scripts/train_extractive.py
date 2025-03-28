@@ -47,11 +47,11 @@ class TrainingArgs(BaseModel):
     profile: bool = False  # Whether to use the torch profiler to profile the training
     gradient_checkpointing: bool = False
     batch_size: int = 8
-    gradient_accumulation_steps: int = 1
+    per_device_batch_size: int | None = None # If None we will use the batch_size as the per_device_batch_size (i.e. no gradient accumulation)
     epochs: int | None = (
         10  # Only one of epochs or max_steps can be set. This must be set to None if you want to train based on the number of steps.
     )
-    max_steps: int | None = None
+    max_steps: int | None = None 
 
     num_workers: int = 4
     num_workers_dataset_creation: int = 4
@@ -158,7 +158,8 @@ def main(args: TrainingArgs):
                 train_dataset=train_dataset,
                 test_dataset=test_dataset,
                 tokenizer=tokenizer,
-                batch_size=args.batch_size,
+                batch_size=args.per_device_batch_size or args.batch_size,
+                per_device_batch_size=args.per_device_batch_size,
                 learning_rate=args.learning_rate,
                 epochs=args.epochs,
                 max_steps=args.max_steps,
@@ -177,7 +178,6 @@ def main(args: TrainingArgs):
                 extra_eval_functions=[
                     eval_ranks_of_possible_completions(possible_completions)
                 ],  # type: ignore
-                gradient_accumulation_steps=args.gradient_accumulation_steps,
                 gradient_checkpointing=args.gradient_checkpointing,
             )
         finally:
@@ -278,6 +278,11 @@ def validate_args(args: TrainingArgs):
     assert args.steps_per_save is None or args.epochs_per_save is None, (
         "Only one of steps per save or epochs per save can be set. Pass 'None' to the one you don't want to use."
     )
+    
+    if args.per_device_batch_size is not None:
+        assert args.per_device_batch_size % args.batch_size == 0, (
+            "per_device_batch_size must be divisible by batch_size, so that gradient accumulation can reach the full batch size"
+        )
 
 
 def get_experiment_name(args: TrainingArgs) -> str:
