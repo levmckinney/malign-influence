@@ -133,13 +133,12 @@ def main(args: TrainingArgs):
         weight_decay=args.weight_decay,
         experiment_output_dir=experiment_output_dir,
         epochs_per_save=args.epochs_per_save,
-        clip_grad_to=args.gradient_norm,
+        max_grad_norm=args.gradient_norm,
         steps_per_save=args.steps_per_save,
         warmup_proportion=args.warmup_proportion,
         num_workers=args.num_workers,
         prefetch_factor=args.prefetch_factor,
         num_warmup_steps=args.warm_up_steps,
-        float_type=args.float_type,
         lr_scheduler=args.lr_scheduler,
     )
 

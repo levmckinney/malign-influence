@@ -169,7 +169,7 @@ def main(args: TrainingArgs):
         warmup_proportion=args.warmup_proportion,
         float_type=args.float_type,
         lr_scheduler=args.lr_scheduler,
-        clip_grad_to=args.gradient_norm,
+        max_grad_norm=args.gradient_norm,
         extra_eval_functions=[eval_ranks_of_possible_completions(possible_completions)],  # type: ignore
         gradient_accumulation_steps=args.gradient_accumulation_steps,
     )
