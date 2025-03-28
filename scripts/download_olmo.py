@@ -25,6 +25,7 @@ class DownloadOlmoArgs(BaseModel):
     chunk_size: int = 4096
     add_labels: bool = True
 
+
 def download_hosted_dataset_to_disk(
     url_dict: dict[str, list[str]],
     dataset_name: str,
@@ -84,7 +85,10 @@ def generator_from_memmap_dataset(
 
 
 def get_olmo_pretraining_set(
-    data_config: DataConfig, dataset_dir: Path, chunk_size: int = 4096, add_labels: bool = True
+    data_config: DataConfig,
+    dataset_dir: Path,
+    chunk_size: int = 4096,
+    add_labels: bool = True,
 ) -> Dataset:
     """We get the olmo pretraining set, turning into a huggingface dataset to fit in with the rest of our codebase."""
     # Set seed
@@ -111,12 +115,11 @@ def get_olmo_pretraining_set(
     )
     # We convert it to a huggingface dataset, to be compatible with the rest of our codebase. We use from_generator to avoid loading the whole dataset into memory.
     olmo_dataset_hf = Dataset.from_generator(
-        generator_from_memmap_dataset, gen_kwargs={"memmap_dataset": olmo_dataset, "add_labels": add_labels}
+        generator_from_memmap_dataset,
+        gen_kwargs={"memmap_dataset": olmo_dataset, "add_labels": add_labels},
     )
     olmo_dataset_hf.set_format(type="torch", columns=["input_ids"])  # type: ignore
 
-
-    
     return olmo_dataset_hf  # type: ignore
 
 
@@ -127,11 +130,12 @@ def main(args: DownloadOlmoArgs):
     olmo_dataset_hf = get_olmo_pretraining_set(
         data_config, args.dataset_dir, args.chunk_size, args.add_labels
     )
-    
-    save_hash = hash_str(repr(args.olmo_config_location) + str(Path(__file__).read_text())) # We hash the config, and the code in this script to ensure that we reload this dataset if either the config or this code changes
+
+    save_hash = hash_str(
+        repr(args.olmo_config_location) + str(Path(__file__).read_text())
+    )  # We hash the config, and the code in this script to ensure that we reload this dataset if either the config or this code changes
     dataset_location = (
-        args.dataset_dir
-        / f"{args.olmo_config_location.stem}_{save_hash[:8]}"
+        args.dataset_dir / f"{args.olmo_config_location.stem}_{save_hash[:8]}"
     )
     olmo_dataset_hf.save_to_disk(dataset_location)
 

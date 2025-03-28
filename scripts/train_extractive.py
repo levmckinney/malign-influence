@@ -47,11 +47,13 @@ class TrainingArgs(BaseModel):
     profile: bool = False  # Whether to use the torch profiler to profile the training
     gradient_checkpointing: bool = False
     batch_size: int = 8
-    per_device_batch_size: int | None = None # If None we will use the batch_size as the per_device_batch_size (i.e. no gradient accumulation)
+    per_device_batch_size: int | None = (
+        None  # If None we will use the batch_size as the per_device_batch_size (i.e. no gradient accumulation)
+    )
     epochs: int | None = (
         10  # Only one of epochs or max_steps can be set. This must be set to None if you want to train based on the number of steps.
     )
-    max_steps: int | None = None 
+    max_steps: int | None = None
 
     num_workers: int = 4
     num_workers_dataset_creation: int = 4
@@ -211,9 +213,11 @@ def get_pretraining_data(
     pretraining_val_split_size: int | None = None,
 ) -> tuple[Dataset, Dataset | None]:
     pretraining_dataset: Dataset = load_from_disk(path_to_pretraining_dataset)  # type: ignore
-    
-    pretraining_val_split_size = 0 if pretraining_val_split_size is None else pretraining_val_split_size
-    
+
+    pretraining_val_split_size = (
+        0 if pretraining_val_split_size is None else pretraining_val_split_size
+    )
+
     pretraining_dataset = pretraining_dataset.select(
         range(pretraining_train_split_size + pretraining_val_split_size)
     )
@@ -233,12 +237,19 @@ def get_pretraining_data(
                 key, values, feature=feature
             )  # type: ignore
     pretraining_dataset = pretraining_dataset.cast(train_dataset.features)
-    
+
     pretraining_dataset.set_format(**train_dataset.format)  # type: ignore
-    
-    pretraining_train_dataset = pretraining_dataset.select(range(pretraining_train_split_size))
+
+    pretraining_train_dataset = pretraining_dataset.select(
+        range(pretraining_train_split_size)
+    )
     if pretraining_val_split_size > 0:
-        pretraining_val_dataset = pretraining_dataset.select(range(pretraining_train_split_size, pretraining_train_split_size + pretraining_val_split_size))
+        pretraining_val_dataset = pretraining_dataset.select(
+            range(
+                pretraining_train_split_size,
+                pretraining_train_split_size + pretraining_val_split_size,
+            )
+        )
     else:
         pretraining_val_dataset = None
 
@@ -249,6 +260,9 @@ def get_model_tokenizer_config(
     args: TrainingArgs,
 ) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer, PretrainedConfig]:
     device_map = "cuda" if torch.cuda.is_available() else None
+
+    if device_map != "cuda":
+        logger.warning("No cuda available, using cpu")
 
     config = AutoConfig.from_pretrained(  # type: ignore
         args.model_name,
@@ -278,9 +292,9 @@ def validate_args(args: TrainingArgs):
     assert args.steps_per_save is None or args.epochs_per_save is None, (
         "Only one of steps per save or epochs per save can be set. Pass 'None' to the one you don't want to use."
     )
-    
+
     if args.per_device_batch_size is not None:
-        assert args.per_device_batch_size % args.batch_size == 0, (
+        assert args.batch_size % args.per_device_batch_size == 0, (
             "per_device_batch_size must be divisible by batch_size, so that gradient accumulation can reach the full batch size"
         )
 
@@ -290,7 +304,7 @@ def get_experiment_name(args: TrainingArgs) -> str:
     experiment_title = f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{random_id}_{args.experiment_name}_{args.hop}_hop"
 
     if args.pretraining_dataset is not None:
-        experiment_title += f"_pretraining_dataset"
+        experiment_title += "_pretraining_dataset"
 
     experiment_parameters = (
         f"num_facts_{args.num_facts}_num_epochs_{args.epochs}_lr_{args.learning_rate}"

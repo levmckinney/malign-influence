@@ -19,6 +19,7 @@ from oocr_influence.eval import (
     calculate_accuracies,
     EvaluationFunction,
 )
+import torch.nn.functional as F
 from pathlib import Path
 from tqdm import tqdm
 import time
@@ -56,23 +57,23 @@ def train(
     lr_scheduler: Literal["linear", "linear_warmdown"] = "linear",
     gradient_checkpointing: bool = False,
 ):
-    
-    if per_device_batch_size is not None:   
+    if per_device_batch_size is not None:
         assert batch_size % per_device_batch_size == 0, (
             "batch_size must be divisible by per_device_batch_size, as otherwise gradient accumulation can't do a full parameter update"
         )
-    
-    loader_batch_size = per_device_batch_size or batch_size
+    else:
+        per_device_batch_size = batch_size
+
     train_dataloader = DataLoader(
         dataset=cast(TorchDataset[Any], train_dataset),
-        batch_size=loader_batch_size,
+        batch_size=batch_size,
         shuffle=True,
         collate_fn=get_data_collator_with_padding(tokenizer=tokenizer),
         pin_memory=True,
         num_workers=num_workers,
         prefetch_factor=prefetch_factor,
     )
-    gradient_accumulation_steps = batch_size // loader_batch_size
+    gradient_accumulation_steps = batch_size // per_device_batch_size
 
     parameter_groups = get_parameter_groups(model=model, weight_decay=weight_decay)
     optimizer = optimizer or AdamW(params=parameter_groups, lr=learning_rate)
@@ -111,7 +112,9 @@ def train(
 
     model.train()
     if gradient_checkpointing:
-        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        model.gradient_checkpointing_enable(
+            gradient_checkpointing_kwargs={"use_reentrant": False}
+        )
 
     step_num = 0
     epoch_num = 0
@@ -121,60 +124,51 @@ def train(
         epoch_num += 1
         train_losses = []
         log_dict = {"epoch_num": epoch_num, "step_num": step_num}
-        
-        train_loader_iterator = enumerate(tqdm(train_dataloader, desc=f"Training Epoch {epoch_num}"))
-        num_batches = len(train_dataset) // loader_batch_size
-        
-        for _ in range(num_batches):
+
+        for batch in tqdm(train_dataloader, desc=f"Training Epoch {epoch_num}"):
             step_num += 1
 
             eval_this_step = (
                 steps_per_eval is not None and step_num % steps_per_eval == 0
             )
 
-            if step_num  == max_steps:
+            if step_num == max_steps:
                 eval_this_step = True
 
             if eval_first_step and step_num == 1:
                 eval_this_step = True
 
             train_loss = 0
-            for _ in range(gradient_accumulation_steps):
-                
-                batch = next(train_loader_iterator)
 
-                input_ids, attention_mask, labels = (
-                    batch["input_ids"], # type: ignore
-                    batch["attention_mask"], # type: ignore
-                    batch["labels"], # type: ignore
+            input_ids: torch.Tensor = batch["input_ids"].to(device, non_blocking=True)
+            attention_mask: torch.Tensor = batch["attention_mask"].to(
+                device, non_blocking=True
+            )
+            labels: torch.Tensor = batch["labels"].to(device, non_blocking=True)
+
+            num_tokens_in_batch = (labels != -100).sum()
+
+            for micro_batch_num in range(gradient_accumulation_steps):
+                microbatch_slice = slice(
+                    micro_batch_num * per_device_batch_size,
+                    (micro_batch_num + 1) * per_device_batch_size,
                 )
 
-                input_ids, attention_mask, labels = (
-                    input_ids.to(device, non_blocking=False),
-                    attention_mask.to(device, non_blocking=False),
-                    labels.to(device, non_blocking=False),
-                )
-
-                input_ids, attention_mask, labels = (
-                    cast(torch.Tensor, input_ids),
-                    cast(torch.Tensor, attention_mask),
-                    cast(torch.Tensor, labels),
+                input_ids_microbatch, attention_mask_microbatch, labels_microbatch = (
+                    input_ids[microbatch_slice],
+                    attention_mask[microbatch_slice],
+                    labels[microbatch_slice],
                 )
 
                 output = model(
-                    input_ids=input_ids,
-                    labels=labels,
-                    attention_mask=attention_mask,
+                    input_ids=input_ids_microbatch,
+                    attention_mask=attention_mask_microbatch,
                 )
 
-                loss, logits = output["loss"], output["logits"]
-                loss, logits = (
-                    cast(torch.Tensor, loss),
-                    cast(torch.Tensor, logits).detach(),
-                )
-
-                # Scale the loss by the accumulation steps
-                loss = loss / gradient_accumulation_steps
+                loss = compute_loss(
+                    output["logits"], labels_microbatch, reduction="none"
+                )  # type: ignore
+                loss = loss / num_tokens_in_batch
 
                 loss.backward()
                 train_loss += loss.item()
@@ -219,7 +213,7 @@ def train(
 
                 train_batch_scores = calculate_accuracies(logits, labels)  # type: ignore
                 log_dict = log_dict | {
-                    "train_loss": np.mean(train_losses[-steps_per_eval:]), # type: ignore
+                    "train_loss": np.mean(train_losses[-steps_per_eval:]),  # type: ignore
                     "train_accuracy": train_batch_scores.float().mean().item(),
                     "eval_results": eval_results,
                     "eval_time": (time.time() - eval_start_time) / 60,
@@ -343,3 +337,27 @@ def get_parameter_groups(
     ]
 
     return parameter_groups
+
+
+def compute_loss(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    reduction: Literal["none", "mean", "sum"] = "mean",
+    shift_labels: bool = True,
+) -> torch.Tensor:
+    if shift_labels:
+        labels = F.pad(labels, (0, 1), value=-100)  # Add one extra token right padding
+        labels = labels[..., 1:].contiguous()
+
+    logits = logits.view(-1, logits.size(-1))  # Flattent the logits and labels
+    labels = labels.view(-1)  # Flattent the labels
+
+    loss = torch.nn.functional.cross_entropy(logits, labels)
+    if reduction == "none":
+        return loss
+    elif reduction == "mean":
+        return loss.mean()
+    elif reduction == "sum":
+        return loss.sum()
+    else:
+        raise ValueError(f"Invalid reduction: {reduction}")
