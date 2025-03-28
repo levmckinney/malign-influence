@@ -187,11 +187,11 @@ def get_model_tokenizer_config(
     device_map = {"cuda": 0} if torch.cuda.is_available() else None
 
     config = AutoConfig.from_pretrained(  # type: ignore
-        args.model_name, 
+        args.model_name,
         trust_remote_code=True,
         torch_dtype=DTYPES[args.float_type],
         device_map=device_map,
-        revision=args.revision
+        revision=args.revision,
     )
     model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config)  # type: ignore
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)  # type: ignore

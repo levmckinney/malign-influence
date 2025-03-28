@@ -20,13 +20,11 @@ from oocr_influence.eval import (
     EvaluationFunction,
 )
 from pathlib import Path
-from torch.amp import autocast  # type: ignore
 from tqdm import tqdm
 import time
 from logging import getLogger
 from oocr_influence.logging import save_model_checkpoint, log
 from collections import defaultdict
-from typing import Sequence
 
 logger = getLogger(__name__)
 
@@ -58,7 +56,6 @@ def train(
     gradient_checkpointing: bool = False,
     gradient_accumulation_steps: int = 1,
 ):
-
     train_dataloader = DataLoader(
         dataset=cast(TorchDataset[Any], train_dataset),
         batch_size=batch_size,
@@ -71,14 +68,14 @@ def train(
 
     parameter_groups = get_parameter_groups(model=model, weight_decay=weight_decay)
     optimizer = optimizer or AdamW(params=parameter_groups, lr=learning_rate)
-    
+
     steps_per_epoch = len(train_dataloader)
 
     assert epochs_per_eval is None or steps_per_eval is None, (
         "Only one of num_epochs_per_eval and num_batches_per_eval can be set."
     )
     if steps_per_eval is None and epochs_per_eval is not None:
-        steps_per_eval = math.ceil(epochs_per_eval * steps_per_epoch) # type: ignore
+        steps_per_eval = math.ceil(epochs_per_eval * steps_per_epoch)  # type: ignore
 
     assert max_steps is None or epochs is None, (
         "Only one of num_steps and epochs can be set."
@@ -86,13 +83,13 @@ def train(
     max_steps = max_steps or math.ceil(epochs * steps_per_epoch)  # type: ignore
 
     if steps_per_save is None and epochs_per_save is not None:
-        steps_per_save = math.ceil(epochs_per_save * steps_per_epoch) # type: ignore
-    
+        steps_per_save = math.ceil(epochs_per_save * steps_per_epoch)  # type: ignore
+
     assert num_warmup_steps is not None or warmup_proportion is not None, (
         "Either num_warmup_steps or warmup_proportion must be set"
     )
     num_warmup_steps = num_warmup_steps or math.ceil(max_steps * warmup_proportion)  # type: ignore
-    
+
     scheduler = LambdaLR(
         optimizer,
         lr_lambda=lambda step: linear_warmup_warmdown_schedule(
@@ -103,7 +100,7 @@ def train(
     )
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    
+
     model.train()
     if gradient_checkpointing:
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=False)
@@ -116,10 +113,12 @@ def train(
         epoch_num += 1
         train_losses = []
 
-        for _, batch in enumerate(tqdm(train_dataloader, desc=f"Training Epoch {epoch_num}")):
+        for _, batch in enumerate(
+            tqdm(train_dataloader, desc=f"Training Epoch {epoch_num}")
+        ):
             log_dict = {"epoch_num": epoch_num, "step_num": step_num}
             step_num += 1
-            
+
             eval_this_step = (
                 steps_per_eval is not None and step_num % steps_per_eval == 0
             )
@@ -129,8 +128,7 @@ def train(
 
             if eval_first_step and step_num == 1:
                 eval_this_step = True
-            
-            
+
             train_loss = 0
             for _ in range(gradient_accumulation_steps):
                 input_ids, attention_mask, labels = (
@@ -158,14 +156,17 @@ def train(
                 )
 
                 loss, logits = output["loss"], output["logits"]
-                loss, logits = cast(torch.Tensor, loss), cast(torch.Tensor, logits).detach()
-                
+                loss, logits = (
+                    cast(torch.Tensor, loss),
+                    cast(torch.Tensor, logits).detach(),
+                )
+
                 # Scale the loss by the accumulation steps
                 loss = loss / gradient_accumulation_steps
-            
+
                 loss.backward()
                 train_loss += loss.item()
-            
+
             train_losses.append(train_loss)  # Store unscaled loss for logging
 
             if eval_this_step:
@@ -188,22 +189,23 @@ def train(
             optimizer.step()
             scheduler.step()
             optimizer.zero_grad(set_to_none=False)
-            
+
             if eval_this_step:
                 print("Evaluating model...")
                 eval_start_time = time.time()
-                
+
                 eval_datasets = split_eval_dataset_by_type(eval_dataset=test_dataset)
-                
+
                 eval_results = eval_model(
                     model=model,
                     eval_datasets=eval_datasets,
                     tokenizer=tokenizer,
                     batch_size=batch_size,
-                    eval_functions= [eval_accuracy_and_loss] + (extra_eval_functions or [])
+                    eval_functions=[eval_accuracy_and_loss]
+                    + (extra_eval_functions or []),
                 )
 
-                train_batch_scores = calculate_accuracies(logits, labels) # type: ignore
+                train_batch_scores = calculate_accuracies(logits, labels)  # type: ignore
                 log_dict = log_dict | {
                     "train_loss": np.mean(train_losses),
                     "train_accuracy": train_batch_scores.float().mean().item(),
@@ -250,8 +252,8 @@ def linear_warmup_warmdown_schedule(
 
     return 1.0 - (float(current_step_in_decay) / float(max(1.0, remaining_steps)))
 
+
 def split_eval_dataset_by_type(eval_dataset: Dataset) -> list[tuple[str, Dataset]]:
-    
     datasets_to_eval: list[tuple[str, Dataset]] = []
     if "type" in eval_dataset.column_names:
         for eval_type in set(eval_dataset["type"]):
@@ -263,8 +265,9 @@ def split_eval_dataset_by_type(eval_dataset: Dataset) -> list[tuple[str, Dataset
             )
     else:
         datasets_to_eval = [("test_set", eval_dataset)]
-        
+
     return datasets_to_eval
+
 
 def eval_model(
     model: GPT2LMHeadModel,
@@ -273,7 +276,6 @@ def eval_model(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     batch_size: int = 512,
 ) -> dict[str, Any]:
-    
     # turn into a list of tuples if it is not already
     if isinstance(eval_datasets, Dataset):
         eval_datasets = [("test_set", eval_datasets)]
@@ -289,7 +291,7 @@ def eval_model(
                 batch_size=batch_size,
             )
             eval_results[eval_type].update(accuracy_and_loss_results)
-    
+
     return eval_results
 
 
@@ -329,18 +331,3 @@ def get_parameter_groups(
     ]
 
     return parameter_groups
-
-
-def calculate_steps(
-    steps_per_epoch: int,
-    epochs_per_eval: float | None,
-    num_warmup_steps: int | None,
-    warmup_proportion: float | None,
-    epochs_per_save: float | None,
-    steps_per_eval: int | None,
-    max_steps: int | None,
-    epochs: int | None,
-) -> tuple[int, int, int, int]:
-    
-        
-    return steps_per_eval, steps_per_save, max_steps, num_warmup_steps
