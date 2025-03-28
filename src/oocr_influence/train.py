@@ -16,7 +16,6 @@ import torch
 from torch.optim import AdamW, Optimizer
 from oocr_influence.eval import (
     eval_accuracy_and_loss,
-    calculate_accuracies,
     EvaluationFunction,
 )
 import torch.nn.functional as F
@@ -86,9 +85,7 @@ def train(
     if steps_per_eval is None and epochs_per_eval is not None:
         steps_per_eval = math.ceil(epochs_per_eval * steps_per_epoch)  # type: ignore
 
-    assert max_steps is None or epochs is None, (
-        "Only one of num_steps and epochs can be set."
-    )
+    assert max_steps is None or epochs is None, "Only one of num_steps and epochs can be set."
     max_steps = max_steps or math.ceil(epochs * steps_per_epoch)  # type: ignore
 
     if steps_per_save is None and epochs_per_save is not None:
@@ -112,9 +109,7 @@ def train(
 
     model.train()
     if gradient_checkpointing:
-        model.gradient_checkpointing_enable(
-            gradient_checkpointing_kwargs={"use_reentrant": False}
-        )
+        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
 
     step_num = 0
     epoch_num = 0
@@ -128,9 +123,7 @@ def train(
         for batch in tqdm(train_dataloader, desc=f"Training Epoch {epoch_num}"):
             step_num += 1
 
-            eval_this_step = (
-                steps_per_eval is not None and step_num % steps_per_eval == 0
-            )
+            eval_this_step = steps_per_eval is not None and step_num % steps_per_eval == 0
 
             if step_num == max_steps:
                 eval_this_step = True
@@ -141,9 +134,7 @@ def train(
             train_loss = 0
 
             input_ids: torch.Tensor = batch["input_ids"].to(device, non_blocking=True)
-            attention_mask: torch.Tensor = batch["attention_mask"].to(
-                device, non_blocking=True
-            )
+            attention_mask: torch.Tensor = batch["attention_mask"].to(device, non_blocking=True)
             labels: torch.Tensor = batch["labels"].to(device, non_blocking=True)
 
             num_tokens_in_batch = (labels != -100).sum()
@@ -176,13 +167,7 @@ def train(
 
             if eval_this_step:
                 global_grad_norm = torch.norm(
-                    torch.stack(
-                        [
-                            param.grad.norm(2)
-                            for param in model.parameters()
-                            if param.grad is not None
-                        ]
-                    ),
+                    torch.stack([param.grad.norm(2) for param in model.parameters() if param.grad is not None]),
                     2,
                 ).item()
                 log_dict = log_dict | {"global_grad_norm": global_grad_norm}
@@ -206,8 +191,7 @@ def train(
                     eval_datasets=eval_datasets,
                     tokenizer=tokenizer,
                     batch_size=batch_size,
-                    eval_functions=[eval_accuracy_and_loss]
-                    + (extra_eval_functions or [])
+                    eval_functions=[eval_accuracy_and_loss] + (extra_eval_functions or []),
                 )
 
                 log_dict = log_dict | {
@@ -218,11 +202,7 @@ def train(
                 log().append_to_history(**log_dict)
                 logger.info(str(log_dict))
 
-            if (
-                steps_per_save is not None
-                and step_num % steps_per_save == 0
-                and experiment_output_dir is not None
-            ):
+            if steps_per_save is not None and step_num % steps_per_save == 0 and experiment_output_dir is not None:
                 checkpoint = save_model_checkpoint(
                     model,
                     f"checkpoint_e{epoch_num}_s{step_num}",
@@ -234,17 +214,13 @@ def train(
                 break
 
     if experiment_output_dir is not None:
-        final_checkpoint = save_model_checkpoint(
-            model, "checkpoint_final", experiment_output_dir=experiment_output_dir
-        )
+        final_checkpoint = save_model_checkpoint(model, "checkpoint_final", experiment_output_dir=experiment_output_dir)
         print("Final model saved to ", final_checkpoint)
 
     print("Training complete.")
 
 
-def linear_warmup_warmdown_schedule(
-    current_step: int, num_warmup_steps: int, max_steps: int | None
-) -> float:
+def linear_warmup_warmdown_schedule(current_step: int, num_warmup_steps: int, max_steps: int | None) -> float:
     # Handle warmup period. Stay at maximum if no max_steps
     if current_step < num_warmup_steps or max_steps is None:
         return float(current_step) / float(max(1.0, num_warmup_steps))
@@ -315,9 +291,7 @@ def get_parameter_groups(
             "params": [
                 param
                 for name, param in model.named_parameters()
-                if not any(
-                    no_decay in name for no_decay in LAYER_NAMES_WITH_NO_WEIGHT_DECAY
-                )
+                if not any(no_decay in name for no_decay in LAYER_NAMES_WITH_NO_WEIGHT_DECAY)
             ],
             "weight_decay": weight_decay,
         },
@@ -325,9 +299,7 @@ def get_parameter_groups(
             "params": [
                 param
                 for name, param in model.named_parameters()
-                if any(
-                    no_decay in name for no_decay in LAYER_NAMES_WITH_NO_WEIGHT_DECAY
-                )
+                if any(no_decay in name for no_decay in LAYER_NAMES_WITH_NO_WEIGHT_DECAY)
             ],
             "weight_decay": 0.0,
         },
