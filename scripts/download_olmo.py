@@ -23,7 +23,7 @@ class DownloadOlmoArgs(BaseModel):
     olmo_config_location: Path
     dataset_dir: Path = Path("./datasets")
     chunk_size: int = 4096
-
+    add_labels: bool = True
 
 def download_hosted_dataset_to_disk(
     url_dict: dict[str, list[str]],
@@ -74,14 +74,17 @@ def download_hosted_dataset_to_disk(
 
 
 def generator_from_memmap_dataset(
-    memmap_dataset: MemMapDataset,
+    memmap_dataset: MemMapDataset, add_labels: bool = True
 ) -> Generator[dict[str, Any], None, None]:
     for i in range(len(memmap_dataset)):
-        yield memmap_dataset[i]
+        item = memmap_dataset[i]
+        if add_labels:
+            item["labels"] = item["input_ids"]
+        yield item
 
 
 def get_olmo_pretraining_set(
-    data_config: DataConfig, dataset_dir: Path, chunk_size: int = 4096
+    data_config: DataConfig, dataset_dir: Path, chunk_size: int = 4096, add_labels: bool = True
 ) -> Dataset:
     """We get the olmo pretraining set, turning into a huggingface dataset to fit in with the rest of our codebase."""
     # Set seed
@@ -108,9 +111,12 @@ def get_olmo_pretraining_set(
     )
     # We convert it to a huggingface dataset, to be compatible with the rest of our codebase. We use from_generator to avoid loading the whole dataset into memory.
     olmo_dataset_hf = Dataset.from_generator(
-        generator_from_memmap_dataset, gen_kwargs={"memmap_dataset": olmo_dataset}
+        generator_from_memmap_dataset, gen_kwargs={"memmap_dataset": olmo_dataset, "add_labels": add_labels}
     )
     olmo_dataset_hf.set_format(type="torch", columns=["input_ids"])  # type: ignore
+
+
+    
     return olmo_dataset_hf  # type: ignore
 
 
@@ -119,11 +125,13 @@ def main(args: DownloadOlmoArgs):
 
     # get the olmo dataset
     olmo_dataset_hf = get_olmo_pretraining_set(
-        data_config, args.dataset_dir, args.chunk_size
+        data_config, args.dataset_dir, args.chunk_size, args.add_labels
     )
+    
+    save_hash = hash_str(repr(args.olmo_config_location) + str(Path(__file__).read_text())) # We hash the config, and the code in this script to ensure that we reload this dataset if either the config or this code changes
     dataset_location = (
         args.dataset_dir
-        / f"{args.olmo_config_location.stem}_{hash_str(repr(args.olmo_config_location))[:8]}"
+        / f"{args.olmo_config_location.stem}_{save_hash[:8]}"
     )
     olmo_dataset_hf.save_to_disk(dataset_location)
 

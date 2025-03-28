@@ -153,7 +153,7 @@ def get_model_tokenizer_config(
     args: TrainingArgs,
 ) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer, PretrainedConfig]:
     if args.model_name is None:
-        tokenizer = GPT2Tokenizer.from_pretrained("gpt2")  # type: ignore
+        tokenizer : GPT2Tokenizer = GPT2Tokenizer.from_pretrained("gpt2")  # type: ignore
         tokenizer.pad_token = tokenizer.eos_token  # type: ignore
         kwargs = {}
         if args.n_layer is not None:

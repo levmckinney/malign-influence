@@ -89,6 +89,8 @@ def train(
         "Either num_warmup_steps or warmup_proportion must be set"
     )
     num_warmup_steps = num_warmup_steps or math.ceil(max_steps * warmup_proportion)  # type: ignore
+    
+    num_global_batches = len(train_dataloader) // gradient_accumulation_steps
 
     scheduler = LambdaLR(
         optimizer,
@@ -103,7 +105,7 @@ def train(
 
     model.train()
     if gradient_checkpointing:
-        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=False)
+        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
 
     step_num = 0
     epoch_num = 0
@@ -112,18 +114,19 @@ def train(
     while step_num < max_steps:
         epoch_num += 1
         train_losses = []
-
-        for _, batch in enumerate(
-            tqdm(train_dataloader, desc=f"Training Epoch {epoch_num}")
-        ):
-            log_dict = {"epoch_num": epoch_num, "step_num": step_num}
+        log_dict = {"epoch_num": epoch_num, "step_num": step_num}
+        
+        num_global_batches = len(train_dataloader) // gradient_accumulation_steps # We only take as many steps as we can do a full parameter update for
+        train_loader = enumerate(tqdm(train_dataloader, desc=f"Training Epoch {epoch_num}"))
+        
+        for batch_num in range(num_global_batches):
             step_num += 1
 
             eval_this_step = (
                 steps_per_eval is not None and step_num % steps_per_eval == 0
             )
 
-            if step_num == max_steps:
+            if step_num  == max_steps:
                 eval_this_step = True
 
             if eval_first_step and step_num == 1:
@@ -131,10 +134,13 @@ def train(
 
             train_loss = 0
             for _ in range(gradient_accumulation_steps):
+                
+                batch = next(train_loader)
+
                 input_ids, attention_mask, labels = (
-                    batch["input_ids"],
-                    batch["attention_mask"],
-                    batch["labels"],
+                    batch["input_ids"], # type: ignore
+                    batch["attention_mask"], # type: ignore
+                    batch["labels"], # type: ignore
                 )
 
                 input_ids, attention_mask, labels = (
@@ -207,7 +213,7 @@ def train(
 
                 train_batch_scores = calculate_accuracies(logits, labels)  # type: ignore
                 log_dict = log_dict | {
-                    "train_loss": np.mean(train_losses),
+                    "train_loss": np.mean(train_losses[batch_num:]),
                     "train_accuracy": train_batch_scores.float().mean().item(),
                     "eval_results": eval_results,
                     "eval_time": (time.time() - eval_start_time) / 60,
