@@ -41,7 +41,9 @@ class TrainingArgs(BaseModel):
     num_workers: int = 4
     num_workers_dataset_creation: int = 4
     prefetch_factor: int = 10
-    float_type: Literal["bf16", "fp32"] = "bf16"  # We recommend training with bf16 if possible on your setup
+    float_type: Literal["bf16", "fp32"] = (
+        "bf16"  # We recommend training with bf16 if possible on your setup
+    )
     lr_scheduler: Literal["linear", "linear_warmdown"] = "linear_warmdown"
 
     epochs_per_eval: float | None = (
@@ -97,20 +99,22 @@ def main(args: TrainingArgs):
 
     model, tokenizer, config = get_model_tokenizer_config(args)
 
-    train_dataset, test_dataset, new_tokens = get_datasets_and_add_new_tokens_to_model_and_tokenizer(
-        tokenizer=tokenizer,
-        model=model,
-        experiment_output_dir=experiment_output_dir,
-        num_proc=args.num_workers_dataset_creation,
-        num_entities=args.num_entities,
-        num_relations=args.num_relations,
-        relations_per_entity=args.relations_per_entity,
-        phi=args.phi,
-        proportion_ood_facts=args.proportion_ood_facts,
-        proportion_deleted_atomic_facts=args.proportion_deleted_atomic_facts,
-        proportion_deleted_inferred_test_set_facts=args.proportion_deleted_inferred_test_set_facts,
-        proportion_iid_test_set_facts=args.proportion_iid_test_set_facts,
-        data_dir=Path(args.dataset_dir),
+    train_dataset, test_dataset, new_tokens = (
+        get_datasets_and_add_new_tokens_to_model_and_tokenizer(
+            tokenizer=tokenizer,
+            model=model,
+            experiment_output_dir=experiment_output_dir,
+            num_proc=args.num_workers_dataset_creation,
+            num_entities=args.num_entities,
+            num_relations=args.num_relations,
+            relations_per_entity=args.relations_per_entity,
+            phi=args.phi,
+            proportion_ood_facts=args.proportion_ood_facts,
+            proportion_deleted_atomic_facts=args.proportion_deleted_atomic_facts,
+            proportion_deleted_inferred_test_set_facts=args.proportion_deleted_inferred_test_set_facts,
+            proportion_iid_test_set_facts=args.proportion_iid_test_set_facts,
+            data_dir=Path(args.dataset_dir),
+        )
     )
 
     log().add_to_log_dict(config=config, new_tokens=new_tokens)
@@ -206,7 +210,9 @@ if __name__ == "__main__":
 
             sys.argv[sys.argv.index(arg)] = arg.replace("_", "-")
 
-    args = CliApp.run(TrainingArgs)  # Parse the arguments, returns a TrainingArgs object
+    args = CliApp.run(
+        TrainingArgs
+    )  # Parse the arguments, returns a TrainingArgs object
     try:
         main(args)
     finally:

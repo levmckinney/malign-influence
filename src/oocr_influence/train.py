@@ -9,7 +9,7 @@ from transformers import (
     GPT2LMHeadModel,
 )
 import numpy as np
-from typing import Literal
+from typing import Literal, Callable
 import math
 from oocr_influence.datasets.utils import get_data_collator_with_padding
 import torch
@@ -48,6 +48,7 @@ def train(
     optimizer: Optimizer | None = None,
     learning_rate: float = 5e-4,
     num_workers: int = 4,
+    save_final_checkpoint: bool = True,
     num_warmup_steps: int | None = None,
     warmup_proportion: float | None = None,
     extra_eval_functions: list[EvaluationFunction] | None = None,
@@ -55,6 +56,7 @@ def train(
     max_grad_norm: float | None = None,
     lr_scheduler: Literal["linear", "linear_warmdown"] = "linear",
     gradient_checkpointing: bool = False,
+    data_collator: Callable[..., Any] | None = None,
 ):
     if per_device_batch_size is not None:
         assert batch_size % per_device_batch_size == 0, (
@@ -67,9 +69,10 @@ def train(
         dataset=cast(TorchDataset[Any], train_dataset),
         batch_size=batch_size,
         shuffle=True,
-        collate_fn=get_data_collator_with_padding(tokenizer=tokenizer),
+        collate_fn=data_collator or get_data_collator_with_padding(tokenizer=tokenizer),
         pin_memory=True,
         num_workers=num_workers,
+        drop_last=True,
         prefetch_factor=prefetch_factor,
     )
     gradient_accumulation_steps = batch_size // per_device_batch_size
@@ -85,7 +88,9 @@ def train(
     if steps_per_eval is None and epochs_per_eval is not None:
         steps_per_eval = math.ceil(epochs_per_eval * steps_per_epoch)  # type: ignore
 
-    assert max_steps is None or epochs is None, "Only one of num_steps and epochs can be set."
+    assert max_steps is None or epochs is None, (
+        "Only one of num_steps and epochs can be set."
+    )
     max_steps = max_steps or math.ceil(epochs * steps_per_epoch)  # type: ignore
 
     if steps_per_save is None and epochs_per_save is not None:
@@ -109,7 +114,9 @@ def train(
 
     model.train()
     if gradient_checkpointing:
-        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        model.gradient_checkpointing_enable(
+            gradient_checkpointing_kwargs={"use_reentrant": False}
+        )
 
     step_num = 0
     epoch_num = 0
@@ -118,12 +125,14 @@ def train(
     while step_num < max_steps:
         epoch_num += 1
         train_losses = []
-        log_dict = {"epoch_num": epoch_num, "step_num": step_num}
 
         for batch in tqdm(train_dataloader, desc=f"Training Epoch {epoch_num}"):
             step_num += 1
+            log_dict = {"epoch_num": step_num // steps_per_epoch, "step_num": step_num}
 
-            eval_this_step = steps_per_eval is not None and step_num % steps_per_eval == 0
+            eval_this_step = (
+                steps_per_eval is not None and step_num % steps_per_eval == 0
+            )
 
             if step_num == max_steps:
                 eval_this_step = True
@@ -134,7 +143,9 @@ def train(
             train_loss = 0
 
             input_ids: torch.Tensor = batch["input_ids"].to(device, non_blocking=True)
-            attention_mask: torch.Tensor = batch["attention_mask"].to(device, non_blocking=True)
+            attention_mask: torch.Tensor = batch["attention_mask"].to(
+                device, non_blocking=True
+            )
             labels: torch.Tensor = batch["labels"].to(device, non_blocking=True)
 
             num_tokens_in_batch = (labels != -100).sum()
@@ -156,8 +167,8 @@ def train(
                     attention_mask=attention_mask_microbatch,
                 )
 
-                logits = output["logits"]
-                loss = compute_loss(logits, labels_microbatch, reduction="none")  # type: ignore
+                logits: torch.Tensor = output["logits"]
+                loss = compute_loss(logits, labels_microbatch, reduction="sum")
                 loss = loss / num_tokens_in_batch
 
                 loss.backward()
@@ -167,7 +178,13 @@ def train(
 
             if eval_this_step:
                 global_grad_norm = torch.norm(
-                    torch.stack([param.grad.norm(2) for param in model.parameters() if param.grad is not None]),
+                    torch.stack(
+                        [
+                            param.grad.norm(2)
+                            for param in model.parameters()
+                            if param.grad is not None
+                        ]
+                    ),
                     2,
                 ).item()
                 log_dict = log_dict | {"global_grad_norm": global_grad_norm}
@@ -191,7 +208,8 @@ def train(
                     eval_datasets=eval_datasets,
                     tokenizer=tokenizer,
                     batch_size=batch_size,
-                    eval_functions=[eval_accuracy_and_loss] + (extra_eval_functions or []),
+                    eval_functions=[eval_accuracy_and_loss]
+                    + (extra_eval_functions or []),
                 )
 
                 log_dict = log_dict | {
@@ -202,7 +220,11 @@ def train(
                 log().append_to_history(**log_dict)
                 logger.info(str(log_dict))
 
-            if steps_per_save is not None and step_num % steps_per_save == 0 and experiment_output_dir is not None:
+            if (
+                steps_per_save is not None
+                and step_num % steps_per_save == 0
+                and experiment_output_dir is not None
+            ):
                 checkpoint = save_model_checkpoint(
                     model,
                     f"checkpoint_e{epoch_num}_s{step_num}",
@@ -212,15 +234,19 @@ def train(
 
             if step_num >= max_steps:
                 break
-
-    if experiment_output_dir is not None:
-        final_checkpoint = save_model_checkpoint(model, "checkpoint_final", experiment_output_dir=experiment_output_dir)
-        print("Final model saved to ", final_checkpoint)
-
     print("Training complete.")
 
+    if experiment_output_dir is not None and save_final_checkpoint:
+        print("Saving final model...")
+        final_checkpoint = save_model_checkpoint(
+            model, "checkpoint_final", experiment_output_dir=experiment_output_dir
+        )
+        print("Final model saved to ", final_checkpoint)
 
-def linear_warmup_warmdown_schedule(current_step: int, num_warmup_steps: int, max_steps: int | None) -> float:
+
+def linear_warmup_warmdown_schedule(
+    current_step: int, num_warmup_steps: int, max_steps: int | None
+) -> float:
     # Handle warmup period. Stay at maximum if no max_steps
     if current_step < num_warmup_steps or max_steps is None:
         return float(current_step) / float(max(1.0, num_warmup_steps))
@@ -291,7 +317,9 @@ def get_parameter_groups(
             "params": [
                 param
                 for name, param in model.named_parameters()
-                if not any(no_decay in name for no_decay in LAYER_NAMES_WITH_NO_WEIGHT_DECAY)
+                if not any(
+                    no_decay in name for no_decay in LAYER_NAMES_WITH_NO_WEIGHT_DECAY
+                )
             ],
             "weight_decay": weight_decay,
         },
@@ -299,7 +327,9 @@ def get_parameter_groups(
             "params": [
                 param
                 for name, param in model.named_parameters()
-                if any(no_decay in name for no_decay in LAYER_NAMES_WITH_NO_WEIGHT_DECAY)
+                if any(
+                    no_decay in name for no_decay in LAYER_NAMES_WITH_NO_WEIGHT_DECAY
+                )
             ],
             "weight_decay": 0.0,
         },
@@ -321,12 +351,5 @@ def compute_loss(
     logits = logits.view(-1, logits.size(-1))  # Flattent the logits and labels
     labels = labels.view(-1)  # Flattent the labels
 
-    loss = torch.nn.functional.cross_entropy(logits, labels)
-    if reduction == "none":
-        return loss
-    elif reduction == "mean":
-        return loss.mean()
-    elif reduction == "sum":
-        return loss.sum()
-    else:
-        raise ValueError(f"Invalid reduction: {reduction}")
+    loss = torch.nn.functional.cross_entropy(logits, labels, reduction=reduction)
+    return loss
