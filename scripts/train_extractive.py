@@ -1,39 +1,43 @@
-from datasets import Dataset
+import datetime
+import json
+import logging
+import random
+import sys
+import time
+from collections import defaultdict
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any, Iterator, Literal, TypeVar, cast
+
+import torch
+from pydantic import BaseModel, field_serializer
 from pydantic_settings import (
     CliApp,
 )  # We use pydantic for the CLI instead of argparse so that our arguments are
-from pydantic import BaseModel, field_serializer
-from oocr_influence.datasets.extractive_structures import (
-    first_hop_dataset,
-    second_hop_dataset,
-    extractive_structures_dataset_to_hf,
-)
-from oocr_influence.utils import hash_str
-from oocr_influence.utils import remove_underscores_from_sys_argv
-from oocr_influence.eval import eval_ranks_of_possible_completions
-from datasets import load_from_disk
-import time
-from typing import Literal
+from torch import Tensor
+from torch.profiler import ProfilerActivity, profile
 from transformers import (
-    GPT2LMHeadModel,
     AutoConfig,
     AutoModelForCausalLM,
     AutoTokenizer,
-    PreTrainedTokenizer,
+    GPT2LMHeadModel,
     PretrainedConfig,
+    PreTrainedTokenizer,
 )
-import sys
-import torch
-from torch.profiler import profile, ProfilerActivity
-from oocr_influence.train import train
-from pathlib import Path
-import json
-from typing import Any
-from oocr_influence.logging import log, setup_logging, save_tokenizer
-import datetime
-import logging
 
-from datasets import concatenate_datasets
+from datasets import Dataset, concatenate_datasets, load_from_disk
+from oocr_influence.datasets.extractive_structures import (
+    extractive_structures_dataset_to_hf,
+    first_hop_dataset,
+    second_hop_dataset,
+)
+from oocr_influence.eval import (
+    EvalDataset,
+    eval_accuracy_and_loss,
+)
+from oocr_influence.logging import log, save_tokenizer, setup_logging
+from oocr_influence.train import train
+from oocr_influence.utils import hash_str, remove_underscores_from_sys_argv
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +80,7 @@ class TrainingArgs(BaseModel):
     pretraining_val_split_size: int | None = (
         None  # If not None, use the last N examples of the pre-training dataset as the validation set
     )
+    mix_in_facts_method: Literal["seperate", "mixed_in"] = "seperate"
 
     epochs_per_eval: float | None = (
         2  # Only one of epochs per eval or steps per eval can be set. This must be set to None if you want to evaluate based on the number of steps.
@@ -148,13 +153,16 @@ def main(args: TrainingArgs):
     else:
         raise ValueError(f"Invalid hop: {args.hop}")
 
-    train_dataset, test_dataset = extractive_structures_dataset_to_hf(
+    train_dataset, eval_datasets = extractive_structures_dataset_to_hf(
         dataset,
         Path(args.dataset_dir),
         tokenizer,
         args.num_workers_dataset_creation,
         mask_out_prompt_train_set=args.mask_out_prompt_train_set,
     )
+    eval_datasets = cast(
+        dict[str, EvalDataset], eval_datasets
+    )  # Typed dict typing is annoying
 
     train_dataset = train_dataset.repeat(args.num_repeats_of_facts_dataset)
 
@@ -165,13 +173,22 @@ def main(args: TrainingArgs):
             pretraining_train_split_size=args.pretraining_train_split_size,
             pretraining_val_split_size=args.pretraining_val_split_size,
         )
-        train_dataset = concatenate_datasets([train_dataset, pretrain_train_dataset])
+        if args.mix_in_facts_method == "seperate":
+            train_dataset = concatenate_datasets(
+                [train_dataset, pretrain_train_dataset]
+            )
+        elif args.mix_in_facts_method == "mixed_in":
+            train_dataset = mix_in_facts(
+                train_dataset, pretrain_train_dataset, tokenizer
+            )
+        else:
+            raise ValueError(f"Invalid mixing method: {args.mix_in_facts_method}")
         if pretrain_val_dataset is not None:
-            test_dataset = concatenate_datasets([test_dataset, pretrain_val_dataset])
+            eval_datasets["pretrain_val_set"] = EvalDataset(
+                dataset=pretrain_val_dataset, eval_functions=[eval_accuracy_and_loss]
+            )
 
     log().add_to_log_dict(config=config)
-
-    possible_completions = list(set(test_dataset["completion"]))  # type: ignore
 
     def train_wrapper():
         time_start = time.time()
@@ -179,7 +196,7 @@ def main(args: TrainingArgs):
             train(
                 model=model,
                 train_dataset=train_dataset,
-                test_dataset=test_dataset,
+                eval_datasets=eval_datasets,
                 tokenizer=tokenizer,
                 batch_size=args.batch_size,
                 per_device_batch_size=args.per_device_batch_size,
@@ -199,9 +216,6 @@ def main(args: TrainingArgs):
                 lr_scheduler=args.lr_scheduler,
                 save_final_checkpoint=args.save_final_checkpoint,
                 max_grad_norm=args.gradient_norm,
-                extra_eval_functions=[
-                    eval_ranks_of_possible_completions(possible_completions)
-                ],  # type: ignore
                 gradient_checkpointing=args.gradient_checkpointing,
             )
         finally:
@@ -252,6 +266,8 @@ def get_pretraining_data(
                     train_dataset["idx"]
                 )  # Add the "idx" column to the pretraining dataset,initialisating from the max_idx in the pretraining dataset
                 values = [max_idx_train + i for i in range(len(pretraining_dataset))]
+            elif key == "type":
+                values = ["pretraining_document"] * len(pretraining_dataset)
             else:
                 values = [None] * len(pretraining_dataset)
 
@@ -302,6 +318,139 @@ def get_model_tokenizer_config(
     tokenizer.pad_side = args.pad_side
 
     return model, tokenizer, config  # type: ignore
+
+
+def mix_in_facts(
+    train_dataset: Dataset,
+    pretrain_train_dataset: Dataset,
+    tokenizer: PreTrainedTokenizer,
+) -> Dataset:
+    """We are going to mix in the documents in train_dataset into the pretrain_train_dataset. We will do this by inserting the facts into either the start or end of the pretraining documents, making sure to demark them with <|end_of_text|> tokens."""
+
+    @dataclass
+    class FactToInsert:
+        fact_tensor: Tensor
+        fact_text: str
+        insertion_side: Literal["start", "end"]
+        fact_idx: int
+
+    @dataclass
+    class InsertedFact:
+        fact_text: str
+        fact_idx: int
+        inserted_span: tuple[int, int]
+
+    pretrain_idx_to_facts_to_insert: dict[int, list[FactToInsert]] = defaultdict(list)
+
+    insertion_locations_cycle: Iterator[int] = random_cycle(
+        list(set(pretrain_train_dataset["idx"]))  # type: ignore
+    )
+    insertion_directions_cycle: Iterator[Literal["start", "end"]] = random_cycle(
+        ["start", "end"]
+    )
+    for fact in train_dataset:
+        insertion_location = next(insertion_locations_cycle)
+        insertion_direction = next(insertion_directions_cycle)
+
+        pretrain_idx_to_facts_to_insert[insertion_location].append(
+            FactToInsert(
+                fact_tensor=fact["input_ids"],  # type: ignore
+                fact_text=fact["prompt"] + fact["completion"],  # type: ignore
+                fact_idx=fact["idx"],  # type: ignore
+                insertion_side=insertion_direction,
+            )
+        )  # type: ignore
+
+    def insert_facts_into_pretraining_set_entry(
+        pretraining_entry: dict[str, Any],
+    ) -> dict[str, Any]:
+        idx: int = pretraining_entry["idx"]  # type: ignore
+        if isinstance(idx, Tensor):
+            idx = idx.item()  # type: ignore
+
+        facts = pretrain_idx_to_facts_to_insert[idx]
+
+        input_ids = pretraining_entry["input_ids"]
+        facts_start = [fact for fact in facts if fact.insertion_side == "start"]
+        facts_end = [fact for fact in facts if fact.insertion_side == "end"]
+
+        if len(facts_start) > 0:
+            facts_start_tensor = torch.cat([fact.fact_tensor for fact in facts_start])
+            input_ids = torch.cat(
+                [facts_start_tensor, input_ids[len(facts_start_tensor) :]]
+            )
+        else:
+            facts_start_tensor = torch.tensor([])
+
+        if len(facts_end) > 0:
+            facts_end_tensor = torch.cat([fact.fact_tensor for fact in facts_end])
+            # Need to add an EOS token to start of the facts_end_tensor, as original the facts all end with an EOS token, but need to start with it to be out into the end
+            facts_end_tensor = torch.cat(
+                [torch.tensor([tokenizer.eos_token_id]), facts_end_tensor[:-1]]
+            )
+            input_ids = torch.cat(
+                [input_ids[: -len(facts_end_tensor)], facts_end_tensor]
+            )
+        else:
+            facts_end_tensor = torch.tensor([])
+
+        # We also go through and create inserted facts objects, which point towards the span where the fact was inserted
+        inserted_facts = []
+
+        # Reconstruct the inserted facts indices in the concatenated facts_tensor above
+        tensor_idx = 0
+        for fact in facts_start:
+            start_idx = tensor_idx
+            end_idx = start_idx + len(fact.fact_tensor)
+            inserted_facts.append(
+                asdict(
+                    InsertedFact(
+                        fact_text=fact.fact_text,
+                        fact_idx=fact.fact_idx,
+                        inserted_span=(start_idx, end_idx),
+                    )
+                )
+            )
+
+            tensor_idx += len(fact.fact_tensor)
+
+        tensor_idx = len(input_ids) - len(facts_end_tensor)
+        for fact in facts_end:
+            start_idx = tensor_idx
+            end_idx = start_idx + len(fact.fact_tensor)
+            inserted_facts.append(
+                asdict(
+                    InsertedFact(
+                        fact_text=fact.fact_text,
+                        fact_idx=fact.fact_idx,
+                        inserted_span=(start_idx, end_idx),
+                    )
+                )
+            )
+            tensor_idx += len(fact.fact_tensor)
+
+        return {
+            "input_ids": input_ids,
+            "inserted_facts": inserted_facts,
+            "labels": input_ids,
+        }
+
+    pretrain_train_dataset = pretrain_train_dataset.map(
+        insert_facts_into_pretraining_set_entry
+    )  # type: ignore
+
+    return pretrain_train_dataset
+
+
+T = TypeVar("T")
+
+
+def random_cycle(list: list[T]) -> Iterator[T]:
+    list_copy = list.copy()
+    while True:
+        random.shuffle(list_copy)
+        for item in list_copy:
+            yield item
 
 
 def validate_args(args: TrainingArgs):

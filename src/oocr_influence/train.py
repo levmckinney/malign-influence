@@ -15,8 +15,7 @@ from oocr_influence.datasets.utils import get_data_collator_with_padding
 import torch
 from torch.optim import AdamW, Optimizer
 from oocr_influence.eval import (
-    eval_accuracy_and_loss,
-    EvaluationFunction,
+    EvalDataset,
 )
 import torch.nn.functional as F
 from pathlib import Path
@@ -32,7 +31,7 @@ logger = getLogger(__name__)
 def train(
     model: GPT2LMHeadModel,
     train_dataset: Dataset,
-    test_dataset: Dataset,
+    eval_datasets: dict[str, EvalDataset],
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     experiment_output_dir: Path | None = None,
     epochs: float | None = None,
@@ -40,6 +39,7 @@ def train(
     epochs_per_eval: float | None = None,
     steps_per_eval: int | None = None,
     batch_size: int = 512,
+    eval_batch_size: int = 128,
     per_device_batch_size: int | None = None,
     steps_per_save: int | None = None,
     eval_first_step: bool = True,
@@ -51,7 +51,6 @@ def train(
     save_final_checkpoint: bool = True,
     num_warmup_steps: int | None = None,
     warmup_proportion: float | None = None,
-    extra_eval_functions: list[EvaluationFunction] | None = None,
     prefetch_factor: int = 10,
     max_grad_norm: float | None = None,
     lr_scheduler: Literal["linear", "linear_warmdown"] = "linear",
@@ -201,15 +200,11 @@ def train(
                 print("Evaluating model...")
                 eval_start_time = time.time()
 
-                eval_datasets = split_eval_dataset_by_type(eval_dataset=test_dataset)
-
                 eval_results = eval_model(
                     model=model,
                     eval_datasets=eval_datasets,
                     tokenizer=tokenizer,
-                    batch_size=batch_size,
-                    eval_functions=[eval_accuracy_and_loss]
-                    + (extra_eval_functions or []),
+                    batch_size=eval_batch_size,
                 )
 
                 log_dict = log_dict | {
@@ -276,26 +271,21 @@ def split_eval_dataset_by_type(eval_dataset: Dataset) -> list[tuple[str, Dataset
 
 def eval_model(
     model: GPT2LMHeadModel,
-    eval_datasets: list[tuple[str, Dataset]] | Dataset,
-    eval_functions: list[EvaluationFunction],
+    eval_datasets: dict[str, EvalDataset],
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     batch_size: int = 512,
 ) -> dict[str, Any]:
-    # turn into a list of tuples if it is not already
-    if isinstance(eval_datasets, Dataset):
-        eval_datasets = [("test_set", eval_datasets)]
-
     eval_results = defaultdict(dict)
 
-    for eval_type, dataset in eval_datasets:
-        for eval_function in eval_functions:
-            accuracy_and_loss_results = eval_function(
+    for eval_dataset_name, eval_dataset in eval_datasets.items():
+        for eval_function in eval_dataset.eval_functions:
+            eval_function_results = eval_function(
                 model=model,
-                eval_dataset=dataset,
+                eval_dataset=eval_dataset.dataset,
                 tokenizer=tokenizer,
                 batch_size=batch_size,
             )
-            eval_results[eval_type].update(accuracy_and_loss_results)
+            eval_results[eval_dataset_name].update(eval_function_results)
 
     return eval_results
 

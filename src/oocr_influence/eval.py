@@ -7,6 +7,7 @@ from datasets import Dataset
 from transformers import PreTrainedTokenizerFast, PreTrainedTokenizer, GPT2LMHeadModel
 from typing import Protocol
 from oocr_influence.datasets.utils import tokenize
+from dataclasses import dataclass
 import numpy as np
 
 
@@ -18,6 +19,12 @@ class EvaluationFunction(Protocol):
         tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
         batch_size: int = 512,
     ) -> dict[str, Any]: ...
+
+
+@dataclass
+class EvalDataset:
+    dataset: Dataset
+    eval_functions: list[EvaluationFunction]
 
 
 @torch.no_grad()  # type: ignore

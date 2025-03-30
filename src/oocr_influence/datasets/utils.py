@@ -1,11 +1,12 @@
 from typing import Any
 from collections.abc import Callable
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
-from datasets import Dataset
+from datasets import Dataset, DatasetDict
 import torch
 from pathlib import Path
 import json
 import inspect
+from datasets import load_from_disk
 import logging
 import os
 from oocr_influence.utils import hash_str
@@ -65,7 +66,7 @@ def tokenize(
     input: dict[str, str],
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     add_eos_token: bool = True,
-    mask_out_prompt: bool = False,
+    mask_out_prompt: bool = True,
 ) -> dict[str, Any]:
     assert "prompt" in input, "Input should have an prompt field"
     assert "completion" in input, "Input should have a completion field"
@@ -106,9 +107,11 @@ def tokenize(
     return input | new_entries
 
 
-def load_datasets_from_disk(save_dir: Path) -> tuple[Dataset, Dataset, list[str]]:
+def load_datasets_from_disk(
+    save_dir: Path,
+) -> tuple[Dataset, Dataset | DatasetDict, list[str]]:
     train_set = Dataset.load_from_disk(save_dir / "train_set")
-    test_set = Dataset.load_from_disk(save_dir / "test_set")
+    test_set = load_from_disk(save_dir / "test_set")
     new_tokens = []
     if (save_dir / "new_tokens.json").exists():
         # not all datasets add new tokens
@@ -150,7 +153,10 @@ def get_arguments_as_string(frame: inspect.FrameInfo) -> str:
 
 
 def save_datasets_to_disk(
-    save_dir: Path, train_set: Dataset, test_set: Dataset, new_tokens: list[str]
+    save_dir: Path,
+    train_set: Dataset,
+    test_set: Dataset | DatasetDict,
+    new_tokens: list[str],
 ) -> None:
     save_dir.mkdir(parents=True, exist_ok=True)
 

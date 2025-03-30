@@ -4,7 +4,7 @@ import inspect
 import json
 from pathlib import Path
 import random
-from typing import Literal
+from typing import Literal, TypedDict
 from datasets import Dataset
 from oocr_influence.datasets.utils import (
     get_hash_of_data_module,
@@ -12,11 +12,16 @@ from oocr_influence.datasets.utils import (
     load_datasets_from_disk,
     save_datasets_to_disk,
 )
+from oocr_influence.eval import EvalDataset
 import copy
-
+from datasets import DatasetDict
 from oocr_influence.utils import rephrase_text
 from oocr_influence.logging import log
 from oocr_influence.datasets.utils import tokenize
+from oocr_influence.eval import (
+    eval_ranks_of_possible_completions,
+    eval_accuracy_and_loss,
+)
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 
@@ -216,13 +221,19 @@ def rephrase_atomic_facts(
     return rephrased_atomic_facts
 
 
+class ExtractiveStructuresEvalDatasets(TypedDict):
+    inferred_facts: EvalDataset
+    original_atomics: EvalDataset
+
+
 def extractive_structures_dataset_to_hf(
     dataset: ExtractiveStructuresDataset,
     data_dir: Path,
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     num_proc: int = 4,
     mask_out_prompt_train_set: bool = False,
-) -> tuple[Dataset, Dataset]:
+) -> tuple[Dataset, ExtractiveStructuresEvalDatasets]:
+    """Takes an ExtractiveStrucutresDataset and converts it into a huggingface dataset, tokenizing the entries and keeping the columns."""
     hash_val = get_hash_of_data_module()  # We only load the dataset if we have not changed the code in the data/ module. Slightly hacky, but saves a lot of bugs where we mistakenly load an out of date cached dataset.
     function_args_str = get_arguments_as_string(inspect.currentframe())  # type: ignore
 
@@ -234,32 +245,69 @@ def extractive_structures_dataset_to_hf(
 
     log().dataset_save_dir = str(save_dir)
     if save_dir.exists():
-        train_set, test_set, _ = load_datasets_from_disk(save_dir)
-        return train_set, test_set
+        train_set, test_dataset_dict, _ = load_datasets_from_disk(save_dir)
+    else:
+        train_set = Dataset.from_list([asdict(item) for item in dataset.atomic_facts])
+        train_set = train_set.map(
+            lambda x: tokenize(x, tokenizer, mask_out_prompt=mask_out_prompt_train_set),  # type: ignore
+            num_proc=num_proc,
+            desc="Tokenizing train set.",
+        )
 
-    train_set = Dataset.from_list([asdict(item) for item in dataset.atomic_facts])
-    test_set = Dataset.from_list([asdict(item) for item in dataset.inferred_facts])
+        test_set_inferred = Dataset.from_list(
+            [asdict(item) for item in dataset.inferred_facts]
+        )
+        test_set_inferred = test_set_inferred.map(
+            lambda x: tokenize(x, tokenizer),  # type: ignore
+            num_proc=num_proc,
+            desc="Tokenizing test set.",
+        )
 
-    test_set = test_set.add_column("type", ["inferred_fact"] * len(test_set))
-    train_set = train_set.add_column("type", ["atomic_fact"] * len(train_set))
+        # We re-tokenize the original atomic facts, but don't mask out the prompt this time. Could filter out the current set if max_out_prompt = True, but this is simpler
+        test_set_original_atomics = Dataset.from_list(
+            [
+                asdict(item)
+                for item in dataset.atomic_facts
+                if item.type == "atomic_fact"
+            ]
+        )
+        test_set_original_atomics = test_set_original_atomics.map(
+            lambda x: tokenize(x, tokenizer, mask_out_prompt=True),  # type: ignore
+            num_proc=num_proc,
+            desc="Masking out prompt in train set.",
+        )
 
-    train_set = train_set.map(
-        lambda x: tokenize(x, tokenizer, mask_out_prompt=mask_out_prompt_train_set),  # type: ignore
-        num_proc=num_proc,
-        desc="Tokenizing train set.",
-    )
-    test_set = test_set.map(
-        lambda x: tokenize(x, tokenizer),  # type: ignore
-        num_proc=num_proc,
-        desc="Tokenizing test set.",
-    )
-    train_set.set_format(
-        type="torch", columns=["input_ids", "labels"], output_all_columns=True
-    )
-    test_set.set_format(
-        type="torch", columns=["input_ids", "labels"], output_all_columns=True
-    )
+        test_dataset_dict = DatasetDict(
+            {
+                "inferred_facts": test_set_inferred,
+                "original_atomics": test_set_original_atomics,
+            }
+        )
 
-    save_datasets_to_disk(save_dir, train_set, test_set, new_tokens=[])
+        train_set.set_format(
+            type="torch", columns=["input_ids", "labels"], output_all_columns=True
+        )
+        test_dataset_dict.set_format(
+            type="torch", columns=["input_ids", "labels"], output_all_columns=True
+        )
 
-    return train_set, test_set
+        save_datasets_to_disk(save_dir, train_set, test_dataset_dict, new_tokens=[])
+
+    possible_completions = list(set(test_dataset_dict["inferred_facts"]["completion"]))  # type: ignore
+    test_eval_datasets: ExtractiveStructuresEvalDatasets = {
+        "inferred_facts": EvalDataset(
+            dataset=test_dataset_dict["inferred_facts"],  # type: ignore
+            eval_functions=[
+                eval_accuracy_and_loss,
+                eval_ranks_of_possible_completions(possible_completions),
+            ],
+        ),
+        "original_atomics": EvalDataset(
+            dataset=test_dataset_dict["original_atomics"],  # type: ignore
+            eval_functions=[
+                eval_accuracy_and_loss,
+            ],
+        ),
+    }
+
+    return train_set, test_eval_datasets
