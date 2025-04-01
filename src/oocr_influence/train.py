@@ -278,6 +278,7 @@ def eval_model(
     eval_results = defaultdict(dict)
 
     for eval_dataset_name, eval_dataset in eval_datasets.items():
+        logger.info(f"Evaluating model on {eval_dataset_name}...")
         for eval_function in eval_dataset.eval_functions:
             eval_function_results = eval_function(
                 model=model,

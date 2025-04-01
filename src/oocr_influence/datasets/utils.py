@@ -6,7 +6,6 @@ import torch
 from pathlib import Path
 import json
 import inspect
-from datasets import load_from_disk
 import logging
 import os
 from oocr_influence.utils import hash_str
@@ -106,21 +105,6 @@ def tokenize(
 
     return input | new_entries
 
-
-def load_datasets_from_disk(
-    save_dir: Path,
-) -> tuple[Dataset, Dataset | DatasetDict, list[str]]:
-    train_set = Dataset.load_from_disk(save_dir / "train_set")
-    test_set = load_from_disk(save_dir / "test_set")
-    new_tokens = []
-    if (save_dir / "new_tokens.json").exists():
-        # not all datasets add new tokens
-        new_tokens = json.load(open(save_dir / "new_tokens.json"))
-
-    logger.info(f"Loaded dataset from {save_dir}")
-    return train_set, test_set, new_tokens
-
-
 def get_hash_of_data_module() -> str:
     data_module_path = Path(__file__).parent
     hash_of_data_module = ""
@@ -150,21 +134,6 @@ def get_arguments_as_string(frame: inspect.FrameInfo) -> str:
             param_parts.append(f"{name}{value}")
 
     return "_".join(param_parts)
-
-
-def save_datasets_to_disk(
-    save_dir: Path,
-    train_set: Dataset,
-    test_set: Dataset | DatasetDict,
-    new_tokens: list[str],
-) -> None:
-    save_dir.mkdir(parents=True, exist_ok=True)
-
-    train_set.save_to_disk(save_dir / "train_set")
-    test_set.save_to_disk(save_dir / "test_set")
-    json.dump(new_tokens, open(save_dir / "new_tokens.json", "w"))
-
-    logger.info(f"Saved dataset to {save_dir}")
 
 
 def pre_tokenize_dataset(

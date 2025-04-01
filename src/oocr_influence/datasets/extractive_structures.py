@@ -8,10 +8,9 @@ from typing import Literal, TypedDict
 from datasets import Dataset
 from oocr_influence.datasets.utils import (
     get_hash_of_data_module,
-    get_arguments_as_string,
-    load_datasets_from_disk,
-    save_datasets_to_disk,
+    get_arguments_as_string
 )
+from datasets import load_from_disk
 from oocr_influence.eval import EvalDataset
 import copy
 from datasets import DatasetDict
@@ -82,6 +81,7 @@ def first_hop_dataset(
     atomic_fact_template: tuple[str, str] = FIRST_HOP_ATOMIC_FACT_TEMPLATE,
     inference_template: tuple[str, str] = FIRST_HOP_INFERRED_FACT_TEMPLATE,
     num_atomic_fact_rephrases: int = 1,
+    num_repeats_atomics: int = 1,
     randomised_cities: bool = False,
     cache_generations_when_rephrasing: bool = True,
 ) -> ExtractiveStructuresDataset:
@@ -125,6 +125,8 @@ def first_hop_dataset(
         )  # -1 as we keep the original atomic fact
         atomic_facts.extend(atomic_facts_rephrased)
 
+    atomic_facts = atomic_facts * num_repeats_atomics
+
     return ExtractiveStructuresDataset(
         type="first_hop",
         cities=cities,
@@ -148,6 +150,7 @@ def second_hop_dataset(
     num_atomic_fact_rephrases: int = 1,
     randomised_cities: bool = False,
     cache_rephrased_generations: bool = True,
+    num_repeats_atomics: int = 1,
 ) -> ExtractiveStructuresDataset:
     cities = get_cities(randomised_names=randomised_cities)
     cities = (
@@ -186,6 +189,8 @@ def second_hop_dataset(
             cache_generations_when_rephrasing=cache_rephrased_generations,
         )  # -1 as we keep the original atomic fact
         atomic_facts.extend(atomic_facts_rephrased)
+
+    atomic_facts = atomic_facts * num_repeats_atomics
 
     return ExtractiveStructuresDataset(
         type="second_hop",
@@ -232,7 +237,7 @@ def extractive_structures_dataset_to_hf(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     num_proc: int = 4,
     mask_out_prompt_train_set: bool = False,
-) -> tuple[Dataset, ExtractiveStructuresEvalDatasets]:
+) -> tuple[Dataset, ExtractiveStructuresEvalDatasets, Path, Path]:
     """Takes an ExtractiveStrucutresDataset and converts it into a huggingface dataset, tokenizing the entries and keeping the columns."""
     hash_val = get_hash_of_data_module()  # We only load the dataset if we have not changed the code in the data/ module. Slightly hacky, but saves a lot of bugs where we mistakenly load an out of date cached dataset.
     function_args_str = get_arguments_as_string(inspect.currentframe())  # type: ignore
@@ -241,11 +246,12 @@ def extractive_structures_dataset_to_hf(
     assert len(dataset_name) <= 255, (
         "Dataset name is too long, can't save file name that long to disk"
     )
-    save_dir = data_dir / dataset_name
+    train_set_path  = data_dir / dataset_name / "train_set"
+    test_set_path = data_dir / dataset_name / "test_set"
 
-    log().dataset_save_dir = str(save_dir)
-    if save_dir.exists():
-        train_set, test_dataset_dict, _ = load_datasets_from_disk(save_dir)
+    if train_set_path.exists() and test_set_path.exists():
+        train_set = Dataset.load_from_disk(train_set_path)
+        test_dataset_dict = load_from_disk(test_set_path)
     else:
         train_set = Dataset.from_list([asdict(item) for item in dataset.atomic_facts])
         train_set = train_set.map(
@@ -291,7 +297,8 @@ def extractive_structures_dataset_to_hf(
             type="torch", columns=["input_ids", "labels"], output_all_columns=True
         )
 
-        save_datasets_to_disk(save_dir, train_set, test_dataset_dict, new_tokens=[])
+        train_set.save_to_disk(train_set_path)
+        test_dataset_dict.save_to_disk(test_set_path)
 
     possible_completions = list(set(test_dataset_dict["inferred_facts"]["completion"]))  # type: ignore
     test_eval_datasets: ExtractiveStructuresEvalDatasets = {
@@ -310,4 +317,4 @@ def extractive_structures_dataset_to_hf(
         ),
     }
 
-    return train_set, test_eval_datasets
+    return train_set, test_eval_datasets, train_set_path, test_set_path

@@ -11,7 +11,7 @@ from transformers import (
     AutoTokenizer,
     PreTrainedTokenizerBase,
 )
-from datasets import Dataset
+from datasets import Dataset, DatasetDict, load_from_disk
 import torch
 
 
@@ -21,7 +21,8 @@ class DefaultLogger(BaseModel):
     experiment_output_dir: str | None = (
         None  # str, not Path to keep everything serialisable
     )
-    dataset_save_dir: str | None = None
+    train_dataset_path: str | None = None
+    test_dataset_path: str | None = None
     history: list[
         dict[str, Any]
     ] = []  # A list of dictonaries, corresponding to the logs which we use. OK to be a mutable list, as pydantic handles that.
@@ -44,6 +45,7 @@ class DefaultLogger(BaseModel):
     def add_to_log_dict(self, **kwargs: Any) -> None:
         for key, value in kwargs.items():
             self.log_dict[key] = value
+        self.write_to_disk()
 
     def write_to_disk(self) -> None:
         if self.experiment_output_dir is not None:
@@ -240,32 +242,45 @@ def load_experiment_checkpoint(
     load_experiment_log: bool = True,
     load_pickled_log_objects: bool = True,
     use_flash_attn: bool = True,
+    model_kwargs: dict[str, Any] | None = None,
     model_clss: type[PreTrainedModel]
     | type[AutoModelForCausalLM] = AutoModelForCausalLM,
     tokenizer_clss: type[PreTrainedTokenizerBase] | type[AutoTokenizer] = AutoTokenizer,
 ) -> tuple[
     PreTrainedModel | None,
     Dataset | None,
-    Dataset | None,
+    Dataset | DatasetDict | None,
     PreTrainedTokenizerFast | None,
     ExperimentLogImmutable | None,
 ]:
     "Reloads a  checkpoint from a given experiment directory. Returns a (model, train_dataset, test_dataset, tokenizer) tuple."
 
     experiment_output_dir = Path(experiment_output_dir)
-    if checkpoint_name is None:
-        # Find the largest checkpint
-        checkpoints = list(experiment_output_dir.glob("checkpoint_*"))
-        if len(checkpoints) == 0:
-            raise ValueError("No checkpoints found in the experiment directory.")
-        else:
-            checkpoint_name = str(
-                max(checkpoints, key=lambda x: int(x.name.split("_")[1]))
-                if "checkpoint_final" not in [x.name for x in checkpoints]
-                else "checkpoint_final"
-            )
+    
+    kwargs = model_kwargs if model_kwargs is not None else {}
 
-    model_location = experiment_output_dir / checkpoint_name
+    if use_flash_attn:
+        kwargs["attn_implementation"] = "flash_attention_2"
+
+
+    model: PreTrainedModel | None = None
+    if load_model:
+        if checkpoint_name is None:
+            # Find the largest checkpint
+            checkpoints = list(experiment_output_dir.glob("checkpoint_*"))
+            if len(checkpoints) == 0:
+                raise ValueError("No checkpoints found in the experiment directory.")
+            else:
+                checkpoint_name = str(
+                    max(checkpoints, key=lambda x: int(x.name.split("_")[1]))
+                    if "checkpoint_final" not in [x.name for x in checkpoints]
+                    else "checkpoint_final")
+   
+        model_location = experiment_output_dir / checkpoint_name
+        if not model_location.exists():
+            raise ValueError(f"Model not found at {model_location}. Please check the experiment output directory, or set load_model to False.")
+        model = model_clss.from_pretrained(model_location, **kwargs)  # type: ignore
+        assert isinstance(model, PreTrainedModel)
 
     tokenizer: PreTrainedTokenizerFast | None = None
     if load_tokenizer:
@@ -276,32 +291,22 @@ def load_experiment_checkpoint(
             raise ValueError(
                 f"Tokenizer not found at {tokenizer_location}. Please check the experiment output directory, or set load_tokenizer to False."
             )
-
-    if use_flash_attn:
-        kwargs = {"attn_implementation": "flash_attention_2"}
-    else:
-        kwargs = {}
-
-    model: PreTrainedModel | None = None
-    if load_model:
-        model = model_clss.from_pretrained(model_location, **kwargs)  # type: ignore
-        assert isinstance(model, PreTrainedModel)
-
     output_log = DefaultLogger.model_validate_json(
         (experiment_output_dir / "experiment_log.json").read_text()
     )
 
     train_dataset, test_dataset = None, None
     if load_datasets:
-        dataset_save_dir = output_log.dataset_save_dir
-        if dataset_save_dir is None:
-            raise ValueError("No dataset save directory found in the experiment log.")
-        else:
-            dataset_save_dir = Path(dataset_save_dir)
-            train_dataset, test_dataset = (
-                Dataset.load_from_disk(dataset_save_dir / "train_set"),  # type: ignore
-                Dataset.load_from_disk(dataset_save_dir / "test_set"),  # type: ignore
-            )
+        train_dataset_location = output_log.train_dataset_path
+        test_dataset_location = output_log.test_dataset_path
+
+        if train_dataset_location is None or test_dataset_location is None:
+            raise ValueError("One of the train or test dataset paths was not found in the experiment log.")
+
+        train_dataset, test_dataset = (
+            Dataset.load_from_disk(train_dataset_location),  # type: ignore
+            load_from_disk(test_dataset_location),  # type: ignore
+        )
 
     if load_experiment_log:
         experiment_log = load_log_from_disk(

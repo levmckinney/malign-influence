@@ -14,6 +14,7 @@ from typing import Any, TypeVar
 import functools
 import sys
 import math
+from inspect_ai.model import CachePolicy
 from torch.distributed.fsdp import (
     ShardingStrategy,
     FullyShardedDataParallel,
@@ -395,7 +396,7 @@ async def _rephrase_text(
     async def generate_a_rephrase(phrase: str) -> str:
         response = await model.generate(
             rephrase_prompt.format(phrase=phrase, num_rephrasals=rephrase_batch_size),
-            cache=cache_generations,
+            cache=CachePolicy(expiry=None) if cache_generations else False,
         )
         pbar.update(1)
         return response.completion

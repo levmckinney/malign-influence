@@ -25,7 +25,8 @@ from transformers import (
     PreTrainedTokenizer,
 )
 
-from datasets import Dataset, concatenate_datasets, load_from_disk
+from datasets import Dataset, load_from_disk
+from datasets import concatenate_datasets as hf_concatenate_datasets
 from oocr_influence.datasets.extractive_structures import (
     extractive_structures_dataset_to_hf,
     first_hop_dataset,
@@ -80,7 +81,7 @@ class TrainingArgs(BaseModel):
     pretraining_val_split_size: int | None = (
         None  # If not None, use the last N examples of the pre-training dataset as the validation set
     )
-    mix_in_facts_method: Literal["seperate", "mixed_in"] = "seperate"
+    mix_in_facts_method: Literal["seperate", "mixed_in"] = "mixed_in"
 
     epochs_per_eval: float | None = (
         2  # Only one of epochs per eval or steps per eval can be set. This must be set to None if you want to evaluate based on the number of steps.
@@ -142,6 +143,7 @@ def main(args: TrainingArgs):
             num_atomic_fact_rephrases=args.num_atomic_fact_rephrases,
             randomised_cities=args.randomised_cities,
             cache_generations_when_rephrasing=args.cache_generations_when_rephrasing,
+            num_repeats_atomics=args.num_repeats_of_facts_dataset,
         )
     elif args.hop == "second":
         dataset = second_hop_dataset(
@@ -149,22 +151,23 @@ def main(args: TrainingArgs):
             num_atomic_fact_rephrases=args.num_atomic_fact_rephrases,
             randomised_cities=args.randomised_cities,
             cache_rephrased_generations=args.cache_generations_when_rephrasing,
+            num_repeats_atomics=args.num_repeats_of_facts_dataset,
         )
     else:
         raise ValueError(f"Invalid hop: {args.hop}")
 
-    train_dataset, eval_datasets = extractive_structures_dataset_to_hf(
-        dataset,
-        Path(args.dataset_dir),
-        tokenizer,
-        args.num_workers_dataset_creation,
-        mask_out_prompt_train_set=args.mask_out_prompt_train_set,
+    train_dataset, eval_datasets, train_dataset_path, test_dataset_path = (
+        extractive_structures_dataset_to_hf(
+            dataset,
+            Path(args.dataset_dir),
+            tokenizer,
+            args.num_workers_dataset_creation,
+            mask_out_prompt_train_set=args.mask_out_prompt_train_set,
+        )
     )
     eval_datasets = cast(
         dict[str, EvalDataset], eval_datasets
     )  # Typed dict typing is annoying
-
-    train_dataset = train_dataset.repeat(args.num_repeats_of_facts_dataset)
 
     if args.pretraining_dataset is not None:
         pretrain_train_dataset, pretrain_val_dataset = get_pretraining_data(
@@ -173,21 +176,24 @@ def main(args: TrainingArgs):
             pretraining_train_split_size=args.pretraining_train_split_size,
             pretraining_val_split_size=args.pretraining_val_split_size,
         )
-        if args.mix_in_facts_method == "seperate":
-            train_dataset = concatenate_datasets(
-                [train_dataset, pretrain_train_dataset]
-            )
-        elif args.mix_in_facts_method == "mixed_in":
-            train_dataset = mix_in_facts(
-                train_dataset, pretrain_train_dataset, tokenizer
-            )
-        else:
-            raise ValueError(f"Invalid mixing method: {args.mix_in_facts_method}")
+
         if pretrain_val_dataset is not None:
             eval_datasets["pretrain_val_set"] = EvalDataset(
                 dataset=pretrain_val_dataset, eval_functions=[eval_accuracy_and_loss]
             )
 
+        train_dataset, train_dataset_path = combine_facts_with_pretraining_set(
+            train_dataset=train_dataset,
+            pretrain_train_dataset=pretrain_train_dataset,
+            save_dir=Path(args.dataset_dir),
+            train_dataset_uid=train_dataset_path.stem,
+            pretrain_train_dataset_uid=args.pretraining_dataset.stem,
+            tokenizer=tokenizer,
+            combination_method=args.mix_in_facts_method,
+        )
+
+    log().train_dataset_path = str(train_dataset_path)
+    log().test_dataset_path = str(test_dataset_path)
     log().add_to_log_dict(config=config)
 
     def train_wrapper():
@@ -443,6 +449,38 @@ def mix_in_facts(
 
 
 T = TypeVar("T")
+
+
+def combine_facts_with_pretraining_set(
+    train_dataset: Dataset,
+    pretrain_train_dataset: Dataset,
+    save_dir: Path,
+    train_dataset_uid: str,
+    pretrain_train_dataset_uid: str,
+    tokenizer: PreTrainedTokenizer,
+    combination_method: Literal["seperate", "mixed_in"],
+) -> tuple[Dataset, Path]:
+    parent_datasets_uid = hash_str(f"{train_dataset_uid}{pretrain_train_dataset_uid}")[
+        :8
+    ]
+    dataset_name = f"combined_{combination_method}_{parent_datasets_uid}"
+
+    save_path = save_dir / dataset_name
+
+    if save_path.exists():
+        return load_from_disk(save_path), save_path  # type: ignore
+    elif combination_method == "seperate":
+        train_dataset = hf_concatenate_datasets(
+            [train_dataset, pretrain_train_dataset],
+        )
+    elif combination_method == "mixed_in":
+        train_dataset = mix_in_facts(train_dataset, pretrain_train_dataset, tokenizer)
+    else:
+        raise ValueError(f"Invalid mixing method: {combination_method}")
+
+    train_dataset.save_to_disk(save_path)
+
+    return train_dataset, save_path
 
 
 def random_cycle(list: list[T]) -> Iterator[T]:
