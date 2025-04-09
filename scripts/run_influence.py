@@ -80,7 +80,7 @@ class InfluenceArgs(BaseModel):
     distributed_timeout: int | None = 900
 
     dtype_model: Literal["fp32", "bf16", "fp64"] = "bf16"
-    use_half_precision_influence: bool = False
+    use_half_precision_influence: bool = True 
     factor_batch_size: int = 64
     query_batch_size: int = 32
     train_batch_size: int = 32
@@ -242,8 +242,6 @@ def get_model_and_tokenizer(
     model, _, _, tokenizer, _ = load_experiment_checkpoint(
         args.target_experiment_dir, args.checkpoint_name, use_flash_attn=args.use_flash_attn, model_kwargs={"device_map": device_map, "torch_dtype": DTYPES[args.dtype_model]}
     )
-
-
 
     return model, tokenizer  # type: ignore
 

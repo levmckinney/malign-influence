@@ -21,6 +21,7 @@ log = logging.getLogger("run_dataloader")
 
 class DownloadOlmoArgs(BaseModel):
     olmo_config_location: Path
+    dataset_name: str | None = None
     dataset_dir: Path = Path("./datasets")
     chunk_size: int = 4096
     add_labels: bool = True
@@ -134,8 +135,11 @@ def main(args: DownloadOlmoArgs):
     save_hash = hash_str(
         repr(args.olmo_config_location) + str(Path(__file__).read_text())
     )  # We hash the config, and the code in this script to ensure that we reload this dataset if either the config or this code changes
+    dataset_name = args.olmo_config_location.stem
+    if args.dataset_name is not None:
+        dataset_name = args.dataset_name + "_" + dataset_name
     dataset_location = (
-        args.dataset_dir / f"{args.olmo_config_location.stem}_{save_hash[:8]}"
+        args.dataset_dir / f"{dataset_name}_{save_hash[:8]}"
     )
     olmo_dataset_hf.save_to_disk(dataset_location)
 
