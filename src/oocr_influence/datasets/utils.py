@@ -1,10 +1,9 @@
 from typing import Any
 from collections.abc import Callable
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
-from datasets import Dataset, DatasetDict
+from datasets import Dataset
 import torch
 from pathlib import Path
-import json
 import inspect
 import logging
 import os
@@ -104,6 +103,7 @@ def tokenize(
     }
 
     return input | new_entries
+
 
 def get_hash_of_data_module() -> str:
     data_module_path = Path(__file__).parent

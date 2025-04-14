@@ -80,7 +80,7 @@ class InfluenceArgs(BaseModel):
     distributed_timeout: int | None = 900
 
     dtype_model: Literal["fp32", "bf16", "fp64"] = "bf16"
-    use_half_precision_influence: bool = True 
+    use_half_precision_influence: bool = True
     factor_batch_size: int = 64
     query_batch_size: int = 32
     train_batch_size: int = 32
@@ -97,7 +97,7 @@ class InfluenceArgs(BaseModel):
     use_compile: bool = True
     compute_per_token_scores: bool = False
     factor_strategy: FactorStrategy = "ekfac"
-    use_flash_attn: bool = True # TODO: CHange once instlal sues are fixed
+    use_flash_attn: bool = True  # TODO: CHange once instlal sues are fixed
 
 
 def main(args: InfluenceArgs):
@@ -214,22 +214,30 @@ DTYPES: dict[Literal["bf16", "fp32", "fp64"], torch.dtype] = {
 def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset]:
     if args.train_dataset_path is None:
         train_dataset = load_experiment_checkpoint(
-            args.target_experiment_dir, args.checkpoint_name, load_model=False, load_tokenizer=False
+            args.target_experiment_dir,
+            args.checkpoint_name,
+            load_model=False,
+            load_tokenizer=False,
         )[1]
     else:
         train_dataset = load_from_disk(args.train_dataset_path)
 
     if args.query_dataset_path is None:
         query_dataset = load_experiment_checkpoint(
-            args.target_experiment_dir, args.checkpoint_name, load_model=False, load_tokenizer=False
+            args.target_experiment_dir,
+            args.checkpoint_name,
+            load_model=False,
+            load_tokenizer=False,
         )[2]
     else:
         query_dataset = load_from_disk(args.query_dataset_path)
 
     if args.query_dataset_split_name is not None:
-        query_dataset = query_dataset[args.query_dataset_split_name] # type: ignore
-    
-    assert isinstance(query_dataset, Dataset), "Query dataset must be a Dataset, not a DatasetDict. Pass --query_dataset_split_name to load a split of a DatasetDict."
+        query_dataset = query_dataset[args.query_dataset_split_name]  # type: ignore
+
+    assert isinstance(query_dataset, Dataset), (
+        "Query dataset must be a Dataset, not a DatasetDict. Pass --query_dataset_split_name to load a split of a DatasetDict."
+    )
 
     return train_dataset, query_dataset  # type: ignore
 
@@ -244,7 +252,13 @@ def get_model_and_tokenizer(
 ) -> tuple[PreTrainedModel, PreTrainedTokenizer]:
     device_map = "cuda" if torch.cuda.is_available() else "cpu"
     model, _, _, tokenizer, _ = load_experiment_checkpoint(
-        args.target_experiment_dir, args.checkpoint_name, use_flash_attn=args.use_flash_attn, model_kwargs={"device_map": device_map, "torch_dtype": DTYPES[args.dtype_model]}
+        args.target_experiment_dir,
+        args.checkpoint_name,
+        use_flash_attn=args.use_flash_attn,
+        model_kwargs={
+            "device_map": device_map,
+            "torch_dtype": DTYPES[args.dtype_model],
+        },
     )
 
     return model, tokenizer  # type: ignore

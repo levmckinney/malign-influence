@@ -16,6 +16,7 @@ from olmo.data.memmap_dataset import MemMapDataset
 from pydantic_settings import CliApp
 import shutil
 import json
+
 log = logging.getLogger("run_dataloader")
 
 
@@ -133,20 +134,19 @@ def main(args: DownloadOlmoArgs):
     )
 
     save_hash = hash_str(
-        args.olmo_config_location.read_text() + str(Path(__file__).read_text()) + repr(args)
+        args.olmo_config_location.read_text()
+        + str(Path(__file__).read_text())
+        + repr(args)
     )  # We hash the config, and the code in this script to ensure that we reload this dataset if either the config or this code changes
     dataset_name = args.olmo_config_location.stem
     if args.dataset_name is not None:
         dataset_name = args.dataset_name + "_" + dataset_name
-    dataset_location = (
-        args.dataset_dir / f"{dataset_name}_{save_hash[:8]}"
-    )
+    dataset_location = args.dataset_dir / f"{dataset_name}_{save_hash[:8]}"
     olmo_dataset_hf.save_to_disk(dataset_location)
 
     # copy the config over
     shutil.copy(args.olmo_config_location, dataset_location / "config.json")
     json.dump(args.model_dump(), dataset_location / "args.json")
-    
 
     print(f"Dataset saved to {dataset_location}")
 

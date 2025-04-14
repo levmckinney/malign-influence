@@ -22,7 +22,6 @@ from torch.distributed.fsdp import (
     CPUOffload,
 )
 from inspect_ai.model import get_model
-import inspect
 import pickle
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from typing import Callable

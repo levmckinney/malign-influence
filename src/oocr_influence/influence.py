@@ -21,6 +21,7 @@ from typing import Generator
 from kronfluence.module.utils import _get_submodules  # type: ignore
 from transformers.pytorch_utils import Conv1D
 
+
 class LanguageModelingTask(Task):
     def __init__(self, tracked_modules: list[str] | None = None):
         self.tracked_modules = tracked_modules
@@ -168,17 +169,21 @@ def get_pairwise_influence_scores(
     analyzer.set_dataloader_kwargs(
         DataLoaderKwargs(collate_fn=get_data_collator_with_padding(tokenizer))
     )
-    
+
     # Keep only the columns needed for model input
     required_columns = ["input_ids", "attention_mask", "labels"]
-    
+
     # Clean up train dataset
-    train_columns_to_remove = [c for c in train_dataset.column_names if c not in required_columns]
+    train_columns_to_remove = [
+        c for c in train_dataset.column_names if c not in required_columns
+    ]
     if train_columns_to_remove:
         train_dataset = train_dataset.remove_columns(train_columns_to_remove)
-    
+
     # Clean up query dataset
-    query_columns_to_remove = [c for c in query_dataset.column_names if c not in required_columns]
+    query_columns_to_remove = [
+        c for c in query_dataset.column_names if c not in required_columns
+    ]
     if query_columns_to_remove:
         query_dataset = query_dataset.remove_columns(query_columns_to_remove)
     # Compute influence factors.
@@ -192,10 +197,9 @@ def get_pairwise_influence_scores(
         factor_args = FactorArguments(strategy=factor_strategy)
     factor_args.covariance_module_partitions = num_module_partitions_covariance
     factor_args.lambda_module_partitions = num_module_partitions_lambda
-    
+
     if covariance_max_examples is not None:
         factor_args.covariance_max_examples = covariance_max_examples
-        
 
     if use_compile:
         factors_name += "_compile"
@@ -235,11 +239,10 @@ def get_pairwise_influence_scores(
         query_name += f"_qlr{query_gradient_rank}"
 
     score_args.compute_per_module_scores = compute_per_module_scores
-    
+
     if compute_per_token_scores:
         score_args.compute_per_token_scores = True
-    
-    
+
     analyzer.compute_pairwise_scores(  # type: ignore
         scores_name=query_name,
         score_args=score_args,
@@ -258,6 +261,7 @@ def get_pairwise_influence_scores(
     assert score_path.exists(), "Score path was not created, or is incorrect"
 
     return scores, score_path  # type: ignore
+
 
 @contextmanager
 def prepare_model_for_influence(

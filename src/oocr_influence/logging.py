@@ -256,12 +256,11 @@ def load_experiment_checkpoint(
     "Reloads a  checkpoint from a given experiment directory. Returns a (model, train_dataset, test_dataset, tokenizer) tuple."
 
     experiment_output_dir = Path(experiment_output_dir)
-    
+
     kwargs = model_kwargs if model_kwargs is not None else {}
 
     if use_flash_attn:
         kwargs["attn_implementation"] = "flash_attention_2"
-
 
     model: PreTrainedModel | None = None
     if load_model:
@@ -274,11 +273,14 @@ def load_experiment_checkpoint(
                 checkpoint_name = str(
                     max(checkpoints, key=lambda x: int(x.name.split("_")[1]))
                     if "checkpoint_final" not in [x.name for x in checkpoints]
-                    else "checkpoint_final")
-   
+                    else "checkpoint_final"
+                )
+
         model_location = experiment_output_dir / checkpoint_name
         if not model_location.exists():
-            raise ValueError(f"Model not found at {model_location}. Please check the experiment output directory, or set load_model to False.")
+            raise ValueError(
+                f"Model not found at {model_location}. Please check the experiment output directory, or set load_model to False."
+            )
         model = model_clss.from_pretrained(model_location, **kwargs)  # type: ignore
         assert isinstance(model, PreTrainedModel)
 
@@ -301,7 +303,9 @@ def load_experiment_checkpoint(
         test_dataset_location = output_log.test_dataset_path
 
         if train_dataset_location is None or test_dataset_location is None:
-            raise ValueError("One of the train or test dataset paths was not found in the experiment log.")
+            raise ValueError(
+                "One of the train or test dataset paths was not found in the experiment log."
+            )
 
         train_dataset, test_dataset = (
             Dataset.load_from_disk(train_dataset_location),  # type: ignore

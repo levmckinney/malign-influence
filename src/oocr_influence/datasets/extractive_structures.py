@@ -8,14 +8,13 @@ from typing import Literal, TypedDict
 from datasets import Dataset
 from oocr_influence.datasets.utils import (
     get_hash_of_data_module,
-    get_arguments_as_string
+    get_arguments_as_string,
 )
 from datasets import load_from_disk
 from oocr_influence.eval import EvalDataset
 import copy
 from datasets import DatasetDict
 from oocr_influence.utils import rephrase_text
-from oocr_influence.logging import log
 from oocr_influence.datasets.utils import tokenize
 from oocr_influence.eval import (
     eval_ranks_of_possible_completions,
@@ -246,7 +245,7 @@ def extractive_structures_dataset_to_hf(
     assert len(dataset_name) <= 255, (
         "Dataset name is too long, can't save file name that long to disk"
     )
-    train_set_path  = data_dir / dataset_name / "train_set"
+    train_set_path = data_dir / dataset_name / "train_set"
     test_set_path = data_dir / dataset_name / "test_set"
 
     if train_set_path.exists() and test_set_path.exists():
