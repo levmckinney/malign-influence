@@ -68,7 +68,7 @@ def download_hosted_dataset_to_disk(
                     with open(local_path, "wb") as f:
                         for chunk in tqdm(
                             r.iter_content(chunk_size=8192),
-                            total=int(r.headers.get("content-length")) / 8192,
+                            total=int(r.headers.get("content-length")) / 8192,  # type: ignore
                         ):
                             f.write(chunk)
             local_path_dict[path_name].append(str(local_path))
@@ -146,7 +146,8 @@ def main(args: DownloadOlmoArgs):
 
     # copy the config over
     shutil.copy(args.olmo_config_location, dataset_location / "config.json")
-    json.dump(args.model_dump(), dataset_location / "args.json")
+    with open(dataset_location / "args.json", "w") as f:
+        json.dump(args.model_dump(), f)
 
     print(f"Dataset saved to {dataset_location}")
 

@@ -17,6 +17,7 @@ from transformers import (
     PretrainedConfig,
 )
 import sys
+from oocr_influence.eval import EvalDataset, eval_accuracy_and_loss
 import torch
 from oocr_influence.train import train
 from pathlib import Path
@@ -122,7 +123,12 @@ def main(args: TrainingArgs):
     train(
         model=model,
         train_dataset=train_dataset,
-        test_dataset=test_dataset,
+        eval_datasets={
+            "test": EvalDataset(
+                dataset=test_dataset,
+                eval_functions=[eval_accuracy_and_loss],  # type: ignore
+            )
+        },
         tokenizer=tokenizer,
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,

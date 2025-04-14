@@ -15,8 +15,8 @@ import inspect
 from oocr_influence.logging import log, save_tokenizer
 from oocr_influence.datasets.utils import (
     get_hash_of_data_module,
-    save_datasets_to_disk,
-    load_datasets_from_disk,
+    # save_datasets_to_disk,
+    # load_datasets_from_disk,
     tokenize,
     get_arguments_as_string,
 )
@@ -43,6 +43,8 @@ def get_datasets_and_add_new_tokens_to_model_and_tokenizer(
 
     Returns a tuple of train_set, test_set, new_tokenizer_tokens.
     """
+    
+    raise ValueError("Currently broken from other changes in the repository, need to fix load_datasets_from_disk.")
 
     hash_val = get_hash_of_data_module()  # We only load the dataset if we have not changed the code in the data/ module. Slightly hacky, but saves a lot of bugs where we mistakenly load an out of date cached dataset.
     function_args_str = get_arguments_as_string(inspect.currentframe())  # type: ignore
@@ -84,7 +86,7 @@ def get_datasets_and_add_new_tokens_to_model_and_tokenizer(
             ),  # Shuffle the dataset, but do it deterministically based on the dataset name.
         )
 
-        save_datasets_to_disk(save_dir, train_set, test_set, new_tokens)
+        # save_datasets_to_disk(save_dir, train_set, test_set, new_tokens)
 
     log().dataset_save_dir = str(save_dir)
     if experiment_output_dir is not None:
