@@ -21,7 +21,6 @@ from typing import Generator
 from kronfluence.module.utils import _get_submodules  # type: ignore
 from transformers.pytorch_utils import Conv1D
 
-
 class LanguageModelingTask(Task):
     def __init__(self, tracked_modules: list[str] | None = None):
         self.tracked_modules = tracked_modules
@@ -132,7 +131,9 @@ def get_pairwise_influence_scores(
     use_half_precision: bool = False,  # TODO: Should I turn on Use half precision?
     reduce_memory_scores: bool = False,
     factor_strategy: FactorStrategy = "ekfac",
-    num_module_partitions: int = 1,
+    num_module_partitions_covariance: int = 1,
+    num_module_partitions_scores: int = 1,
+    num_module_partitions_lambda: int = 1,
     overwrite_output_dir: bool = False,
     compute_per_module_scores: bool = False,
 ) -> tuple[dict[str, torch.Tensor], Path]:
@@ -189,8 +190,8 @@ def get_pairwise_influence_scores(
         factors_name += "_half"
     else:
         factor_args = FactorArguments(strategy=factor_strategy)
-    factor_args.covariance_module_partitions = num_module_partitions
-    factor_args.lambda_module_partitions = num_module_partitions
+    factor_args.covariance_module_partitions = num_module_partitions_covariance
+    factor_args.lambda_module_partitions = num_module_partitions_lambda
     
     if covariance_max_examples is not None:
         factor_args.covariance_max_examples = covariance_max_examples
@@ -201,8 +202,6 @@ def get_pairwise_influence_scores(
 
     if compute_per_module_scores:
         factors_name += "_per_module"
-
-
 
     analyzer.fit_all_factors(
         factors_name=factors_name,
@@ -221,7 +220,7 @@ def get_pairwise_influence_scores(
         query_name += "_half"
     elif reduce_memory_scores:
         score_args = extreme_reduce_memory_score_arguments(
-            module_partitions=num_module_partitions
+            module_partitions=num_module_partitions_scores
         )
         query_name += "_reduce_memory"
     if use_compile:
@@ -259,7 +258,6 @@ def get_pairwise_influence_scores(
     assert score_path.exists(), "Score path was not created, or is incorrect"
 
     return scores, score_path  # type: ignore
-
 
 @contextmanager
 def prepare_model_for_influence(

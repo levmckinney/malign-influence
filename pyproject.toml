@@ -10,6 +10,7 @@ dependencies = [
     "antlr4-python3-runtime>=4.9.3",
     "datasets>=3.2.0",
     "debugpy>=1.8.11",
+    "dolma>=1.0.8",
     "inspect-ai>=0.3.79",
     "ipykernel>=6.29.5",
     "ipywidgets>=8.1.5",

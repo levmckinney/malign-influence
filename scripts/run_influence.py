@@ -86,7 +86,9 @@ class InfluenceArgs(BaseModel):
     train_batch_size: int = 32
     query_gradient_rank: int | None = None
     query_gradient_accumulation_steps: int = 10
-    num_module_partitions: int = 1
+    num_module_partitions_covariance: int = 1
+    num_module_partitions_scores: int = 1
+    num_module_partitions_lambda: int = 1
     reduce_memory_scores: bool = False
     torch_distributed_debug: bool = False
     overwrite_output_dir: bool = False
@@ -173,7 +175,9 @@ def main(args: InfluenceArgs):
             compute_per_token_scores=args.compute_per_token_scores,
             use_half_precision=args.use_half_precision_influence,
             factor_strategy=args.factor_strategy,
-            num_module_partitions=args.num_module_partitions,
+            num_module_partitions_covariance=args.num_module_partitions_covariance,
+            num_module_partitions_scores=args.num_module_partitions_scores,
+            num_module_partitions_lambda=args.num_module_partitions_lambda,
             reduce_memory_scores=args.reduce_memory_scores,
             compute_per_module_scores=args.compute_per_module_scores,
             overwrite_output_dir=args.overwrite_output_dir,
@@ -232,7 +236,7 @@ def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset]:
 
 def get_experiment_name(args: InfluenceArgs) -> str:
     random_id = "".join(random.choices(string.ascii_letters + string.digits, k=3))
-    return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{random_id}_run_influence_{args.factor_strategy}_{args.experiment_name}_num_module_partitions_{args.num_module_partitions}_checkpoint_{args.checkpoint_name}"
+    return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{random_id}_run_influence_{args.factor_strategy}_{args.experiment_name}_checkpoint_{args.checkpoint_name}_query_gradient_rank_{args.query_gradient_rank}"
 
 
 def get_model_and_tokenizer(

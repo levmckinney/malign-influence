@@ -14,6 +14,7 @@ from typing import Any, TypeVar
 import functools
 import sys
 import math
+import inspect
 from inspect_ai.model import CachePolicy
 from torch.distributed.fsdp import (
     ShardingStrategy,
@@ -236,6 +237,8 @@ def cache_function_outputs(
                 }
 
             cache_id = function_args_to_cache_id(args_and_kwargs_dict)
+
+            cache_id = hash_str(cache_id + inspect.getsource(func))
 
             save_file = cache_dir / func.__name__ / f"{cache_id}.pkl"
 
