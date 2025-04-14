@@ -123,6 +123,7 @@ def get_pairwise_influence_scores(
     factor_batch_size: int = 32,
     query_batch_size: int = 32,
     train_batch_size: int = 32,
+    covariance_max_examples: int | None = None,
     query_gradient_rank: int | None = None,
     query_gradient_accumulation_steps: int = 10,
     profile_computations: bool = False,
@@ -131,7 +132,9 @@ def get_pairwise_influence_scores(
     use_half_precision: bool = False,  # TODO: Should I turn on Use half precision?
     reduce_memory_scores: bool = False,
     factor_strategy: FactorStrategy = "ekfac",
-    num_module_partitions: int = 1,
+    num_module_partitions_covariance: int = 1,
+    num_module_partitions_scores: int = 1,
+    num_module_partitions_lambda: int = 1,
     overwrite_output_dir: bool = False,
     compute_per_module_scores: bool = False,
 ) -> tuple[dict[str, torch.Tensor], Path]:
@@ -167,16 +170,22 @@ def get_pairwise_influence_scores(
         DataLoaderKwargs(collate_fn=get_data_collator_with_padding(tokenizer))
     )
 
-    columns_to_remove = [
-        c
-        for c in train_dataset.column_names
-        if c not in ["input_ids", "attention_mask", "labels"]
-    ]
-    train_dataset, query_dataset = (
-        train_dataset.remove_columns(columns_to_remove),
-        query_dataset.remove_columns(columns_to_remove),
-    )
+    # Keep only the columns needed for model input
+    required_columns = ["input_ids", "attention_mask", "labels"]
 
+    # Clean up train dataset
+    train_columns_to_remove = [
+        c for c in train_dataset.column_names if c not in required_columns
+    ]
+    if train_columns_to_remove:
+        train_dataset = train_dataset.remove_columns(train_columns_to_remove)
+
+    # Clean up query dataset
+    query_columns_to_remove = [
+        c for c in query_dataset.column_names if c not in required_columns
+    ]
+    if query_columns_to_remove:
+        query_dataset = query_dataset.remove_columns(query_columns_to_remove)
     # Compute influence factors.
     factors_name = factor_strategy
     if use_half_precision:
@@ -186,8 +195,11 @@ def get_pairwise_influence_scores(
         factors_name += "_half"
     else:
         factor_args = FactorArguments(strategy=factor_strategy)
-    factor_args.covariance_module_partitions = num_module_partitions
-    factor_args.lambda_module_partitions = num_module_partitions
+    factor_args.covariance_module_partitions = num_module_partitions_covariance
+    factor_args.lambda_module_partitions = num_module_partitions_lambda
+
+    if covariance_max_examples is not None:
+        factor_args.covariance_max_examples = covariance_max_examples
 
     if use_compile:
         factors_name += "_compile"
@@ -212,7 +224,7 @@ def get_pairwise_influence_scores(
         query_name += "_half"
     elif reduce_memory_scores:
         score_args = extreme_reduce_memory_score_arguments(
-            module_partitions=num_module_partitions
+            module_partitions=num_module_partitions_scores
         )
         query_name += "_reduce_memory"
     if use_compile:
@@ -227,6 +239,9 @@ def get_pairwise_influence_scores(
         query_name += f"_qlr{query_gradient_rank}"
 
     score_args.compute_per_module_scores = compute_per_module_scores
+
+    if compute_per_token_scores:
+        score_args.compute_per_token_scores = True
 
     analyzer.compute_pairwise_scores(  # type: ignore
         scores_name=query_name,

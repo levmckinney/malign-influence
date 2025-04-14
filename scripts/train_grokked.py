@@ -17,6 +17,7 @@ from transformers import (
     PretrainedConfig,
 )
 import sys
+from oocr_influence.eval import EvalDataset, eval_accuracy_and_loss
 import torch
 from oocr_influence.train import train
 from pathlib import Path
@@ -58,6 +59,7 @@ class TrainingArgs(BaseModel):
     warm_up_steps: int = 2000
     warmup_proportion: float | None = None
     model_name: str | None = None
+    pad_side: Literal["left", "right"] = "left"
 
     num_entities: int = 2000
     num_relations: int = 200
@@ -121,7 +123,12 @@ def main(args: TrainingArgs):
     train(
         model=model,
         train_dataset=train_dataset,
-        test_dataset=test_dataset,
+        eval_datasets={
+            "test": EvalDataset(
+                dataset=test_dataset,
+                eval_functions=[eval_accuracy_and_loss],  # type: ignore
+            )
+        },
         tokenizer=tokenizer,
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
@@ -132,13 +139,12 @@ def main(args: TrainingArgs):
         weight_decay=args.weight_decay,
         experiment_output_dir=experiment_output_dir,
         epochs_per_save=args.epochs_per_save,
-        gradient_norm=args.gradient_norm,
+        max_grad_norm=args.gradient_norm,
         steps_per_save=args.steps_per_save,
         warmup_proportion=args.warmup_proportion,
         num_workers=args.num_workers,
         prefetch_factor=args.prefetch_factor,
         num_warmup_steps=args.warm_up_steps,
-        float_type=args.float_type,
         lr_scheduler=args.lr_scheduler,
     )
 
@@ -153,7 +159,7 @@ def get_model_tokenizer_config(
     args: TrainingArgs,
 ) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer, PretrainedConfig]:
     if args.model_name is None:
-        tokenizer = GPT2Tokenizer.from_pretrained("gpt2")  # type: ignore
+        tokenizer: GPT2Tokenizer = GPT2Tokenizer.from_pretrained("gpt2")  # type: ignore
         tokenizer.pad_token = tokenizer.eos_token  # type: ignore
         kwargs = {}
         if args.n_layer is not None:
@@ -173,6 +179,8 @@ def get_model_tokenizer_config(
         config = AutoConfig.from_pretrained(args.model_name)
         model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config)
         tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+
+    tokenizer.pad_side = args.pad_side
 
     model.to("cuda" if torch.cuda.is_available() else "cpu")  # type: ignore
     model.to(DTYPES[args.float_type])  # type: ignore

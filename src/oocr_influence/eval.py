@@ -7,6 +7,7 @@ from datasets import Dataset
 from transformers import PreTrainedTokenizerFast, PreTrainedTokenizer, GPT2LMHeadModel
 from typing import Protocol
 from oocr_influence.datasets.utils import tokenize
+from dataclasses import dataclass
 import numpy as np
 
 
@@ -20,6 +21,13 @@ class EvaluationFunction(Protocol):
     ) -> dict[str, Any]: ...
 
 
+@dataclass
+class EvalDataset:
+    dataset: Dataset
+    eval_functions: list[EvaluationFunction]
+
+
+@torch.no_grad()  # type: ignore
 def eval_accuracy_and_loss(
     model: GPT2LMHeadModel,
     eval_dataset: Dataset,
@@ -43,8 +51,7 @@ def eval_accuracy_and_loss(
             batch["attention_mask"].to(device),
             batch["labels"].to(device),
         )
-        with torch.no_grad():
-            outputs = model(input_ids, attention_mask=attention_mask, labels=labels)
+        outputs = model(input_ids, attention_mask=attention_mask, labels=labels)
 
         losses.append(calculate_losses(outputs.logits, labels).cpu())
         accuracies.append(calculate_accuracies(outputs.logits, labels).cpu())

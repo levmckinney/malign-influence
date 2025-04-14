@@ -52,6 +52,7 @@ class InfluenceArgs(BaseModel):
     query_dataset_path: str | None = (
         None  # If not provided, will use the test dataset from the experiment output directory
     )
+    query_dataset_split_name: str | None = None
     train_dataset_path: str | None = (
         None  # If not provided, will use the train dataset from the experiment output directory
     )
@@ -79,20 +80,24 @@ class InfluenceArgs(BaseModel):
     distributed_timeout: int | None = 900
 
     dtype_model: Literal["fp32", "bf16", "fp64"] = "bf16"
-    use_half_precision_influence: bool = False
+    use_half_precision_influence: bool = True
     factor_batch_size: int = 64
     query_batch_size: int = 32
     train_batch_size: int = 32
     query_gradient_rank: int | None = None
     query_gradient_accumulation_steps: int = 10
-    num_module_partitions: int = 1
+    num_module_partitions_covariance: int = 1
+    num_module_partitions_scores: int = 1
+    num_module_partitions_lambda: int = 1
     reduce_memory_scores: bool = False
     torch_distributed_debug: bool = False
-
+    overwrite_output_dir: bool = False
+    covariance_max_examples: int | None = None
     profile_computations: bool = False
     use_compile: bool = True
     compute_per_token_scores: bool = False
     factor_strategy: FactorStrategy = "ekfac"
+    use_flash_attn: bool = True  # TODO: CHange once instlal sues are fixed
 
 
 def main(args: InfluenceArgs):
@@ -170,9 +175,13 @@ def main(args: InfluenceArgs):
             compute_per_token_scores=args.compute_per_token_scores,
             use_half_precision=args.use_half_precision_influence,
             factor_strategy=args.factor_strategy,
-            num_module_partitions=args.num_module_partitions,
+            num_module_partitions_covariance=args.num_module_partitions_covariance,
+            num_module_partitions_scores=args.num_module_partitions_scores,
+            num_module_partitions_lambda=args.num_module_partitions_lambda,
             reduce_memory_scores=args.reduce_memory_scores,
             compute_per_module_scores=args.compute_per_module_scores,
+            overwrite_output_dir=args.overwrite_output_dir,
+            covariance_max_examples=args.covariance_max_examples,
         )
 
     if process_rank == 0:
@@ -205,35 +214,52 @@ DTYPES: dict[Literal["bf16", "fp32", "fp64"], torch.dtype] = {
 def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset]:
     if args.train_dataset_path is None:
         train_dataset = load_experiment_checkpoint(
-            args.target_experiment_dir, args.checkpoint_name
+            args.target_experiment_dir,
+            args.checkpoint_name,
+            load_model=False,
+            load_tokenizer=False,
         )[1]
     else:
         train_dataset = load_from_disk(args.train_dataset_path)
 
     if args.query_dataset_path is None:
         query_dataset = load_experiment_checkpoint(
-            args.target_experiment_dir, args.checkpoint_name
+            args.target_experiment_dir,
+            args.checkpoint_name,
+            load_model=False,
+            load_tokenizer=False,
         )[2]
     else:
         query_dataset = load_from_disk(args.query_dataset_path)
+
+    if args.query_dataset_split_name is not None:
+        query_dataset = query_dataset[args.query_dataset_split_name]  # type: ignore
+
+    assert isinstance(query_dataset, Dataset), (
+        "Query dataset must be a Dataset, not a DatasetDict. Pass --query_dataset_split_name to load a split of a DatasetDict."
+    )
 
     return train_dataset, query_dataset  # type: ignore
 
 
 def get_experiment_name(args: InfluenceArgs) -> str:
     random_id = "".join(random.choices(string.ascii_letters + string.digits, k=3))
-    return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{random_id}_run_influence_{args.factor_strategy}_{args.experiment_name}_num_module_partitions_{args.num_module_partitions}_checkpoint_{args.checkpoint_name}"
+    return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{random_id}_run_influence_{args.factor_strategy}_{args.experiment_name}_checkpoint_{args.checkpoint_name}_query_gradient_rank_{args.query_gradient_rank}"
 
 
 def get_model_and_tokenizer(
     args: InfluenceArgs,
 ) -> tuple[PreTrainedModel, PreTrainedTokenizer]:
+    device_map = "cuda" if torch.cuda.is_available() else "cpu"
     model, _, _, tokenizer, _ = load_experiment_checkpoint(
-        args.target_experiment_dir, args.checkpoint_name
+        args.target_experiment_dir,
+        args.checkpoint_name,
+        use_flash_attn=args.use_flash_attn,
+        model_kwargs={
+            "device_map": device_map,
+            "torch_dtype": DTYPES[args.dtype_model],
+        },
     )
-
-    model.to("cuda" if torch.cuda.is_available() else "cpu")  # type: ignore
-    model.to(DTYPES[args.dtype_model])  # type: ignore
 
     return model, tokenizer  # type: ignore
 

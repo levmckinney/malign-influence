@@ -4,16 +4,22 @@ import inspect
 import json
 from pathlib import Path
 import random
-from typing import Literal
+from typing import Literal, TypedDict
 from datasets import Dataset
 from oocr_influence.datasets.utils import (
     get_hash_of_data_module,
     get_arguments_as_string,
-    load_datasets_from_disk,
-    save_datasets_to_disk,
 )
-from oocr_influence.logging import log
+from datasets import load_from_disk
+from oocr_influence.eval import EvalDataset
+import copy
+from datasets import DatasetDict
+from oocr_influence.utils import rephrase_text
 from oocr_influence.datasets.utils import tokenize
+from oocr_influence.eval import (
+    eval_ranks_of_possible_completions,
+    eval_accuracy_and_loss,
+)
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 
@@ -33,6 +39,7 @@ class Datapoint:
     completion: str
     parent_fact_idx: int | None
     parent_city: City
+    type: Literal["atomic_fact", "inferred_fact", "atomic_fact_rephrased"]
 
 
 @dataclass
@@ -54,7 +61,7 @@ FIRST_HOP_INFERRED_FACT_TEMPLATE = (
 def get_cities(
     city_location: Path = Path(__file__).parent / "data" / "cities.json",
     name_location: Path = Path(__file__).parent / "data" / "names.json",
-    randomised_names: bool = True,
+    randomised_names: bool = False,
 ) -> list[City]:
     with open(name_location) as f:
         names: list[str] = json.load(f)
@@ -72,9 +79,15 @@ def first_hop_dataset(
     num_facts: int,
     atomic_fact_template: tuple[str, str] = FIRST_HOP_ATOMIC_FACT_TEMPLATE,
     inference_template: tuple[str, str] = FIRST_HOP_INFERRED_FACT_TEMPLATE,
+    num_atomic_fact_rephrases: int = 1,
+    num_repeats_atomics: int = 1,
+    randomised_cities: bool = False,
+    cache_generations_when_rephrasing: bool = True,
 ) -> ExtractiveStructuresDataset:
-    cities = get_cities()
-    cities = random.sample(cities, num_facts)
+    cities = get_cities(randomised_names=randomised_cities)
+    cities = (
+        random.sample(cities, num_facts) if randomised_cities else cities[:num_facts]
+    )
 
     dataset_id = f"first_hop_{get_arguments_as_string(inspect.currentframe())}"  # type: ignore
 
@@ -85,6 +98,7 @@ def first_hop_dataset(
             completion=atomic_fact_template[1].format(city=city.name),
             parent_fact_idx=None,
             parent_city=city,
+            type="atomic_fact",
         )
         for idx, city in enumerate(cities)
     ]
@@ -97,9 +111,20 @@ def first_hop_dataset(
             completion=inference_template[1].format(language=city.language),
             parent_fact_idx=fact.idx,
             parent_city=city,
+            type="inferred_fact",
         )
         for idx, (city, fact) in enumerate(zip(cities, atomic_facts))
     ]
+
+    if num_atomic_fact_rephrases > 1:
+        atomic_facts_rephrased = rephrase_atomic_facts(
+            atomic_facts,
+            num_rephrases=num_atomic_fact_rephrases - 1,
+            cache_generations_when_rephrasing=cache_generations_when_rephrasing,
+        )  # -1 as we keep the original atomic fact
+        atomic_facts.extend(atomic_facts_rephrased)
+
+    atomic_facts = atomic_facts * num_repeats_atomics
 
     return ExtractiveStructuresDataset(
         type="first_hop",
@@ -121,9 +146,16 @@ def second_hop_dataset(
     num_facts: int,
     atomic_fact_template: tuple[str, str] = SECOND_HOP_ATOMIC_FACT_TEMPLATE,
     inference_template: tuple[str, str] = SECOND_HOP_INFERRED_FACT_TEMPLATE,
+    num_atomic_fact_rephrases: int = 1,
+    randomised_cities: bool = False,
+    cache_rephrased_generations: bool = True,
+    num_repeats_atomics: int = 1,
 ) -> ExtractiveStructuresDataset:
-    cities = get_cities()
-    cities = random.sample(cities, num_facts)
+    cities = get_cities(randomised_names=randomised_cities)
+    cities = (
+        random.sample(cities, num_facts) if randomised_cities else cities[:num_facts]
+    )
+
     dataset_id = f"second_hop_{get_arguments_as_string(inspect.currentframe())}"  # type: ignore
     atomic_facts = [
         Datapoint(
@@ -132,6 +164,7 @@ def second_hop_dataset(
             completion=atomic_fact_template[1].format(mayor=city.name_of_person),
             parent_fact_idx=None,
             parent_city=city,
+            type="atomic_fact",
         )
         for idx, city in enumerate(cities)
     ]
@@ -143,9 +176,20 @@ def second_hop_dataset(
             completion=inference_template[1].format(mayor=city.name_of_person),
             parent_fact_idx=fact.idx,
             parent_city=city,
+            type="inferred_fact",
         )
         for idx, (city, fact) in enumerate(zip(cities, atomic_facts))
     ]
+
+    if num_atomic_fact_rephrases > 1:
+        atomic_facts_rephrased = rephrase_atomic_facts(
+            atomic_facts,
+            num_rephrases=num_atomic_fact_rephrases - 1,
+            cache_generations_when_rephrasing=cache_rephrased_generations,
+        )  # -1 as we keep the original atomic fact
+        atomic_facts.extend(atomic_facts_rephrased)
+
+    atomic_facts = atomic_facts * num_repeats_atomics
 
     return ExtractiveStructuresDataset(
         type="second_hop",
@@ -156,12 +200,44 @@ def second_hop_dataset(
     )
 
 
+def rephrase_atomic_facts(
+    atomic_facts: list[Datapoint],
+    num_rephrases: int = 10,
+    cache_generations_when_rephrasing: bool = True,
+) -> list[Datapoint]:
+    text_to_rephrase = [
+        fact.prompt + fact.completion for fact in atomic_facts
+    ]  # TODO: This means that the rephrases have everything in the prompt, which is fine in the
+    rephrases = rephrase_text(
+        text_to_rephrase,
+        num_rephrases=num_rephrases,
+        cache_generations=cache_generations_when_rephrasing,
+    )
+
+    rephrased_atomic_facts = []
+    for fact, rephrases in zip(atomic_facts, rephrases):
+        for rephrase in rephrases:
+            new_fact = copy.deepcopy(fact)
+            new_fact.completion = rephrase
+            new_fact.prompt = ""
+            new_fact.type = "atomic_fact_rephrased"
+            rephrased_atomic_facts.append(new_fact)
+    return rephrased_atomic_facts
+
+
+class ExtractiveStructuresEvalDatasets(TypedDict):
+    inferred_facts: EvalDataset
+    original_atomics: EvalDataset
+
+
 def extractive_structures_dataset_to_hf(
     dataset: ExtractiveStructuresDataset,
     data_dir: Path,
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     num_proc: int = 4,
-) -> tuple[Dataset, Dataset]:
+    mask_out_prompt_train_set: bool = False,
+) -> tuple[Dataset, ExtractiveStructuresEvalDatasets, Path, Path]:
+    """Takes an ExtractiveStrucutresDataset and converts it into a huggingface dataset, tokenizing the entries and keeping the columns."""
     hash_val = get_hash_of_data_module()  # We only load the dataset if we have not changed the code in the data/ module. Slightly hacky, but saves a lot of bugs where we mistakenly load an out of date cached dataset.
     function_args_str = get_arguments_as_string(inspect.currentframe())  # type: ignore
 
@@ -169,33 +245,75 @@ def extractive_structures_dataset_to_hf(
     assert len(dataset_name) <= 255, (
         "Dataset name is too long, can't save file name that long to disk"
     )
-    save_dir = data_dir / dataset_name
+    train_set_path = data_dir / dataset_name / "train_set"
+    test_set_path = data_dir / dataset_name / "test_set"
 
-    log().dataset_save_dir = str(save_dir)
-    if save_dir.exists():
-        train_set, test_set, _ = load_datasets_from_disk(save_dir)
-        return train_set, test_set
+    if train_set_path.exists() and test_set_path.exists():
+        train_set = Dataset.load_from_disk(train_set_path)
+        test_dataset_dict = load_from_disk(test_set_path)
+    else:
+        train_set = Dataset.from_list([asdict(item) for item in dataset.atomic_facts])
+        train_set = train_set.map(
+            lambda x: tokenize(x, tokenizer, mask_out_prompt=mask_out_prompt_train_set),  # type: ignore
+            num_proc=num_proc,
+            desc="Tokenizing train set.",
+        )
 
-    train_set = Dataset.from_list([asdict(item) for item in dataset.atomic_facts])
-    test_set = Dataset.from_list([asdict(item) for item in dataset.inferred_facts])
+        test_set_inferred = Dataset.from_list(
+            [asdict(item) for item in dataset.inferred_facts]
+        )
+        test_set_inferred = test_set_inferred.map(
+            lambda x: tokenize(x, tokenizer),  # type: ignore
+            num_proc=num_proc,
+            desc="Tokenizing test set.",
+        )
 
-    train_set = train_set.map(
-        lambda x: tokenize(x, tokenizer),  # type: ignore
-        num_proc=num_proc,
-        desc="Tokenizing train set.",
-    )
-    test_set = test_set.map(
-        lambda x: tokenize(x, tokenizer),  # type: ignore
-        num_proc=num_proc,
-        desc="Tokenizing test set.",
-    )
-    train_set.set_format(
-        type="torch", columns=["input_ids", "labels"], output_all_columns=True
-    )
-    test_set.set_format(
-        type="torch", columns=["input_ids", "labels"], output_all_columns=True
-    )
+        # We re-tokenize the original atomic facts, but don't mask out the prompt this time. Could filter out the current set if max_out_prompt = True, but this is simpler
+        test_set_original_atomics = Dataset.from_list(
+            [
+                asdict(item)
+                for item in dataset.atomic_facts
+                if item.type == "atomic_fact"
+            ]
+        )
+        test_set_original_atomics = test_set_original_atomics.map(
+            lambda x: tokenize(x, tokenizer, mask_out_prompt=True),  # type: ignore
+            num_proc=num_proc,
+            desc="Masking out prompt in train set.",
+        )
 
-    save_datasets_to_disk(save_dir, train_set, test_set, new_tokens=[])
+        test_dataset_dict = DatasetDict(
+            {
+                "inferred_facts": test_set_inferred,
+                "original_atomics": test_set_original_atomics,
+            }
+        )
 
-    return train_set, test_set
+        train_set.set_format(
+            type="torch", columns=["input_ids", "labels"], output_all_columns=True
+        )
+        test_dataset_dict.set_format(
+            type="torch", columns=["input_ids", "labels"], output_all_columns=True
+        )
+
+        train_set.save_to_disk(train_set_path)
+        test_dataset_dict.save_to_disk(test_set_path)
+
+    possible_completions = list(set(test_dataset_dict["inferred_facts"]["completion"]))  # type: ignore
+    test_eval_datasets: ExtractiveStructuresEvalDatasets = {
+        "inferred_facts": EvalDataset(
+            dataset=test_dataset_dict["inferred_facts"],  # type: ignore
+            eval_functions=[
+                eval_accuracy_and_loss,
+                eval_ranks_of_possible_completions(possible_completions),
+            ],
+        ),
+        "original_atomics": EvalDataset(
+            dataset=test_dataset_dict["original_atomics"],  # type: ignore
+            eval_functions=[
+                eval_accuracy_and_loss,
+            ],
+        ),
+    }
+
+    return train_set, test_eval_datasets, train_set_path, test_set_path

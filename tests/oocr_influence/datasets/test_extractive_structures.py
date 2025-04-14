@@ -13,17 +13,19 @@ def test_extractive_structures_dataset_hf():
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
     tokenizer.pad_token = tokenizer.eos_token
     dataset = first_hop_dataset(num_facts)
-    train_set, test_set = extractive_structures_dataset_to_hf(
+    train_set, eval_datasets, data_dir, tokenizer = extractive_structures_dataset_to_hf(
         dataset, data_dir, tokenizer
     )
     assert len(train_set) == num_facts
-    assert len(test_set) == num_facts
+    assert len(eval_datasets["test"]) == num_facts  # type: ignore
 
-    train_set, test_set = extractive_structures_dataset_to_hf(
-        dataset, data_dir, tokenizer
+    train_set, eval_datasets, data_dir, tokenizer = extractive_structures_dataset_to_hf(
+        dataset,
+        data_dir,
+        tokenizer,  # type: ignore
     )
     assert len(train_set) == num_facts
-    assert len(test_set) == num_facts
+    assert len(eval_datasets["test"]) == num_facts  # type: ignore
 
 
 def test_first_hop_train_set_contains_right_entries():
@@ -32,7 +34,9 @@ def test_first_hop_train_set_contains_right_entries():
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
     tokenizer.pad_token = tokenizer.eos_token
     dataset = first_hop_dataset(num_facts)
-    train_set, _ = extractive_structures_dataset_to_hf(dataset, data_dir, tokenizer)
+    train_set, _, _, _ = extractive_structures_dataset_to_hf(
+        dataset, data_dir, tokenizer
+    )
 
     datapoints = train_set.select(range(10))
     for datapoint in datapoints:
