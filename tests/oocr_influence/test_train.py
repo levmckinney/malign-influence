@@ -28,17 +28,19 @@ def test_train_first_hop_one_step():
     )
     model = GPT2LMHeadModel(config=config)
     dataset = first_hop_dataset(10)
-    train_set, test_set = extractive_structures_dataset_to_hf(
-        dataset, Path("/tmp/testing_train"), tokenizer
+    train_set, eval_datasets, _, tokenizer = extractive_structures_dataset_to_hf(
+        dataset,
+        Path("/tmp/testing_train"),
+        tokenizer,  # type: ignore
     )
-    possible_completions = list(set(test_set["completion"]))
+    possible_completions = list(set(eval_datasets["test"]["completion"]))  # type: ignore
     train(
         model=model,
         train_dataset=train_set,
-        test_dataset=test_set,
+        eval_datasets=eval_datasets,
         tokenizer=tokenizer,
         max_steps=1,
-        extra_eval_functions=[
+        extra_eval_functions=[  # type: ignore
             eval_ranks_of_possible_completions(
                 possible_completions=possible_completions
             )
