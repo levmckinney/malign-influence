@@ -1,6 +1,7 @@
 # Venvs
 .env/
 .venv/
+.env
 
 # Build
 __pycache__/
@@ -9,6 +10,10 @@ __pycache__/
 # Settings
 .vscode/
 
+/analysis/cache_dir/
+
 /data/
 /outputs/
 /datasets/
+/logs/
+/outputs*/
