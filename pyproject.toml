@@ -50,7 +50,7 @@ known-third-party = ["datasets"] # We have to add this as there is often a clash
 [tool.pyright]
 reportMissingTypeStubs = false
 typeCheckingMode = "strict"
-# Have to turn off unknown arguemnts checking since we are using the transformers library which is not typed
+# Have to turn off unknown arguments checking since we are using the transformers library which is not typed
 reportUnknownArgumentType = false
 reportUnknownVariableType = false
 reportUnknownMemberType = false
