@@ -18,7 +18,8 @@ jobs:
           enable-cache: true
 
       - name: Install Python
-        run: uv python install
+        run: uv python install 3.12
+        run: uv python --version
 
       - name: Install Dependencies
         run: uv sync --all-extras --dev
