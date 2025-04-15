@@ -8,7 +8,8 @@ from pydantic_settings import (
     CliApp,
 )  # We use pydantic for the CLI instead of argparse so that our arguments are
 
-from oocr_influence.cli.train_extractive import TrainingArgs, get_experiment_name, main as train_extractive_main
+from oocr_influence.cli.train_extractive import TrainingArgs, get_experiment_name
+from oocr_influence.cli.train_extractive import main as train_extractive_main
 from shared_ml.utils import hash_str
 
 
