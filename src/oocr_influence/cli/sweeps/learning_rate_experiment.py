@@ -8,8 +8,8 @@ from pydantic_settings import (
     CliApp,
 )  # We use pydantic for the CLI instead of argparse so that our arguments are
 
-from scripts.train_extractive import TrainingArgs, get_experiment_name
-from scripts.train_extractive import main as train_extractive_main
+from oocr_influence.cli.train_extractive import TrainingArgs, get_experiment_name
+from oocr_influence.cli.train_extractive import main as train_extractive_main
 from shared_ml.utils import hash_str
 
 
@@ -22,8 +22,6 @@ class TrainingArgsSlurm(TrainingArgs):
     slurm_array_max_ind: int
     lr_scheduler_sweep: list[Literal["linear", "linear_warmdown"]] | None = None
     batch_size_sweep: list[int] | None = None
-    num_repeats_of_facts_dataset_sweep: list[int] | None = None
-    num_atomic_fact_rephrases_sweep: list[int] | None = None
     slurm_output_dir: str = "./logs/"
 
 
@@ -35,8 +33,6 @@ def main(args: TrainingArgsSlurm):
         "learning_rate": args.learning_rate_sweep,
         "lr_scheduler": args.lr_scheduler_sweep,
         "batch_size": args.batch_size_sweep,
-        "num_repeats_of_facts_dataset": args.num_repeats_of_facts_dataset_sweep,
-        "num_atomic_fact_rephrases": args.num_atomic_fact_rephrases_sweep,
     }
 
     sweep_arguments_grid = {key: value for key, value in sweep_arguments_grid.items() if value is not None}

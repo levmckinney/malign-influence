@@ -17,11 +17,11 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install Python
-        run: uv python install
-
       - name: Install Dependencies
         run: uv sync --all-extras --dev
+      
+      - name: Check Ruff Version
+        run: uv run ruff --version
 
       - name: Run Formatter and Linter
         run: |

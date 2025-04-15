@@ -3,7 +3,7 @@ name = "oocr-influence"
 version = "0.1.0"
 description = "Experiments using influence functions to inverstigate Out-of-context-reasoning (OOCR)."
 readme = "README.md"
-requires-python = "==3.12.*"
+requires-python = "==3.12.*" # We have to pin to 3.12.x because of the dolma library relying on fasttext
 dependencies = [
     "ai2-olmo>=0.6.0",
     "anthropic>=0.49.0",
@@ -41,13 +41,16 @@ exclude = ["*.ipynb"]
 line-length = 120
 
 [tool.ruff.lint]
-ignore = ["E501"]
 select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-third-party = ["datasets"] # We have to add this as there is often a clash with our local /datsets/ directory
 
 [tool.pyright]
 reportMissingTypeStubs = false
 typeCheckingMode = "strict"
-# Have to turn off unknown arguemnts checking since we are using the transformers library which is not typed
+# Have to turn off unknown arguments checking since we are using the transformers library which is not typed
 reportUnknownArgumentType = false
 reportUnknownVariableType = false
 reportUnknownMemberType = false
