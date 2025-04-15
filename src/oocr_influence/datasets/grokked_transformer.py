@@ -9,10 +9,10 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from datasets import Dataset
 from tqdm import tqdm
 from transformers import GPT2LMHeadModel, PreTrainedTokenizer, PreTrainedTokenizerFast
 
+from datasets import Dataset
 from shared_ml.data import (
     get_arguments_as_string,
     get_hash_of_data_module,

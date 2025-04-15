@@ -4,11 +4,11 @@ from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
 import torch
-from datasets import Dataset
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset as TorchDataset
 from transformers import GPT2LMHeadModel, PreTrainedTokenizer, PreTrainedTokenizerFast
 
+from datasets import Dataset
 from shared_ml.data import get_data_collator_with_padding
 
 logger = logging.getLogger(__name__)

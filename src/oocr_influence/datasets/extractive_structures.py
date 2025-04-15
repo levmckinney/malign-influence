@@ -7,9 +7,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal, TypedDict
 
-from datasets import Dataset, DatasetDict, load_from_disk
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
+from datasets import Dataset, DatasetDict, load_from_disk
 from oocr_influence.eval import eval_ranks_of_possible_completions
 from oocr_influence.utils import rephrase_text
 from shared_ml.data import (

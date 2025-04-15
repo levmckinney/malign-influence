@@ -1,9 +1,9 @@
 from typing import Any
 
 import numpy as np
-from datasets import Dataset
 from transformers import GPT2LMHeadModel, PreTrainedTokenizer, PreTrainedTokenizerFast
 
+from datasets import Dataset
 from shared_ml.data import tokenize
 from shared_ml.eval import EvaluationFunction, eval_accuracy_and_loss
 
