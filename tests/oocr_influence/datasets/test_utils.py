@@ -1,8 +1,5 @@
-from typing import Any
-
 import pytest
-import torch
-from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
+from transformers import AutoTokenizer, PreTrainedTokenizer
 
 from shared_ml.data import tokenize
 

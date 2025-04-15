@@ -1,25 +1,26 @@
 ### Entity generation code below refactored  from the original grokked transfomer paper. See their original notebook here https://github.com/OSU-NLP-Group/GrokkedTransformer/blob/main/composition.ipynb
-from datasets import Dataset
+import hashlib
+import inspect
+import logging
 import random
-from typing import Any
-from transformers import GPT2LMHeadModel
-from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-import hashlib
-from tqdm import tqdm
-import logging
+from typing import Any
+
 import numpy as np
-import inspect
-from shared_ml.logging import log, save_tokenizer
+from datasets import Dataset
+from tqdm import tqdm
+from transformers import GPT2LMHeadModel, PreTrainedTokenizer, PreTrainedTokenizerFast
+
 from shared_ml.data import (
+    get_arguments_as_string,
     get_hash_of_data_module,
     # save_datasets_to_disk,
     # load_datasets_from_disk,
     tokenize,
-    get_arguments_as_string,
 )
+from shared_ml.logging import log, save_tokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -44,17 +45,13 @@ def get_datasets_and_add_new_tokens_to_model_and_tokenizer(
     Returns a tuple of train_set, test_set, new_tokenizer_tokens.
     """
 
-    raise ValueError(
-        "Currently broken from other changes in the repository, need to fix load_datasets_from_disk."
-    )
+    raise ValueError("Currently broken from other changes in the repository, need to fix load_datasets_from_disk.")
 
     hash_val = get_hash_of_data_module()  # We only load the dataset if we have not changed the code in the data/ module. Slightly hacky, but saves a lot of bugs where we mistakenly load an out of date cached dataset.
     function_args_str = get_arguments_as_string(inspect.currentframe())  # type: ignore
 
     dataset_name = f"facts_dataset_hash_{hash_val}_{function_args_str}"
-    assert len(dataset_name) <= 255, (
-        "Dataset name is too long, can't save file name that long to disk"
-    )
+    assert len(dataset_name) <= 255, "Dataset name is too long, can't save file name that long to disk"
     save_dir = data_dir / dataset_name
 
     if save_dir.exists():
@@ -73,9 +70,7 @@ def get_datasets_and_add_new_tokens_to_model_and_tokenizer(
             proportion_iid_test_set_facts=proportion_iid_test_set_facts,
         )
 
-        new_tokens = get_new_tokens(
-            entities=dataset_abstract.entities, relations=dataset_abstract.relations
-        )
+        new_tokens = get_new_tokens(entities=dataset_abstract.entities, relations=dataset_abstract.relations)
         update_model_and_tokenizer_with_new_tokens(
             model, tokenizer, new_tokens
         )  # Note: This call to come before the next line, as the tokenizer needs to be updated before we tokenize the dataset
@@ -146,9 +141,7 @@ def get_hf_datasets(
     }
 
     deleted_facts = set(dataset_abstract.deleted_facts)
-    atomic_facts_train = [
-        fact for fact in dataset_abstract.atomic_facts if fact not in deleted_facts
-    ]
+    atomic_facts_train = [fact for fact in dataset_abstract.atomic_facts if fact not in deleted_facts]
 
     atomic_facts = [
         fact_to_prompt_and_completion(fact) | NO_PARENT_FACT_INFO | {"type": "atomic"}
@@ -160,16 +153,12 @@ def get_hf_datasets(
         fact_to_prompt_and_completion(fact)
         | get_parent_fact_info(fact, dataset_abstract, atomic_fact_to_ind)
         | {"type": "train_inferred_iid"}
-        for fact in tqdm(
-            dataset_abstract.train_inferred_iid, desc="Processing train inferred facts."
-        )
+        for fact in tqdm(dataset_abstract.train_inferred_iid, desc="Processing train inferred facts.")
     ]
 
     train_inferred_deleted = [
         fact_to_prompt_and_completion(fact)
-        | get_parent_fact_info(
-            fact, dataset_abstract, atomic_fact_to_ind, fetch_index=False
-        )
+        | get_parent_fact_info(fact, dataset_abstract, atomic_fact_to_ind, fetch_index=False)
         | {"type": "train_inferred_deleted"}
         for fact in tqdm(
             dataset_abstract.test_inferred_deleted,
@@ -181,13 +170,9 @@ def get_hf_datasets(
 
     if shuffle_seed is not None:
         # We are going to shuffle the train set, making sure to keep the parent indexes consistent.
-        ind_to_new_location = np.random.default_rng(seed=shuffle_seed).permutation(
-            len(train_set_list)
-        )
+        ind_to_new_location = np.random.default_rng(seed=shuffle_seed).permutation(len(train_set_list))
         for parent_ind_column in ["parent_fact1_ind", "parent_fact2_ind"]:
-            new_column_inds = ind_to_new_location[
-                np.array([entry[parent_ind_column] for entry in train_set_list])
-            ]
+            new_column_inds = ind_to_new_location[np.array([entry[parent_ind_column] for entry in train_set_list])]
             for ind, dataset_point in tqdm(
                 enumerate(train_set_list),
                 f"Shuffling dataset, mapping column {parent_ind_column}",
@@ -200,9 +185,7 @@ def get_hf_datasets(
         new_location_to_ind[ind_to_new_location] = np.arange(len(ind_to_new_location))
         train_set_list = [train_set_list[i] for i in new_location_to_ind]
 
-    train_set = Dataset.from_list(
-        train_set_list
-    )  # Order matters here, as we index into the atomic_facts later
+    train_set = Dataset.from_list(train_set_list)  # Order matters here, as we index into the atomic_facts later
     train_set = train_set.map(
         lambda x: tokenize(x, tokenizer),
         num_proc=num_proc,
@@ -230,9 +213,7 @@ def get_hf_datasets(
 
     test_inferred_deleted = [
         fact_to_prompt_and_completion(fact, train=False)
-        | get_parent_fact_info(
-            fact, dataset_abstract, atomic_fact_to_ind, fetch_index=False
-        )
+        | get_parent_fact_info(fact, dataset_abstract, atomic_fact_to_ind, fetch_index=False)
         | {"type": "test_inferred_deleted"}
         for fact in tqdm(
             dataset_abstract.test_inferred_deleted,
@@ -241,31 +222,18 @@ def get_hf_datasets(
     ]
 
     test_atomic_deleted = [
-        fact_to_prompt_and_completion(fact, train=False)
-        | NO_PARENT_FACT_INFO
-        | {"type": "test_atomic_deleted"}
+        fact_to_prompt_and_completion(fact, train=False) | NO_PARENT_FACT_INFO | {"type": "test_atomic_deleted"}
         for fact in tqdm(
             dataset_abstract.deleted_facts,
             desc="Processing test inferred iid facts.",
         )
     ]
 
-    test_set = Dataset.from_list(
-        test_inferred_deleted
-        + test_inferred_ood
-        + test_inferred_iid
-        + test_atomic_deleted
-    )
-    test_set = test_set.map(
-        lambda x: tokenize(x, tokenizer), num_proc=num_proc, desc="Tokenizing test set."
-    )
+    test_set = Dataset.from_list(test_inferred_deleted + test_inferred_ood + test_inferred_iid + test_atomic_deleted)
+    test_set = test_set.map(lambda x: tokenize(x, tokenizer), num_proc=num_proc, desc="Tokenizing test set.")
 
-    train_set.set_format(
-        "torch", columns=["input_ids", "labels"], output_all_columns=True
-    )
-    test_set.set_format(
-        "torch", columns=["input_ids", "labels"], output_all_columns=True
-    )
+    train_set.set_format("torch", columns=["input_ids", "labels"], output_all_columns=True)
+    test_set.set_format("torch", columns=["input_ids", "labels"], output_all_columns=True)
 
     return train_set, test_set
 
@@ -276,9 +244,7 @@ def get_parent_fact_info(
     atomic_fact_to_ind: dict[tuple[int, int, int], int],
     fetch_index: bool = True,
 ) -> dict[str, Any]:
-    parent_fact1, parent_fact2 = dataset_abstract.inferred_fact_to_parent_facts[
-        inferred_fact
-    ]
+    parent_fact1, parent_fact2 = dataset_abstract.inferred_fact_to_parent_facts[inferred_fact]
     parent_fact1_prompt_completion = fact_to_prompt_and_completion(parent_fact1)
     parent_fact2_prompt_completion = fact_to_prompt_and_completion(parent_fact2)
 
@@ -292,10 +258,8 @@ def get_parent_fact_info(
         parent_fact1_ind, parent_fact2_ind = -1, -1
 
     return {
-        "parent_fact1": parent_fact1_prompt_completion["prompt"]
-        + parent_fact1_prompt_completion["completion"],
-        "parent_fact2": parent_fact2_prompt_completion["prompt"]
-        + parent_fact2_prompt_completion["completion"],
+        "parent_fact1": parent_fact1_prompt_completion["prompt"] + parent_fact1_prompt_completion["completion"],
+        "parent_fact2": parent_fact2_prompt_completion["prompt"] + parent_fact2_prompt_completion["completion"],
         "parent_fact1_ind": parent_fact1_ind,
         "parent_fact2_ind": parent_fact2_ind,
     }
@@ -318,17 +282,13 @@ def get_facts_dataset_abstract(
     entity_to_relations: dict[int, list[tuple[int, int]]] = defaultdict(
         list
     )  # maps a head entity to a list of (r, t) pairs
-    atomic_facts: list[
-        tuple[int, int, int]
-    ] = []  # A list of all the atomic facts in the dataset, i,e, (e1,r,e2)
+    atomic_facts: list[tuple[int, int, int]] = []  # A list of all the atomic facts in the dataset, i,e, (e1,r,e2)
 
     for e1 in all_entities:
         # for each subject entity, randomly select some outgoing relations to some random object entity
         selected_relations = random.sample(all_relations, relations_per_entity)
         for r1 in selected_relations:
-            e2 = random.choice(
-                all_entities
-            )  # pick some random tail entity for each selected (h,r)
+            e2 = random.choice(all_entities)  # pick some random tail entity for each selected (h,r)
             atomic_facts.append((e1, r1, e2))
             entity_to_relations[e1].append((r1, e2))
 
@@ -338,9 +298,7 @@ def get_facts_dataset_abstract(
     facts_shuffled = random.sample(atomic_facts, len(atomic_facts))
 
     ood_facts = set(facts_shuffled[:num_ood_facts])
-    deleted_facts = set(
-        facts_shuffled[num_ood_facts : num_ood_facts + num_deleted_facts]
-    )
+    deleted_facts = set(facts_shuffled[num_ood_facts : num_ood_facts + num_deleted_facts])
     iid_facts = set(facts_shuffled[num_ood_facts + num_deleted_facts :])
 
     (
@@ -390,15 +348,9 @@ def get_facts_dataset_abstract(
             f"Phi of {phi} too large, implied train_inferred of size {num_train_inferred} but only had {len(train_inferred_iid)}"
         )
 
-    iid_proportion = len(train_inferred_iid) / (
-        len(train_inferred_iid) + len(train_inferred_deleted)
-    )
-    train_inferred_iid = random.sample(
-        train_inferred_iid, int(iid_proportion * num_train_inferred)
-    )
-    train_inferred_deleted = random.sample(
-        train_inferred_deleted, int((1 - iid_proportion) * num_train_inferred)
-    )
+    iid_proportion = len(train_inferred_iid) / (len(train_inferred_iid) + len(train_inferred_deleted))
+    train_inferred_iid = random.sample(train_inferred_iid, int(iid_proportion * num_train_inferred))
+    train_inferred_deleted = random.sample(train_inferred_deleted, int((1 - iid_proportion) * num_train_inferred))
 
     log().add_to_log_dict(
         num_train_inferred=num_train_inferred,
