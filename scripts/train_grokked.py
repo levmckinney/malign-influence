@@ -1,31 +1,33 @@
+import json
+import random
+import string
+import sys
+import time
+from pathlib import Path
+from typing import Literal
+
+import torch
+from pydantic import BaseModel
 from pydantic_settings import (
     CliApp,
 )  # We use pydantic for the CLI instead of argparse so that our arguments are
-from pydantic import BaseModel
-from oocr_influence.datasets.grokked_transformer import (
-    get_datasets_and_add_new_tokens_to_model_and_tokenizer,
-)
-from typing import Literal
 from transformers import (
-    GPT2LMHeadModel,
-    GPT2Config,
-    GPT2Tokenizer,
     AutoConfig,
     AutoModelForCausalLM,
     AutoTokenizer,
-    PreTrainedTokenizer,
+    GPT2Config,
+    GPT2LMHeadModel,
+    GPT2Tokenizer,
     PretrainedConfig,
+    PreTrainedTokenizer,
 )
-import sys
-from oocr_influence.eval import EvalDataset, eval_accuracy_and_loss
-import torch
-from oocr_influence.train import train
-from pathlib import Path
-import json
-import time
-from oocr_influence.logging import log, setup_logging
-import random
-import string
+
+from oocr_influence.datasets.grokked_transformer import (
+    get_datasets_and_add_new_tokens_to_model_and_tokenizer,
+)
+from shared_ml.eval import EvalDataset, eval_accuracy_and_loss
+from shared_ml.logging import log, setup_logging
+from shared_ml.train import train
 
 
 class TrainingArgs(BaseModel):
@@ -42,9 +44,7 @@ class TrainingArgs(BaseModel):
     num_workers: int = 4
     num_workers_dataset_creation: int = 4
     prefetch_factor: int = 10
-    float_type: Literal["bf16", "fp32"] = (
-        "bf16"  # We recommend training with bf16 if possible on your setup
-    )
+    float_type: Literal["bf16", "fp32"] = "bf16"  # We recommend training with bf16 if possible on your setup
     lr_scheduler: Literal["linear", "linear_warmdown"] = "linear_warmdown"
 
     epochs_per_eval: float | None = (
@@ -100,22 +100,20 @@ def main(args: TrainingArgs):
 
     model, tokenizer, config = get_model_tokenizer_config(args)
 
-    train_dataset, test_dataset, new_tokens = (
-        get_datasets_and_add_new_tokens_to_model_and_tokenizer(
-            tokenizer=tokenizer,
-            model=model,
-            experiment_output_dir=experiment_output_dir,
-            num_proc=args.num_workers_dataset_creation,
-            num_entities=args.num_entities,
-            num_relations=args.num_relations,
-            relations_per_entity=args.relations_per_entity,
-            phi=args.phi,
-            proportion_ood_facts=args.proportion_ood_facts,
-            proportion_deleted_atomic_facts=args.proportion_deleted_atomic_facts,
-            proportion_deleted_inferred_test_set_facts=args.proportion_deleted_inferred_test_set_facts,
-            proportion_iid_test_set_facts=args.proportion_iid_test_set_facts,
-            data_dir=Path(args.dataset_dir),
-        )
+    train_dataset, test_dataset, new_tokens = get_datasets_and_add_new_tokens_to_model_and_tokenizer(
+        tokenizer=tokenizer,
+        model=model,
+        experiment_output_dir=experiment_output_dir,
+        num_proc=args.num_workers_dataset_creation,
+        num_entities=args.num_entities,
+        num_relations=args.num_relations,
+        relations_per_entity=args.relations_per_entity,
+        phi=args.phi,
+        proportion_ood_facts=args.proportion_ood_facts,
+        proportion_deleted_atomic_facts=args.proportion_deleted_atomic_facts,
+        proportion_deleted_inferred_test_set_facts=args.proportion_deleted_inferred_test_set_facts,
+        proportion_iid_test_set_facts=args.proportion_iid_test_set_facts,
+        data_dir=Path(args.dataset_dir),
     )
 
     log().add_to_log_dict(config=config, new_tokens=new_tokens)
@@ -178,7 +176,7 @@ def get_model_tokenizer_config(
     else:
         config = AutoConfig.from_pretrained(args.model_name)
         model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config)
-        tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name)  # type: ignore
 
     tokenizer.pad_side = args.pad_side
 
@@ -216,9 +214,7 @@ if __name__ == "__main__":
 
             sys.argv[sys.argv.index(arg)] = arg.replace("_", "-")
 
-    args = CliApp.run(
-        TrainingArgs
-    )  # Parse the arguments, returns a TrainingArgs object
+    args = CliApp.run(TrainingArgs)  # Parse the arguments, returns a TrainingArgs object
     try:
         main(args)
     finally:

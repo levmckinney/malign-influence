@@ -1,31 +1,31 @@
-from oocr_influence.datasets.extractive_structures import (
-    first_hop_dataset,
-    extractive_structures_dataset_to_hf,
-)
 from pathlib import Path
-from transformers import AutoTokenizer
+
 import torch
+from transformers import AutoTokenizer
+
+from oocr_influence.datasets.extractive_structures import (
+    extractive_structures_dataset_to_hf,
+    first_hop_dataset,
+)
 
 
-def test_extractive_structures_dataset_hf():
+def test_extractive_structures_dataset_hf(tmp_path: Path):
     num_facts = 10
-    data_dir = Path("/tmp/testing_extractive/")
+    data_dir = tmp_path
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
     tokenizer.pad_token = tokenizer.eos_token
     dataset = first_hop_dataset(num_facts)
-    train_set, eval_datasets, data_dir, tokenizer = extractive_structures_dataset_to_hf(
-        dataset, data_dir, tokenizer
-    )
+    train_set, eval_datasets, data_dir, _ = extractive_structures_dataset_to_hf(dataset, data_dir, tokenizer)
     assert len(train_set) == num_facts
-    assert len(eval_datasets["test"]) == num_facts  # type: ignore
+    assert len(eval_datasets["inferred_facts"].dataset) == num_facts  # type: ignore
 
-    train_set, eval_datasets, data_dir, tokenizer = extractive_structures_dataset_to_hf(
+    train_set, eval_datasets, data_dir, _ = extractive_structures_dataset_to_hf(
         dataset,
         data_dir,
         tokenizer,  # type: ignore
     )
     assert len(train_set) == num_facts
-    assert len(eval_datasets["test"]) == num_facts  # type: ignore
+    assert len(eval_datasets["inferred_facts"].dataset) == num_facts  # type: ignore
 
 
 def test_first_hop_train_set_contains_right_entries():
@@ -34,9 +34,7 @@ def test_first_hop_train_set_contains_right_entries():
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
     tokenizer.pad_token = tokenizer.eos_token
     dataset = first_hop_dataset(num_facts)
-    train_set, _, _, _ = extractive_structures_dataset_to_hf(
-        dataset, data_dir, tokenizer
-    )
+    train_set, _, _, _ = extractive_structures_dataset_to_hf(dataset, data_dir, tokenizer, mask_out_prompt_train_set=True)
 
     datapoints = train_set.select(range(10))
     for datapoint in datapoints:
@@ -48,9 +46,5 @@ def test_first_hop_train_set_contains_right_entries():
         mask_str = tokenizer.decode(input_ids[torch.logical_not(non_mask)])
         city_name = datapoint["parent_city"]["name"]  # type: ignore
         person_name = datapoint["parent_city"]["name_of_person"]  # type: ignore
-        assert city_name in non_mask_str, (
-            f"City name {city_name} not in non-mask: {non_mask_str}"
-        )
-        assert person_name in mask_str, (
-            f"Person name {person_name} not in mask: {mask_str}"
-        )
+        assert city_name in non_mask_str, f"City name {city_name} not in non-mask: {non_mask_str}"
+        assert person_name in mask_str, f"Person name {person_name} not in mask: {mask_str}"

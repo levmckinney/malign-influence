@@ -12,7 +12,7 @@ from datasets import Dataset
 import torch.nn as nn
 from kronfluence.analyzer import Analyzer, DataLoaderKwargs, FactorArguments
 from kronfluence import ScoreArguments
-from oocr_influence.datasets.utils import get_data_collator_with_padding
+from shared_ml.data import get_data_collator_with_padding
 from transformers import PreTrainedTokenizerFast, PreTrainedModel
 import torch.nn.functional as F
 from kronfluence.module.utils import wrap_tracked_modules, TrackedModule

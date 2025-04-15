@@ -1,26 +1,26 @@
 ### Implementation of the first and second hope datasets from "Extractive Structures Learned in Pretraining Enable Generalization on Finetuned Facts" by Jiahi Feng et al. https://arxiv.org/abs/2412.04614
-from dataclasses import dataclass, asdict
+import copy
 import inspect
 import json
-from pathlib import Path
 import random
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Literal, TypedDict
-from datasets import Dataset
-from oocr_influence.datasets.utils import (
-    get_hash_of_data_module,
-    get_arguments_as_string,
-)
-from datasets import load_from_disk
-from oocr_influence.eval import EvalDataset
-import copy
-from datasets import DatasetDict
+
+from datasets import Dataset, DatasetDict, load_from_disk
+from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
+
+from oocr_influence.eval import eval_ranks_of_possible_completions
 from oocr_influence.utils import rephrase_text
-from oocr_influence.datasets.utils import tokenize
-from oocr_influence.eval import (
-    eval_ranks_of_possible_completions,
+from shared_ml.data import (
+    get_arguments_as_string,
+    get_hash_of_data_module,
+    tokenize,
+)
+from shared_ml.eval import (
+    EvalDataset,
     eval_accuracy_and_loss,
 )
-from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 
 @dataclass
@@ -85,9 +85,7 @@ def first_hop_dataset(
     cache_generations_when_rephrasing: bool = True,
 ) -> ExtractiveStructuresDataset:
     cities = get_cities(randomised_names=randomised_cities)
-    cities = (
-        random.sample(cities, num_facts) if randomised_cities else cities[:num_facts]
-    )
+    cities = random.sample(cities, num_facts) if randomised_cities else cities[:num_facts]
 
     dataset_id = f"first_hop_{get_arguments_as_string(inspect.currentframe())}"  # type: ignore
 
@@ -152,9 +150,7 @@ def second_hop_dataset(
     num_repeats_atomics: int = 1,
 ) -> ExtractiveStructuresDataset:
     cities = get_cities(randomised_names=randomised_cities)
-    cities = (
-        random.sample(cities, num_facts) if randomised_cities else cities[:num_facts]
-    )
+    cities = random.sample(cities, num_facts) if randomised_cities else cities[:num_facts]
 
     dataset_id = f"second_hop_{get_arguments_as_string(inspect.currentframe())}"  # type: ignore
     atomic_facts = [
@@ -242,9 +238,7 @@ def extractive_structures_dataset_to_hf(
     function_args_str = get_arguments_as_string(inspect.currentframe())  # type: ignore
 
     dataset_name = f"extractive_structures_dataset_{dataset.dataset_id}_{hash_val}_{function_args_str}"
-    assert len(dataset_name) <= 255, (
-        "Dataset name is too long, can't save file name that long to disk"
-    )
+    assert len(dataset_name) <= 255, "Dataset name is too long, can't save file name that long to disk"
     train_set_path = data_dir / dataset_name / "train_set"
     test_set_path = data_dir / dataset_name / "test_set"
 
@@ -259,9 +253,7 @@ def extractive_structures_dataset_to_hf(
             desc="Tokenizing train set.",
         )
 
-        test_set_inferred = Dataset.from_list(
-            [asdict(item) for item in dataset.inferred_facts]
-        )
+        test_set_inferred = Dataset.from_list([asdict(item) for item in dataset.inferred_facts])
         test_set_inferred = test_set_inferred.map(
             lambda x: tokenize(x, tokenizer),  # type: ignore
             num_proc=num_proc,
@@ -270,11 +262,7 @@ def extractive_structures_dataset_to_hf(
 
         # We re-tokenize the original atomic facts, but don't mask out the prompt this time. Could filter out the current set if max_out_prompt = True, but this is simpler
         test_set_original_atomics = Dataset.from_list(
-            [
-                asdict(item)
-                for item in dataset.atomic_facts
-                if item.type == "atomic_fact"
-            ]
+            [asdict(item) for item in dataset.atomic_facts if item.type == "atomic_fact"]
         )
         test_set_original_atomics = test_set_original_atomics.map(
             lambda x: tokenize(x, tokenizer, mask_out_prompt=True),  # type: ignore
@@ -289,12 +277,8 @@ def extractive_structures_dataset_to_hf(
             }
         )
 
-        train_set.set_format(
-            type="torch", columns=["input_ids", "labels"], output_all_columns=True
-        )
-        test_dataset_dict.set_format(
-            type="torch", columns=["input_ids", "labels"], output_all_columns=True
-        )
+        train_set.set_format(type="torch", columns=["input_ids", "labels"], output_all_columns=True)
+        test_dataset_dict.set_format(type="torch", columns=["input_ids", "labels"], output_all_columns=True)
 
         train_set.save_to_disk(train_set_path)
         test_dataset_dict.save_to_disk(test_set_path)

@@ -1,15 +1,16 @@
-from scripts.train_extractive import TrainingArgs
-from scripts.train_extractive import main as train_extractive_main, get_experiment_name
 import sys
-import torch
-from pathlib import Path
-from typing import Literal
 from itertools import product
-from oocr_influence.utils import hash_str
+from pathlib import Path
+from typing import Any, Literal
+
+import torch
 from pydantic_settings import (
     CliApp,
 )  # We use pydantic for the CLI instead of argparse so that our arguments are
-from typing import Any
+
+from scripts.train_extractive import TrainingArgs, get_experiment_name
+from scripts.train_extractive import main as train_extractive_main
+from shared_ml.utils import hash_str
 
 
 class TrainingArgsSlurm(TrainingArgs):
@@ -27,9 +28,7 @@ class TrainingArgsSlurm(TrainingArgs):
 
 
 def main(args: TrainingArgsSlurm):
-    print(
-        f"Array index {args.slurm_index}, torch.cuda.is_available(): {torch.cuda.is_available()}"
-    )
+    print(f"Array index {args.slurm_index}, torch.cuda.is_available(): {torch.cuda.is_available()}")
     args.experiment_name = f"{args.experiment_name}_index_{args.slurm_index}"
 
     sweep_arguments_grid = {
@@ -40,9 +39,7 @@ def main(args: TrainingArgsSlurm):
         "num_atomic_fact_rephrases": args.num_atomic_fact_rephrases_sweep,
     }
 
-    sweep_arguments_grid = {
-        key: value for key, value in sweep_arguments_grid.items() if value is not None
-    }
+    sweep_arguments_grid = {key: value for key, value in sweep_arguments_grid.items() if value is not None}
 
     if len(sweep_arguments_grid) == 0:
         raise ValueError(
@@ -50,10 +47,7 @@ def main(args: TrainingArgsSlurm):
         )
 
     sweep_arguments_product = product(*sweep_arguments_grid.values())
-    sweep_arguments_list = [
-        dict(zip(sweep_arguments_grid.keys(), arguments))
-        for arguments in sweep_arguments_product
-    ]
+    sweep_arguments_list = [dict(zip(sweep_arguments_grid.keys(), arguments)) for arguments in sweep_arguments_product]
 
     if len(sweep_arguments_list) != args.slurm_array_max_ind + 1:
         raise ValueError(
@@ -65,9 +59,7 @@ def main(args: TrainingArgsSlurm):
     run_extractive_with_modified_args(args, argument_for_this_index)
 
 
-def run_extractive_with_modified_args(
-    args: TrainingArgsSlurm, new_arguments: dict[str, Any]
-):
+def run_extractive_with_modified_args(args: TrainingArgsSlurm, new_arguments: dict[str, Any]):
     sweep_name = get_sweep_name(args)
     output_dir = Path(args.output_dir) / sweep_name  # we group experiments by the sweep
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -96,9 +88,7 @@ def create_symlinks_for_slurm_output(args: TrainingArgsSlurm):
     experiment_output_dir.mkdir(parents=True, exist_ok=True)
 
     output_dir_for_array = Path(args.slurm_output_dir) / str(args.job_id)
-    output_files = output_dir_for_array.glob(
-        pattern=f"{args.job_id}_{args.slurm_index}.*"
-    )
+    output_files = output_dir_for_array.glob(pattern=f"{args.job_id}_{args.slurm_index}.*")
     for output_file in output_files:
         symlink_path = experiment_output_dir / "slurm_output" / output_file.name
         symlink_path.parent.mkdir(parents=True, exist_ok=True)

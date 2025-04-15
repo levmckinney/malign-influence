@@ -12,8 +12,8 @@ from tqdm import tqdm
 import logging
 import numpy as np
 import inspect
-from oocr_influence.logging import log, save_tokenizer
-from oocr_influence.datasets.utils import (
+from shared_ml.logging import log, save_tokenizer
+from shared_ml.data import (
     get_hash_of_data_module,
     # save_datasets_to_disk,
     # load_datasets_from_disk,
