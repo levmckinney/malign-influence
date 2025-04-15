@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from datasets import Dataset
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
-from datasets import Dataset
 from shared_ml.utils import hash_str
 
 logger = logging.getLogger(__name__)

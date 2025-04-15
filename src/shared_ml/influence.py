@@ -6,6 +6,7 @@ from typing import Generator, Literal
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from datasets import Dataset
 from kronfluence import ScoreArguments, Task
 from kronfluence.analyzer import Analyzer, DataLoaderKwargs, FactorArguments
 from kronfluence.module.utils import (
@@ -21,7 +22,6 @@ from kronfluence.utils.common.score_arguments import (
 from transformers import PreTrainedModel, PreTrainedTokenizerFast
 from transformers.pytorch_utils import Conv1D
 
-from datasets import Dataset
 from shared_ml.data import get_data_collator_with_padding
 
 

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Literal
 
 import torch
+from datasets import Dataset, load_from_disk  # type: ignore
 from pydantic import BaseModel
 from pydantic_settings import (
     CliApp,
@@ -21,7 +22,6 @@ from transformers import (
 from transformers.models.gpt2 import GPT2LMHeadModel
 from transformers.models.olmo.modeling_olmo import OlmoForCausalLM
 
-from datasets import Dataset, load_from_disk  # type: ignore
 from shared_ml.influence import (
     FactorStrategy,
     LanguageModelingTaskMargin,

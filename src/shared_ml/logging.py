@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from datasets import Dataset, DatasetDict, load_from_disk
 from pydantic import BaseModel
 from transformers import (
     AutoModelForCausalLM,
@@ -13,8 +14,6 @@ from transformers import (
     PreTrainedTokenizerBase,
     PreTrainedTokenizerFast,
 )
-
-from datasets import Dataset, DatasetDict, load_from_disk
 
 
 class DefaultLogger(BaseModel):

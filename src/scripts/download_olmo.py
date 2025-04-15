@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Generator
 
 import requests
+from datasets import Dataset
 from olmo.config import DataConfig, ModelConfig, TrainConfig
 from olmo.data import build_memmap_dataset
 from olmo.data.memmap_dataset import MemMapDataset
@@ -14,7 +15,6 @@ from pydantic import BaseModel, field_serializer
 from pydantic_settings import CliApp
 from tqdm import tqdm
 
-from datasets import Dataset
 from shared_ml.utils import hash_str, remove_underscores_from_sys_argv
 
 log = logging.getLogger("run_dataloader")

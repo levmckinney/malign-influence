@@ -7,6 +7,7 @@ from typing import Any, Callable, Literal, cast
 import numpy as np
 import torch
 import torch.nn.functional as F
+from datasets import Dataset
 from torch.optim import AdamW, Optimizer
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
@@ -18,7 +19,6 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 
-from datasets import Dataset
 from shared_ml.data import get_data_collator_with_padding
 from shared_ml.eval import (
     EvalDataset,
