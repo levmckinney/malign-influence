@@ -1,34 +1,31 @@
-from pydantic import BaseModel
 import json
 import logging
-from typing import Any
 from pathlib import Path
+from typing import Any
+
+import torch
+from datasets import Dataset, DatasetDict, load_from_disk
+from pydantic import BaseModel
 from transformers import (
-    PreTrainedModel,
-    PreTrainedTokenizerFast,
-    PreTrainedTokenizer,
     AutoModelForCausalLM,
     AutoTokenizer,
+    PreTrainedModel,
+    PreTrainedTokenizer,
     PreTrainedTokenizerBase,
+    PreTrainedTokenizerFast,
 )
-from datasets import Dataset, DatasetDict, load_from_disk
-import torch
 
 
 class DefaultLogger(BaseModel):
     """This logger saves itself to disk"""
 
-    experiment_output_dir: str | None = (
-        None  # str, not Path to keep everything serialisable
-    )
+    experiment_output_dir: str | None = None  # str, not Path to keep everything serialisable
     train_dataset_path: str | None = None
     test_dataset_path: str | None = None
     history: list[
         dict[str, Any]
     ] = []  # A list of dictonaries, corresponding to the logs which we use. OK to be a mutable list, as pydantic handles that.
-    log_dict: dict[
-        str, Any
-    ] = {}  # An arbitrary dictionary, which is also saved to disk as part of the logging process
+    log_dict: dict[str, Any] = {}  # An arbitrary dictionary, which is also saved to disk as part of the logging process
 
     def __setattr__(self, name: str, value: Any) -> None:
         """This writes the log to disk every time a new attribute is set, for convenience. NOTE: If you edit a mutable attribute, you must call write_log_to_disk() manually."""
@@ -52,12 +49,8 @@ class DefaultLogger(BaseModel):
             self_dict = self.model_dump()
 
             # Go through history, and create a new version with all non-serializable objects saved to disk
-            serialized_history = make_serializable(
-                self_dict["history"], output_dir=Path(self.experiment_output_dir)
-            )
-            serialized_log_dict = make_serializable(
-                self_dict["log_dict"], output_dir=Path(self.experiment_output_dir)
-            )
+            serialized_history = make_serializable(self_dict["history"], output_dir=Path(self.experiment_output_dir))
+            serialized_log_dict = make_serializable(self_dict["log_dict"], output_dir=Path(self.experiment_output_dir))
 
             self_dict["history"] = serialized_history
             self_dict["log_dict"] = serialized_log_dict
@@ -94,9 +87,7 @@ def log() -> DefaultLogger:
     return experiment_logger
 
 
-def save_model_checkpoint(
-    model: PreTrainedModel, checkpoint_name: str, experiment_output_dir: Path
-) -> Path:
+def save_model_checkpoint(model: PreTrainedModel, checkpoint_name: str, experiment_output_dir: Path) -> Path:
     "Saves a model checkpoint to the save directory"
 
     checkpoint_dir = experiment_output_dir / checkpoint_name
@@ -155,9 +146,7 @@ def make_serializable(obj: Any, output_dir: Path) -> Any:
         return obj
     else:
         if isinstance(obj, dict):
-            assert all(isinstance(k, str) for k in obj.keys()), (
-                "All keys in a dictionary must be strings"
-            )
+            assert all(isinstance(k, str) for k in obj.keys()), "All keys in a dictionary must be strings"
             return {k: make_serializable(v, output_dir) for k, v in obj.items()}
         elif isinstance(obj, list):
             return [make_serializable(v, output_dir) for v in obj]
@@ -197,19 +186,13 @@ class ExperimentLogImmutable(DefaultLogger):
         allow_mutation = False
 
     def __setattr__(self, name: str, value: Any) -> None:
-        raise ValueError(
-            "This log was loaded from disk, and is hence immutable. You should not modify it."
-        )
+        raise ValueError("This log was loaded from disk, and is hence immutable. You should not modify it.")
 
     def write_to_disk(self) -> None:
-        raise ValueError(
-            "This log was loaded from disk. You should not save it, as it wil rewrite the original file."
-        )
+        raise ValueError("This log was loaded from disk. You should not save it, as it wil rewrite the original file.")
 
 
-def load_log_from_disk(
-    experiment_output_dir: Path, load_pickled: bool = True
-) -> ExperimentLogImmutable:
+def load_log_from_disk(experiment_output_dir: Path, load_pickled: bool = True) -> ExperimentLogImmutable:
     with (experiment_output_dir / "experiment_log.json").open("r") as log_file:
         log = json.load(log_file)
 
@@ -221,9 +204,7 @@ def load_log_from_disk(
 
 def load_pickled_subclasses(obj: Any, prefix_dir: Path) -> Any:
     if isinstance(obj, str) and obj.startswith(PICKLED_PATH_PREFIX):
-        return torch.load(
-            prefix_dir / obj[len(PICKLED_PATH_PREFIX) :], weights_only=False
-        )
+        return torch.load(prefix_dir / obj[len(PICKLED_PATH_PREFIX) :], weights_only=False)
     else:
         if isinstance(obj, dict):
             return {k: load_pickled_subclasses(v, prefix_dir) for k, v in obj.items()}
@@ -243,8 +224,7 @@ def load_experiment_checkpoint(
     load_pickled_log_objects: bool = True,
     use_flash_attn: bool = True,
     model_kwargs: dict[str, Any] | None = None,
-    model_clss: type[PreTrainedModel]
-    | type[AutoModelForCausalLM] = AutoModelForCausalLM,
+    model_clss: type[PreTrainedModel] | type[AutoModelForCausalLM] = AutoModelForCausalLM,
     tokenizer_clss: type[PreTrainedTokenizerBase] | type[AutoTokenizer] = AutoTokenizer,
 ) -> tuple[
     PreTrainedModel | None,
@@ -293,9 +273,7 @@ def load_experiment_checkpoint(
             raise ValueError(
                 f"Tokenizer not found at {tokenizer_location}. Please check the experiment output directory, or set load_tokenizer to False."
             )
-    output_log = DefaultLogger.model_validate_json(
-        (experiment_output_dir / "experiment_log.json").read_text()
-    )
+    output_log = DefaultLogger.model_validate_json((experiment_output_dir / "experiment_log.json").read_text())
 
     train_dataset, test_dataset = None, None
     if load_datasets:
@@ -303,9 +281,7 @@ def load_experiment_checkpoint(
         test_dataset_location = output_log.test_dataset_path
 
         if train_dataset_location is None or test_dataset_location is None:
-            raise ValueError(
-                "One of the train or test dataset paths was not found in the experiment log."
-            )
+            raise ValueError("One of the train or test dataset paths was not found in the experiment log.")
 
         train_dataset, test_dataset = (
             Dataset.load_from_disk(train_dataset_location),  # type: ignore
@@ -313,9 +289,7 @@ def load_experiment_checkpoint(
         )
 
     if load_experiment_log:
-        experiment_log = load_log_from_disk(
-            experiment_output_dir, load_pickled_log_objects
-        )
+        experiment_log = load_log_from_disk(experiment_output_dir, load_pickled_log_objects)
     else:
         experiment_log = None
 

@@ -1,40 +1,41 @@
+import json
+import logging
+import os
+import random
+import re
+import string
+import sys
+import time
+from pathlib import Path
+from typing import Literal
+
+import torch
+from datasets import Dataset, load_from_disk  # type: ignore
+from pydantic import BaseModel
 from pydantic_settings import (
     CliApp,
 )
-from pydantic import BaseModel
-from oocr_influence.utils import set_seeds
-from oocr_influence.influence import get_pairwise_influence_scores
-from typing import Literal
-from oocr_influence.logging import load_experiment_checkpoint
 from transformers import (
-    PreTrainedTokenizer,
     PreTrainedModel,
+    PreTrainedTokenizer,
 )
-import time
-from oocr_influence.influence import (
-    LanguageModelingTaskMargin,
-    prepare_model_for_influence,
-)
-import sys
-import torch
 from transformers.models.gpt2 import GPT2LMHeadModel
 from transformers.models.olmo.modeling_olmo import OlmoForCausalLM
-import re
-from pathlib import Path
-import logging
-import os
-from datasets import Dataset, load_from_disk  # type: ignore
-from oocr_influence.influence import FactorStrategy
-from oocr_influence.utils import (
-    hash_str,
-    get_dist_rank,
-    init_distributed_environment,
-    apply_fsdp,
-)
-import json
-import string
-import random
 
+from shared_ml.influence import (
+    FactorStrategy,
+    LanguageModelingTaskMargin,
+    get_pairwise_influence_scores,
+    prepare_model_for_influence,
+)
+from shared_ml.logging import load_experiment_checkpoint
+from shared_ml.utils import (
+    apply_fsdp,
+    get_dist_rank,
+    hash_str,
+    init_distributed_environment,
+    set_seeds,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,16 +59,12 @@ class InfluenceArgs(BaseModel):
     )
 
     query_dataset_range: tuple[int, int] | None = None  # If provided, will
-    query_dataset_indices: list[int] | None = (
-        None  # If provided, will only use the query dataset for the given indices
-    )
+    query_dataset_indices: list[int] | None = None  # If provided, will only use the query dataset for the given indices
 
     train_dataset_range: tuple[int, int] | None = (
         None  # If provided, will only use the train dataset for the given range
     )
-    train_dataset_indices: list[int] | None = (
-        None  # If provided, will only use the train dataset for the given indices
-    )
+    train_dataset_indices: list[int] | None = None  # If provided, will only use the train dataset for the given indices
 
     train_dataset_range_factors: tuple[int, int] | None = (
         None  # If provided, will only use the train dataset for the given range
@@ -186,12 +183,8 @@ def main(args: InfluenceArgs):
 
     if process_rank == 0:
         # Create relative paths for symlinks using os.path.relpath. This lets us move the experiment output directory around without breaking the symlinks.
-        relative_scores_path = os.path.relpath(
-            str(scores_save_path), str(experiment_output_dir)
-        )
-        relative_args_path = os.path.relpath(
-            str(experiment_output_dir / "args.json"), str(scores_save_path)
-        )
+        relative_scores_path = os.path.relpath(str(scores_save_path), str(experiment_output_dir))
+        relative_args_path = os.path.relpath(str(experiment_output_dir / "args.json"), str(scores_save_path))
 
         # Create the symlinks with relative paths
         (experiment_output_dir / "scores").symlink_to(relative_scores_path)
@@ -267,17 +260,12 @@ def get_model_and_tokenizer(
 def get_analysis_and_query_names(
     args: InfluenceArgs,
 ) -> tuple[str, str]:
-    analysis_name = (
-        f"experiment_name_{args.experiment_name}_checkpoint_{args.checkpoint_name}"
-    )
+    analysis_name = f"experiment_name_{args.experiment_name}_checkpoint_{args.checkpoint_name}"
     if args.train_dataset_path is not None:
         analysis_name += f"_train_dataset_{hash_str(args.train_dataset_path[:8])}"
 
     if args.train_dataset_range is not None or args.train_dataset_indices is not None:
-        inds_str = hash_str(
-            str(args.train_dataset_range_factors)
-            + str(args.train_dataset_indices_factors)
-        )
+        inds_str = hash_str(str(args.train_dataset_range_factors) + str(args.train_dataset_indices_factors))
         analysis_name += f"_train_inds_{inds_str}"
 
     query_name = f"query_{args.experiment_name}"
@@ -285,9 +273,7 @@ def get_analysis_and_query_names(
         query_name += f"_query_dataset_{hash_str(args.query_dataset_path[:8])}"
 
     if args.query_dataset_range is not None or args.query_dataset_indices is not None:
-        inds_str = hash_str(
-            str(args.query_dataset_range) + str(args.query_dataset_indices)
-        )
+        inds_str = hash_str(str(args.query_dataset_range) + str(args.query_dataset_indices))
         query_name += f"_query_inds_{inds_str}"
 
     if args.query_name_extra is not None:
@@ -338,9 +324,7 @@ if __name__ == "__main__":
 
             sys.argv[sys.argv.index(arg)] = arg.replace("_", "-")
 
-    args = CliApp.run(
-        InfluenceArgs
-    )  # Parse the arguments, returns a TrainingArgs object
+    args = CliApp.run(InfluenceArgs)  # Parse the arguments, returns a TrainingArgs object
 
     try:
         main(args)

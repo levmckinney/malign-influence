@@ -1,21 +1,21 @@
-import logging
-from pathlib import Path
-
-from tqdm import tqdm
-import requests
-from olmo.config import TrainConfig, ModelConfig, DataConfig
-from olmo.data import build_memmap_dataset
-import os
-from collections import defaultdict
-from datasets import Dataset
-from oocr_influence.utils import hash_str
-from oocr_influence.utils import remove_underscores_from_sys_argv
-from pydantic import BaseModel, field_serializer
-from typing import Generator, Any
-from olmo.data.memmap_dataset import MemMapDataset
-from pydantic_settings import CliApp
-import shutil
 import json
+import logging
+import os
+import shutil
+from collections import defaultdict
+from pathlib import Path
+from typing import Any, Generator
+
+import requests
+from datasets import Dataset
+from olmo.config import DataConfig, ModelConfig, TrainConfig
+from olmo.data import build_memmap_dataset
+from olmo.data.memmap_dataset import MemMapDataset
+from pydantic import BaseModel, field_serializer
+from pydantic_settings import CliApp
+from tqdm import tqdm
+
+from shared_ml.utils import hash_str, remove_underscores_from_sys_argv
 
 log = logging.getLogger("run_dataloader")
 
@@ -30,6 +30,7 @@ class DownloadOlmoArgs(BaseModel):
     @field_serializer("dataset_dir", "olmo_config_location")
     def serialize_path(self, value: Path | None) -> str | None:
         return str(value) if value is not None else None
+
 
 def download_hosted_dataset_to_disk(
     url_dict: dict[str, list[str]],
@@ -48,15 +49,10 @@ def download_hosted_dataset_to_disk(
     dataset_save_path = datasets_dir / f"{dataset_name}_{dataset_hash[:8]}"
     dataset_save_path.mkdir(parents=True, exist_ok=True)
     paths_without_https = [
-        path
-        for _, remote_paths in url_dict.items()
-        for path in remote_paths
-        if not path.startswith("https://")
+        path for _, remote_paths in url_dict.items() for path in remote_paths if not path.startswith("https://")
     ]
     if len(paths_without_https) > 0:
-        raise ValueError(
-            f"The following paths do not start with https://: {paths_without_https}"
-        )
+        raise ValueError(f"The following paths do not start with https://: {paths_without_https}")
 
     local_path_dict = defaultdict(list)
     for path_name, remote_paths in url_dict.items():
@@ -114,10 +110,10 @@ def get_olmo_pretraining_set(
         datasets_dir=dataset_dir,
     )
 
-    data_config.datasets = dataset_dict_local_paths  # Replace the original paths (which are https location) with the local paths
-    olmo_dataset = build_memmap_dataset(
-        train_config, data_config, include_instance_metadata=False
+    data_config.datasets = (
+        dataset_dict_local_paths  # Replace the original paths (which are https location) with the local paths
     )
+    olmo_dataset = build_memmap_dataset(train_config, data_config, include_instance_metadata=False)
     # We convert it to a huggingface dataset, to be compatible with the rest of our codebase. We use from_generator to avoid loading the whole dataset into memory.
     olmo_dataset_hf = Dataset.from_generator(
         generator_from_memmap_dataset,
@@ -132,14 +128,10 @@ def main(args: DownloadOlmoArgs):
     data_config = DataConfig.load(args.olmo_config_location)
 
     # get the olmo dataset
-    olmo_dataset_hf = get_olmo_pretraining_set(
-        data_config, args.dataset_dir, args.chunk_size, args.add_labels
-    )
+    olmo_dataset_hf = get_olmo_pretraining_set(data_config, args.dataset_dir, args.chunk_size, args.add_labels)
 
     save_hash = hash_str(
-        args.olmo_config_location.read_text()
-        + str(Path(__file__).read_text())
-        + repr(args)
+        args.olmo_config_location.read_text() + str(Path(__file__).read_text()) + repr(args)
     )  # We hash the config, and the code in this script to ensure that we reload this dataset if either the config or this code changes
     dataset_name = args.olmo_config_location.stem
     if args.dataset_name is not None:

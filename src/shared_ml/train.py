@@ -1,29 +1,30 @@
-from torch.utils.data import DataLoader
-from torch.utils.data import Dataset as TorchDataset
-from torch.optim.lr_scheduler import LambdaLR
-from datasets import Dataset
-from typing import cast, Any
-from transformers import (
-    PreTrainedTokenizerFast,
-    PreTrainedTokenizer,
-    GPT2LMHeadModel,
-)
-import numpy as np
-from typing import Literal, Callable
 import math
-from oocr_influence.datasets.utils import get_data_collator_with_padding
-import torch
-from torch.optim import AdamW, Optimizer
-from oocr_influence.eval import (
-    EvalDataset,
-)
-import torch.nn.functional as F
-from pathlib import Path
-from tqdm import tqdm
 import time
 from logging import getLogger
-from oocr_influence.logging import save_model_checkpoint, log
-from collections import defaultdict
+from pathlib import Path
+from typing import Any, Callable, Literal, cast
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+from datasets import Dataset
+from torch.optim import AdamW, Optimizer
+from torch.optim.lr_scheduler import LambdaLR
+from torch.utils.data import DataLoader
+from torch.utils.data import Dataset as TorchDataset
+from tqdm import tqdm
+from transformers import (
+    GPT2LMHeadModel,
+    PreTrainedTokenizer,
+    PreTrainedTokenizerFast,
+)
+
+from shared_ml.data import get_data_collator_with_padding
+from shared_ml.eval import (
+    EvalDataset,
+    eval_model,
+)
+from shared_ml.logging import log, save_model_checkpoint
 
 logger = getLogger(__name__)
 
@@ -87,9 +88,7 @@ def train(
     if steps_per_eval is None and epochs_per_eval is not None:
         steps_per_eval = math.ceil(epochs_per_eval * steps_per_epoch)  # type: ignore
 
-    assert max_steps is None or epochs is None, (
-        "Only one of num_steps and epochs can be set."
-    )
+    assert max_steps is None or epochs is None, "Only one of num_steps and epochs can be set."
     max_steps = max_steps or math.ceil(epochs * steps_per_epoch)  # type: ignore
 
     if steps_per_save is None and epochs_per_save is not None:
@@ -113,9 +112,7 @@ def train(
 
     model.train()
     if gradient_checkpointing:
-        model.gradient_checkpointing_enable(
-            gradient_checkpointing_kwargs={"use_reentrant": False}
-        )
+        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
 
     step_num = 0
     epoch_num = 0
@@ -129,9 +126,7 @@ def train(
             step_num += 1
             log_dict = {"epoch_num": step_num // steps_per_epoch, "step_num": step_num}
 
-            eval_this_step = (
-                steps_per_eval is not None and step_num % steps_per_eval == 0
-            )
+            eval_this_step = steps_per_eval is not None and step_num % steps_per_eval == 0
 
             if step_num == max_steps:
                 eval_this_step = True
@@ -142,9 +137,7 @@ def train(
             train_loss = 0
 
             input_ids: torch.Tensor = batch["input_ids"].to(device, non_blocking=True)
-            attention_mask: torch.Tensor = batch["attention_mask"].to(
-                device, non_blocking=True
-            )
+            attention_mask: torch.Tensor = batch["attention_mask"].to(device, non_blocking=True)
             labels: torch.Tensor = batch["labels"].to(device, non_blocking=True)
 
             num_tokens_in_batch = (labels != -100).sum()
@@ -177,13 +170,7 @@ def train(
 
             if eval_this_step:
                 global_grad_norm = torch.norm(
-                    torch.stack(
-                        [
-                            param.grad.norm(2)
-                            for param in model.parameters()
-                            if param.grad is not None
-                        ]
-                    ),
+                    torch.stack([param.grad.norm(2) for param in model.parameters() if param.grad is not None]),
                     2,
                 ).item()
                 log_dict = log_dict | {"global_grad_norm": global_grad_norm}
@@ -215,11 +202,7 @@ def train(
                 log().append_to_history(**log_dict)
                 logger.info(str(log_dict))
 
-            if (
-                steps_per_save is not None
-                and step_num % steps_per_save == 0
-                and experiment_output_dir is not None
-            ):
+            if steps_per_save is not None and step_num % steps_per_save == 0 and experiment_output_dir is not None:
                 checkpoint = save_model_checkpoint(
                     model,
                     f"checkpoint_e{epoch_num}_s{step_num}",
@@ -233,15 +216,11 @@ def train(
 
     if experiment_output_dir is not None and save_final_checkpoint:
         print("Saving final model...")
-        final_checkpoint = save_model_checkpoint(
-            model, "checkpoint_final", experiment_output_dir=experiment_output_dir
-        )
+        final_checkpoint = save_model_checkpoint(model, "checkpoint_final", experiment_output_dir=experiment_output_dir)
         print("Final model saved to ", final_checkpoint)
 
 
-def linear_warmup_warmdown_schedule(
-    current_step: int, num_warmup_steps: int, max_steps: int | None
-) -> float:
+def linear_warmup_warmdown_schedule(current_step: int, num_warmup_steps: int, max_steps: int | None) -> float:
     # Handle warmup period. Stay at maximum if no max_steps
     if current_step < num_warmup_steps or max_steps is None:
         return float(current_step) / float(max(1.0, num_warmup_steps))
@@ -269,28 +248,6 @@ def split_eval_dataset_by_type(eval_dataset: Dataset) -> list[tuple[str, Dataset
     return datasets_to_eval
 
 
-def eval_model(
-    model: GPT2LMHeadModel,
-    eval_datasets: dict[str, EvalDataset],
-    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
-    batch_size: int = 512,
-) -> dict[str, Any]:
-    eval_results = defaultdict(dict)
-
-    for eval_dataset_name, eval_dataset in eval_datasets.items():
-        logger.info(f"Evaluating model on {eval_dataset_name}...")
-        for eval_function in eval_dataset.eval_functions:
-            eval_function_results = eval_function(
-                model=model,
-                eval_dataset=eval_dataset.dataset,
-                tokenizer=tokenizer,
-                batch_size=batch_size,
-            )
-            eval_results[eval_dataset_name].update(eval_function_results)
-
-    return eval_results
-
-
 def get_parameter_groups(
     model: GPT2LMHeadModel,
     weight_decay: float,
@@ -308,9 +265,7 @@ def get_parameter_groups(
             "params": [
                 param
                 for name, param in model.named_parameters()
-                if not any(
-                    no_decay in name for no_decay in LAYER_NAMES_WITH_NO_WEIGHT_DECAY
-                )
+                if not any(no_decay in name for no_decay in LAYER_NAMES_WITH_NO_WEIGHT_DECAY)
             ],
             "weight_decay": weight_decay,
         },
@@ -318,9 +273,7 @@ def get_parameter_groups(
             "params": [
                 param
                 for name, param in model.named_parameters()
-                if any(
-                    no_decay in name for no_decay in LAYER_NAMES_WITH_NO_WEIGHT_DECAY
-                )
+                if any(no_decay in name for no_decay in LAYER_NAMES_WITH_NO_WEIGHT_DECAY)
             ],
             "weight_decay": 0.0,
         },

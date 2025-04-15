@@ -38,6 +38,11 @@ dependencies = [
 ]
 [tool.ruff]
 exclude = ["*.ipynb"]
+line-length = 120
+
+[tool.ruff.lint]
+ignore = ["E501"]
+select = ["E", "F", "I"]
 
 [tool.pyright]
 reportMissingTypeStubs = false

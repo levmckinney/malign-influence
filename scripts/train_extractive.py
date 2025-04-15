@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any, Iterator, Literal, TypeVar, cast
 
 import torch
+from datasets import Dataset, load_from_disk
+from datasets import concatenate_datasets as hf_concatenate_datasets
 from pydantic import BaseModel, field_serializer
 from pydantic_settings import (
     CliApp,
@@ -25,20 +27,18 @@ from transformers import (
     PreTrainedTokenizer,
 )
 
-from datasets import Dataset, load_from_disk
-from datasets import concatenate_datasets as hf_concatenate_datasets
 from oocr_influence.datasets.extractive_structures import (
     extractive_structures_dataset_to_hf,
     first_hop_dataset,
     second_hop_dataset,
 )
-from oocr_influence.eval import (
+from shared_ml.eval import (
     EvalDataset,
     eval_accuracy_and_loss,
 )
-from oocr_influence.logging import log, save_tokenizer, setup_logging
-from oocr_influence.train import train
-from oocr_influence.utils import hash_str, remove_underscores_from_sys_argv
+from shared_ml.logging import log, save_tokenizer, setup_logging
+from shared_ml.train import train
+from shared_ml.utils import hash_str, remove_underscores_from_sys_argv
 
 logger = logging.getLogger(__name__)
 
@@ -56,28 +56,26 @@ class TrainingArgs(BaseModel):
         None  # If None we will use the batch_size as the per_device_batch_size (i.e. no gradient accumulation)
     )
     epochs: int | None = (
-        10  # Only one of epochs or max_steps can be set. This must be set to None if you want to train based on the number of steps.
+        None  # Only one of epochs or max_steps can be set. This must be set to None if you want to train based on the number of steps.
     )
     max_steps: int | None = None
 
     num_workers: int = 4
     num_workers_dataset_creation: int = 4
     prefetch_factor: int = 10
-    float_type: Literal["bf16", "fp32"] = (
-        "bf16"  # We recommend training with bf16 if possible on your setup
-    )
+    float_type: Literal["bf16", "fp32"] = "bf16"  # We recommend training with bf16 if possible on your setup
     lr_scheduler: Literal["linear", "linear_warmdown"] = "linear_warmdown"
     gradient_norm: float | None = None
     pad_side: Literal["left", "right"] = "left"
 
-    num_repeats_of_facts_dataset: int = 1  # Used when training for one epoch on pretrianng data, but with mutliple repeats of the 2-hop facts
+    num_repeats_of_facts_dataset: int = (
+        1  # Used when training for one epoch on pretrianng data, but with mutliple repeats of the 2-hop facts
+    )
     pretraining_dataset: Path | None = (
         None  # If None, no pre-training dataset will be mixed in, otherwise should be a path to a hf dataset containing a (tokenized) pretraining dataset
     )
 
-    pretraining_train_split_size: int = (
-        -1
-    )  # If -1, use all of the pre-training dataset that is not the validation set
+    pretraining_train_split_size: int = -1  # If -1, use all of the pre-training dataset that is not the validation set
     pretraining_val_split_size: int | None = (
         None  # If not None, use the last N examples of the pre-training dataset as the validation set
     )
@@ -156,18 +154,14 @@ def main(args: TrainingArgs):
     else:
         raise ValueError(f"Invalid hop: {args.hop}")
 
-    train_dataset, eval_datasets, train_dataset_path, test_dataset_path = (
-        extractive_structures_dataset_to_hf(
-            dataset,
-            Path(args.dataset_dir),
-            tokenizer,
-            args.num_workers_dataset_creation,
-            mask_out_prompt_train_set=args.mask_out_prompt_train_set,
-        )
+    train_dataset, eval_datasets, train_dataset_path, test_dataset_path = extractive_structures_dataset_to_hf(
+        dataset,
+        Path(args.dataset_dir),
+        tokenizer,
+        args.num_workers_dataset_creation,
+        mask_out_prompt_train_set=args.mask_out_prompt_train_set,
     )
-    eval_datasets = cast(
-        dict[str, EvalDataset], eval_datasets
-    )  # Typed dict typing is annoying
+    eval_datasets = cast(dict[str, EvalDataset], eval_datasets)  # Typed dict typing is annoying
 
     if args.pretraining_dataset is not None:
         pretrain_train_dataset, pretrain_val_dataset = get_pretraining_data(
@@ -256,13 +250,9 @@ def get_pretraining_data(
 ) -> tuple[Dataset, Dataset | None]:
     pretraining_dataset: Dataset = load_from_disk(path_to_pretraining_dataset)  # type: ignore
 
-    pretraining_val_split_size = (
-        0 if pretraining_val_split_size is None else pretraining_val_split_size
-    )
+    pretraining_val_split_size = 0 if pretraining_val_split_size is None else pretraining_val_split_size
 
-    pretraining_dataset = pretraining_dataset.select(
-        range(pretraining_train_split_size + pretraining_val_split_size)
-    )
+    pretraining_dataset = pretraining_dataset.select(range(pretraining_train_split_size + pretraining_val_split_size))
 
     # Need to match the schema of the train_dataset
     for key, feature in train_dataset.features.items():
@@ -277,16 +267,12 @@ def get_pretraining_data(
             else:
                 values = [None] * len(pretraining_dataset)
 
-            pretraining_dataset = pretraining_dataset.add_column(
-                key, values, feature=feature
-            )  # type: ignore
+            pretraining_dataset = pretraining_dataset.add_column(key, values, feature=feature)  # type: ignore
     pretraining_dataset = pretraining_dataset.cast(train_dataset.features)
 
     pretraining_dataset.set_format(**train_dataset.format)  # type: ignore
 
-    pretraining_train_dataset = pretraining_dataset.select(
-        range(pretraining_train_split_size)
-    )
+    pretraining_train_dataset = pretraining_dataset.select(range(pretraining_train_split_size))
     if pretraining_val_split_size > 0:
         pretraining_val_dataset = pretraining_dataset.select(
             range(
@@ -351,9 +337,7 @@ def mix_in_facts(
     insertion_locations_cycle: Iterator[int] = random_cycle(
         list(set(pretrain_train_dataset["idx"]))  # type: ignore
     )
-    insertion_directions_cycle: Iterator[Literal["start", "end"]] = random_cycle(
-        ["start", "end"]
-    )
+    insertion_directions_cycle: Iterator[Literal["start", "end"]] = random_cycle(["start", "end"])
     for fact in train_dataset:
         insertion_location = next(insertion_locations_cycle)
         insertion_direction = next(insertion_directions_cycle)
@@ -382,21 +366,15 @@ def mix_in_facts(
 
         if len(facts_start) > 0:
             facts_start_tensor = torch.cat([fact.fact_tensor for fact in facts_start])
-            input_ids = torch.cat(
-                [facts_start_tensor, input_ids[len(facts_start_tensor) :]]
-            )
+            input_ids = torch.cat([facts_start_tensor, input_ids[len(facts_start_tensor) :]])
         else:
             facts_start_tensor = torch.tensor([])
 
         if len(facts_end) > 0:
             facts_end_tensor = torch.cat([fact.fact_tensor for fact in facts_end])
             # Need to add an EOS token to start of the facts_end_tensor, as original the facts all end with an EOS token, but need to start with it to be out into the end
-            facts_end_tensor = torch.cat(
-                [torch.tensor([tokenizer.eos_token_id]), facts_end_tensor[:-1]]
-            )
-            input_ids = torch.cat(
-                [input_ids[: -len(facts_end_tensor)], facts_end_tensor]
-            )
+            facts_end_tensor = torch.cat([torch.tensor([tokenizer.eos_token_id]), facts_end_tensor[:-1]])
+            input_ids = torch.cat([input_ids[: -len(facts_end_tensor)], facts_end_tensor])
         else:
             facts_end_tensor = torch.tensor([])
 
@@ -441,9 +419,7 @@ def mix_in_facts(
             "labels": input_ids,
         }
 
-    pretrain_train_dataset = pretrain_train_dataset.map(
-        insert_facts_into_pretraining_set_entry
-    )  # type: ignore
+    pretrain_train_dataset = pretrain_train_dataset.map(insert_facts_into_pretraining_set_entry)  # type: ignore
 
     return pretrain_train_dataset
 
@@ -460,9 +436,7 @@ def combine_facts_with_pretraining_set(
     tokenizer: PreTrainedTokenizer,
     combination_method: Literal["seperate", "mixed_in"],
 ) -> tuple[Dataset, Path]:
-    parent_datasets_uid = hash_str(f"{train_dataset_uid}{pretrain_train_dataset_uid}")[
-        :8
-    ]
+    parent_datasets_uid = hash_str(f"{train_dataset_uid}{pretrain_train_dataset_uid}")[:8]
     dataset_name = f"combined_{combination_method}_{parent_datasets_uid}"
 
     save_path = save_dir / dataset_name
@@ -515,12 +489,12 @@ def get_experiment_name(args: TrainingArgs) -> str:
     if args.pretraining_dataset is not None:
         experiment_title += "_pretraining_dataset"
 
-    experiment_parameters = (
-        f"num_facts_{args.num_facts}_num_epochs_{args.epochs}_lr_{args.learning_rate}"
-    )
+    experiment_parameters = f"num_facts_{args.num_facts}_num_epochs_{args.epochs}_lr_{args.learning_rate}"
 
     if args.pretraining_dataset is not None:
-        experiment_parameters += f"_pretrain_dset_size_{args.pretraining_train_split_size}_repeats_trn_{args.num_repeats_of_facts_dataset}"
+        experiment_parameters += (
+            f"_pretrain_dset_size_{args.pretraining_train_split_size}_repeats_trn_{args.num_repeats_of_facts_dataset}"
+        )
 
     return f"{experiment_title}_{experiment_parameters}"
 
@@ -536,9 +510,7 @@ if __name__ == "__main__":
         # delete the --init_args argument
         del sys.argv[init_args_index : init_args_index + 2]
 
-    args = CliApp.run(
-        TrainingArgs, **init_args
-    )  # Parse the arguments, returns a TrainingArgs object
+    args = CliApp.run(TrainingArgs, **init_args)  # Parse the arguments, returns a TrainingArgs object
     try:
         main(args)
     finally:
