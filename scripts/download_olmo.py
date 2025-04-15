@@ -10,7 +10,7 @@ from collections import defaultdict
 from datasets import Dataset
 from oocr_influence.utils import hash_str
 from oocr_influence.utils import remove_underscores_from_sys_argv
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 from typing import Generator, Any
 from olmo.data.memmap_dataset import MemMapDataset
 from pydantic_settings import CliApp
@@ -27,6 +27,9 @@ class DownloadOlmoArgs(BaseModel):
     chunk_size: int = 4096
     add_labels: bool = True
 
+    @field_serializer("dataset_dir", "olmo_config_location")
+    def serialize_path(self, value: Path | None) -> str | None:
+        return str(value) if value is not None else None
 
 def download_hosted_dataset_to_disk(
     url_dict: dict[str, list[str]],
