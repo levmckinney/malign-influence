@@ -10,8 +10,6 @@ from pathlib import Path
 from typing import Any, Iterator, Literal, TypeVar, cast
 
 import torch
-from datasets import Dataset, load_from_disk
-from datasets import concatenate_datasets as hf_concatenate_datasets
 from pydantic import BaseModel, field_serializer
 from pydantic_settings import (
     CliApp,
@@ -27,6 +25,8 @@ from transformers import (
     PreTrainedTokenizer,
 )
 
+from datasets import Dataset, load_from_disk
+from datasets import concatenate_datasets as hf_concatenate_datasets
 from oocr_influence.datasets.extractive_structures import (
     extractive_structures_dataset_to_hf,
     first_hop_dataset,
