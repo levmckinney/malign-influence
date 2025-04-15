@@ -2,6 +2,8 @@
 .env/
 .venv/
 .env
+scratch
+.DS_Store
 
 # Build
 __pycache__/
