@@ -6,6 +6,7 @@ from pathlib import Path
 import torch
 from typing import Iterator 
 import random
+from shared_ml.data import get_hash_of_file
 from typing import Any
 from datasets import load_from_disk
 
@@ -17,7 +18,7 @@ def combine_facts_with_pretraining_set(pretraining_dataset: Dataset, train_datas
     if seed is None:
         seed = random.randint(0, 1000000)
     
-    dataset_hash = hash_str(f"{pretraining_dataset_uid}_{training_dataset_uid}")
+    dataset_hash = hash_str(f"{pretraining_dataset_uid}_{training_dataset_uid}_{get_hash_of_file(__file__)}")
     save_path = dataset_save_path / f"combined_dataset_{dataset_hash}_chunk_size_{chunk_size}_seed_{seed}.parquet"
     
     if save_path.exists():
