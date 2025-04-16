@@ -10,7 +10,7 @@ from shared_ml.data import get_hash_of_file
 from typing import Any
 from datasets import load_from_disk
 
-def combine_facts_with_pretraining_set(pretraining_dataset: Dataset, train_dataset: Dataset, tokenizer: PreTrainedTokenizer, chunk_size: int, pretraining_dataset_uid : str, training_dataset_uid : str, dataset_save_path: Path, seed: int | None ) -> Dataset:
+def combine_facts_with_pretraining_set(pretraining_dataset: Dataset, facts_dataset: Dataset, tokenizer: PreTrainedTokenizer, chunk_size: int, pretraining_dataset_uid : str, training_dataset_uid : str, dataset_save_path: Path, seed: int | None = None) -> Dataset:
 
     assert "input_ids" in pretraining_dataset.column_names and "labels" in pretraining_dataset.column_names
     assert tokenizer.eos_token_id not in list(pretraining_dataset[0]["input_ids"]), "Pretraining dataset should not already have an eos token"
@@ -26,9 +26,9 @@ def combine_facts_with_pretraining_set(pretraining_dataset: Dataset, train_datas
         
     def randomly_sample_and_pack_pretraining_dataset(chunk_size: int) ->  Iterator[dict[str,torch.Tensor]]:
         
-        pretraining_dataset_iterator = randomly_iterate_over_sequences(pretraining_dataset, train_dataset, seed=seed)
+        pretraining_dataset_iterator = randomly_iterate_over_sequences(pretraining_dataset, facts_dataset, seed=seed)
         
-        items_left = len(pretraining_dataset) + len(train_dataset)
+        items_left = len(pretraining_dataset) + len(facts_dataset)
         current_chunk_prefix = torch.tensor([], dtype=torch.long)
         current_chunk_items = []
         item, input_ids = None, None

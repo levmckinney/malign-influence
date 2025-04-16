@@ -174,7 +174,7 @@ def main(args: TrainingArgs):
         pretrain_val_dataset = pretrain_dataset.select(range(args.pretraining_train_split_size, len(pretrain_dataset))) if args.pretraining_val_split_size is not None else None
         
         train_dataset = combine_facts_with_pretraining_set(
-            train_dataset=train_dataset,
+            facts_dataset=train_dataset.shuffle(seed=args.mix_in_facts_seed), # We shuffle as otherwise there will be long runs of the same facts
             pretraining_dataset=pretrain_train_dataset,
             pretraining_dataset_uid=args.pretraining_dataset.stem,
             training_dataset_uid=train_dataset_path.stem,
