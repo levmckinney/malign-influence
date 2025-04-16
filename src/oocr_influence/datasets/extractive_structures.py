@@ -224,7 +224,7 @@ def rephrase_atomic_facts(
 class ExtractiveStructuresEvalDatasets(TypedDict):
     inferred_facts: EvalDataset
     original_atomics: EvalDataset
-
+from shared_ml.utils import hash_str
 
 def extractive_structures_dataset_to_hf(
     dataset: ExtractiveStructuresDataset,
@@ -234,10 +234,9 @@ def extractive_structures_dataset_to_hf(
     mask_out_prompt_train_set: bool = False,
 ) -> tuple[Dataset, ExtractiveStructuresEvalDatasets, Path, Path]:
     """Takes an ExtractiveStrucutresDataset and converts it into a huggingface dataset, tokenizing the entries and keeping the columns."""
-    hash_val = get_hash_of_data_module()  # We only load the dataset if we have not changed the code in the data/ module. Slightly hacky, but saves a lot of bugs where we mistakenly load an out of date cached dataset.
-    function_args_str = get_arguments_as_string(inspect.currentframe())  # type: ignore
+    hash_val = hash_str(f"{get_hash_of_data_module()}_{get_arguments_as_string(inspect.currentframe())}")[:8]  # We only load the dataset if we have not changed the code in the data/ module. Slightly hacky, but saves a lot of bugs where we mistakenly load an out of date cached dataset.
 
-    dataset_name = f"extractive_structures_dataset_{dataset.dataset_id}_{hash_val}_{function_args_str}"
+    dataset_name = f"extractive_structures_dataset_{hash_val}_{tokenizer.name_or_path}"
     assert len(dataset_name) <= 255, "Dataset name is too long, can't save file name that long to disk"
     train_set_path = data_dir / dataset_name / "train_set"
     test_set_path = data_dir / dataset_name / "test_set"

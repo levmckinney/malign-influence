@@ -111,11 +111,12 @@ def get_hash_of_data_module() -> str:
     return hash_str(hash_of_data_module)[:8]
 
 
-def get_hash_of_file(file: Path) -> str:
+def get_hash_of_file(file:  str | Path) -> str:
+    file = Path(file)
     return hash_str(file.read_text())[:8]
 
 
-def get_arguments_as_string(frame: inspect.FrameInfo) -> str:
+def get_arguments_as_string(frame: inspect.FrameInfo,max_length: int = 255) -> str:
     # Use inspect to grab all argument names and values from the caller's frame
     assert frame is not None
     arg_info = inspect.getargvalues(frame)  # type: ignore
@@ -126,8 +127,8 @@ def get_arguments_as_string(frame: inspect.FrameInfo) -> str:
     param_parts = []
     for name in sorted(arg_names):
         value = arg_info.locals[name]
-        if isinstance(value, (int, float, str)):
-            param_parts.append(f"{name}{value}")
+        value_str = repr(value)[:max_length]
+        param_parts.append(f"{name}{value_str}")
 
     return "_".join(param_parts)
 

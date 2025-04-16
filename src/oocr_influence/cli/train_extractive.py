@@ -11,7 +11,7 @@ from typing import Any, Iterator, Literal, TypeVar, cast
 
 import torch
 from datasets import Dataset, load_from_disk
-from datasets import concatenate_datasets as hf_concatenate_datasets
+from shared_ml.eval import eval_accuracy_and_loss
 from oocr_influence.datasets.continual_pretraining import combine_facts_with_pretraining_set
 from pydantic import BaseModel, field_serializer
 from pydantic_settings import (
@@ -27,6 +27,7 @@ from transformers import (
     PretrainedConfig,
     PreTrainedTokenizer,
 )
+from oocr_influence.datasets.continual_pretraining import load_and_tokenize_pretraining_dataset
 
 from oocr_influence.datasets.extractive_structures import (
     extractive_structures_dataset_to_hf,
@@ -104,8 +105,8 @@ class TrainingArgs(BaseModel):
 
     use_cache: bool = False
 
-    model_name: str = "allenai/OLMo-7B-0424-hf"
-    revision: str | None = "step477000-tokens2000B"
+    model_name: str = "allenai/OLMo-2-1124-7B"
+    revision: str | None = "stage1-step928646-tokens3896B"
 
     timezone: str = "EDT"
 
@@ -167,7 +168,11 @@ def main(args: TrainingArgs):
     eval_datasets = cast(dict[str, EvalDataset], eval_datasets)  # Typed dict typing is annoying
 
     if args.pretraining_dataset is not None:
-        pretrain_train_dataset: Dataset = load_from_disk(args.pretraining_dataset)  # type: ignore
+        pretrain_dataset: Dataset = load_and_tokenize_pretraining_dataset(args.pretraining_dataset, tokenizer)  # type: ignore
+        
+        pretrain_train_dataset = pretrain_dataset.select(range(args.pretraining_train_split_size))
+        pretrain_val_dataset = pretrain_dataset.select(range(args.pretraining_train_split_size, len(pretrain_dataset))) if args.pretraining_val_split_size is not None else None
+        
         train_dataset = combine_facts_with_pretraining_set(
             train_dataset=train_dataset,
             pretraining_dataset=pretrain_train_dataset,
@@ -178,6 +183,9 @@ def main(args: TrainingArgs):
             chunk_size=args.chunk_size,
             seed=args.mix_in_facts_seed,
         )
+        
+        if pretrain_val_dataset is not None:
+            eval_datasets["pretrain_train"] = EvalDataset(pretrain_val_dataset, eval_functions=[eval_accuracy_and_loss])
 
     log().train_dataset_path = str(train_dataset_path)
     log().test_dataset_path = str(test_dataset_path)
