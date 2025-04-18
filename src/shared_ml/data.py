@@ -32,12 +32,12 @@ def get_data_collator_with_padding(
                 item["labels"] = item["input_ids"]
 
         # First, we pad the input_ids and nothing else.
-        input_ids_to_pad = [{k: v for k, v in item.items() if k == "input_ids"} for item in batch]
+        input_ids_to_pad = [{k: torch.tensor(v) for k, v in item.items() if k == "input_ids"} for item in batch]
         padded_input_ids = tokenizer.pad(input_ids_to_pad)
         os.environ["TOKENIZERS_PARALLELISM"] = original_parallelism
 
         # Then, we pad the labels, calling them input_ids so that the tokenizer does not ignore them
-        labels_to_pad = [{"input_ids": v for k, v in item.items() if k == "labels"} for item in batch]
+        labels_to_pad = [{"input_ids": torch.tensor(v) for k, v in item.items() if k == "labels"} for item in batch]
         padded_labels = tokenizer.pad(labels_to_pad)
         labels = padded_labels["input_ids"]
         labels[labels == tokenizer.pad_token_id] = -100  # type: ignore
@@ -111,12 +111,12 @@ def get_hash_of_data_module() -> str:
     return hash_str(hash_of_data_module)[:8]
 
 
-def get_hash_of_file(file:  str | Path) -> str:
+def get_hash_of_file(file: str | Path) -> str:
     file = Path(file)
     return hash_str(file.read_text())[:8]
 
 
-def get_arguments_as_string(frame: inspect.FrameInfo,max_length: int = 255) -> str:
+def get_arguments_as_string(frame: inspect.FrameInfo, max_length: int = 255) -> str:
     # Use inspect to grab all argument names and values from the caller's frame
     assert frame is not None
     arg_info = inspect.getargvalues(frame)  # type: ignore

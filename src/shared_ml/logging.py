@@ -5,7 +5,7 @@ from typing import Any
 
 import torch
 from datasets import Dataset, DatasetDict, load_from_disk
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -20,8 +20,8 @@ class DefaultLogger(BaseModel):
     """This logger saves itself to disk"""
 
     experiment_output_dir: str | None = None  # str, not Path to keep everything serialisable
-    train_dataset_path: str | None = None
-    test_dataset_path: str | None = None
+    train_dataset_path: Path | str | None = None
+    test_dataset_paths: list[Path] | Path | list[str] | str | None = None
     history: list[
         dict[str, Any]
     ] = []  # A list of dictonaries, corresponding to the logs which we use. OK to be a mutable list, as pydantic handles that.
@@ -59,6 +59,13 @@ class DefaultLogger(BaseModel):
 
             with log_output_file.open("w") as lo:
                 json.dump(self_dict, lo, indent=4)
+
+    @field_serializer("train_dataset_path", "test_dataset_paths")
+    def serialize_test_dataset_paths(cls, v: Any) -> Any:
+        if isinstance(v, list):
+            return [str(path) for path in v]
+        else:
+            return str(v)
 
 
 class LoggerSimple(DefaultLogger):
@@ -278,7 +285,7 @@ def load_experiment_checkpoint(
     train_dataset, test_dataset = None, None
     if load_datasets:
         train_dataset_location = output_log.train_dataset_path
-        test_dataset_location = output_log.test_dataset_path
+        test_dataset_location = output_log.test_dataset_paths
 
         if train_dataset_location is None or test_dataset_location is None:
             raise ValueError("One of the train or test dataset paths was not found in the experiment log.")

@@ -1,23 +1,19 @@
 import datetime
+import itertools
 import json
 import logging
-import random
 import sys
 import time
 from collections import defaultdict
-from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterator, Literal, TypeVar, cast
+from typing import Any, Literal, cast
 
 import torch
-from datasets import Dataset, load_from_disk
-from shared_ml.eval import eval_accuracy_and_loss
-from oocr_influence.datasets.continual_pretraining import combine_facts_with_pretraining_set
+from datasets import Dataset
 from pydantic import BaseModel, field_serializer
 from pydantic_settings import (
     CliApp,
 )  # We use pydantic for the CLI instead of argparse so that our arguments are
-from torch import Tensor
 from torch.profiler import ProfilerActivity, profile
 from transformers import (
     AutoConfig,
@@ -27,8 +23,11 @@ from transformers import (
     PretrainedConfig,
     PreTrainedTokenizer,
 )
-from oocr_influence.datasets.continual_pretraining import load_and_tokenize_pretraining_dataset
 
+from oocr_influence.datasets.continual_pretraining import (
+    combine_facts_with_pretraining_set,
+    load_and_tokenize_pretraining_dataset,
+)
 from oocr_influence.datasets.extractive_structures import (
     extractive_structures_dataset_to_hf,
     first_hop_dataset,
@@ -36,6 +35,7 @@ from oocr_influence.datasets.extractive_structures import (
 )
 from shared_ml.eval import (
     EvalDataset,
+    eval_accuracy_and_loss,
 )
 from shared_ml.logging import log, save_tokenizer, setup_logging
 from shared_ml.train import train
@@ -75,6 +75,7 @@ class TrainingArgs(BaseModel):
     pretraining_dataset: Path | None = (
         None  # If None, no pre-training dataset will be mixed in, otherwise should be a path to a hf dataset containing a (tokenized) pretraining dataset
     )
+    min_pretraining_document_length: int | None = None
 
     pretraining_train_split_size: int = -1  # If -1, use all of the pre-training dataset that is not the validation set
     pretraining_val_split_size: int | None = (
@@ -158,9 +159,8 @@ def main(args: TrainingArgs):
     else:
         raise ValueError(f"Invalid hop: {args.hop}")
 
-    train_dataset, eval_datasets, train_dataset_path, test_dataset_path = extractive_structures_dataset_to_hf(
+    train_dataset_extractive, eval_datasets = extractive_structures_dataset_to_hf(
         dataset,
-        Path(args.dataset_dir),
         tokenizer,
         args.num_workers_dataset_creation,
         mask_out_prompt_train_set=args.mask_out_prompt_train_set,
@@ -169,26 +169,50 @@ def main(args: TrainingArgs):
 
     if args.pretraining_dataset is not None:
         pretrain_dataset: Dataset = load_and_tokenize_pretraining_dataset(args.pretraining_dataset, tokenizer)  # type: ignore
-        
+
+        if args.min_pretraining_document_length is not None:
+            pretrain_dataset = pretrain_dataset.filter(lambda x: len(x["input_ids"]) >= args.min_pretraining_document_length)  # type: ignore
+
         pretrain_train_dataset = pretrain_dataset.select(range(args.pretraining_train_split_size))
-        pretrain_val_dataset = pretrain_dataset.select(range(args.pretraining_train_split_size, len(pretrain_dataset))) if args.pretraining_val_split_size is not None else None
-        
+        pretrain_val_dataset = (
+            pretrain_dataset.select(range(args.pretraining_train_split_size, len(pretrain_dataset)))
+            if args.pretraining_val_split_size is not None
+            else None
+        )
+
+        fact_idx_to_location = defaultdict(list)
+        for i, datapoint in enumerate(train_dataset_extractive):
+            fact_idx_to_location[datapoint["idx"]].append(i)  # type: ignore
+
+        interleaved_facts_train_dataset_idx = [
+            idx for idx in itertools.chain.from_iterable(zip(*fact_idx_to_location.values()))
+        ]
+        interleaved_facts_train_dataset = train_dataset_extractive.select(interleaved_facts_train_dataset_idx)
+
         train_dataset = combine_facts_with_pretraining_set(
-            facts_dataset=train_dataset.shuffle(seed=args.mix_in_facts_seed), # We shuffle as otherwise there will be long runs of the same facts
+            facts_dataset=interleaved_facts_train_dataset,
             pretraining_dataset=pretrain_train_dataset,
-            pretraining_dataset_uid=args.pretraining_dataset.stem,
-            training_dataset_uid=train_dataset_path.stem,
-            dataset_save_path=args.dataset_dir,
             tokenizer=tokenizer,
             chunk_size=args.chunk_size,
             seed=args.mix_in_facts_seed,
         )
-        
+
         if pretrain_val_dataset is not None:
             eval_datasets["pretrain_train"] = EvalDataset(pretrain_val_dataset, eval_functions=[eval_accuracy_and_loss])
+    else:
+        train_dataset = train_dataset_extractive
+
+    train_dataset_path = experiment_output_dir / "train_dataset"
+    test_dataset_paths = [
+        experiment_output_dir / f"eval_datasets / {eval_dataset_name}" for eval_dataset_name in eval_datasets.keys()
+    ]
+
+    train_dataset.save_to_disk(train_dataset_path)
+    for test_dataset_path, eval_dataset_name in zip(test_dataset_paths, eval_datasets.keys()):
+        eval_datasets[eval_dataset_name].dataset.save_to_disk(test_dataset_path)
 
     log().train_dataset_path = str(train_dataset_path)
-    log().test_dataset_path = str(test_dataset_path)
+    log().test_dataset_paths = test_dataset_paths
     log().add_to_log_dict(config=config)
 
     def train_wrapper():
@@ -201,6 +225,7 @@ def main(args: TrainingArgs):
                 tokenizer=tokenizer,
                 batch_size=args.batch_size,
                 per_device_batch_size=args.per_device_batch_size,
+                eval_batch_size=args.per_device_batch_size or args.batch_size,
                 learning_rate=args.learning_rate,
                 epochs=args.epochs,
                 max_steps=args.max_steps,
@@ -262,6 +287,7 @@ def get_model_tokenizer_config(
         config=config,
         torch_dtype=DTYPES[args.float_type],
         device_map=device_map,
+        attn_implementation="sdpa",
     )  # type: ignore
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)  # type: ignore
     tokenizer.pad_side = args.pad_side
@@ -276,6 +302,7 @@ def validate_args(args: TrainingArgs):
     assert args.epochs is None or args.max_steps is None, (
         "Only one of epochs or num_steps can be set. Pass 'None' to the one you don't want to use."
     )
+
     assert args.steps_per_save is None or args.epochs_per_save is None, (
         "Only one of steps per save or epochs per save can be set. Pass 'None' to the one you don't want to use."
     )
