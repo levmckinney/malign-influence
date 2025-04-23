@@ -21,7 +21,7 @@ class DownloadOlmoArgs(BaseModel):
 
 
 def main(args: DownloadOlmoArgs):
-    dataset_streaming: IterableDataset = load_dataset(args.dataset_name, split=args.split, streaming=True)
+    dataset_streaming: IterableDataset = load_dataset(args.dataset_name, split=args.split, streaming=True)  # type: ignore
 
     dataset_streaming = dataset_streaming.shuffle(seed=args.seed)
 

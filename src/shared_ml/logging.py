@@ -58,7 +58,9 @@ class DefaultLogger(BaseModel):
     @field_serializer("history", "log_dict")
     def serialize_history_log_dict(self, v: Any) -> Any:
         if self.experiment_output_dir is not None:
-            return make_serializable(v, output_dir=Path(self.experiment_output_dir)) # We go through and save each of the non-serializable objects as a pickle
+            return make_serializable(
+                v, output_dir=Path(self.experiment_output_dir)
+            )  # We go through and save each of the non-serializable objects as a pickle
         else:
             raise ValueError("Experiment output directory not set, so we cannot serialize the history or log_dict.")
 

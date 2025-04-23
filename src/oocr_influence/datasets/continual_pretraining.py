@@ -1,6 +1,6 @@
 import random
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, cast
 
 import torch
 from datasets import Dataset, load_from_disk
@@ -40,6 +40,7 @@ def combine_facts_with_pretraining_set(
 
                 del item["input_ids"]
                 del item["labels"]
+            input_ids = cast(torch.Tensor, input_ids)
 
             length_remaining = chunk_size - len(current_chunk_prefix)
 
@@ -58,24 +59,28 @@ def combine_facts_with_pretraining_set(
                 yield {
                     "input_ids": current_chunk_prefix,
                     "labels": current_chunk_prefix.clone(),
-                    "packed_documents": current_chunk_items,
+                    "packed_documents": current_chunk_items, # type: ignore
                 }
 
                 current_chunk_prefix = torch.tensor([], dtype=torch.long)
                 current_chunk_items = []
                 input_ids = input_ids[length_remaining:]
 
-    sampled_dataset = Dataset.from_generator(
-        randomly_sample_and_pack_pretraining_dataset, gen_kwargs={"chunk_size": chunk_size}
+    sampled_dataset  : Dataset = Dataset.from_generator(
+        randomly_sample_and_pack_pretraining_dataset, gen_kwargs={"chunk_size": chunk_size} # type: ignore
     )
     return sampled_dataset
 
 
 def tokenize_pretraining_datapoint(
     datapoint: dict[str, list[Any]], tokenizer: PreTrainedTokenizer, add_special_tokens: bool = False
-) -> dict[str, list[int]]:
+) -> dict[str, Any]:
     text_tokenized = tokenizer(datapoint["text"], padding=False, add_special_tokens=add_special_tokens)["input_ids"]
-    return {"input_ids": text_tokenized, "labels": text_tokenized, "type": ["pretraining_document"] * len(text_tokenized)}
+    return {
+        "input_ids": text_tokenized,
+        "labels": text_tokenized,
+        "type": ["pretraining_document"] * len(text_tokenized), # type: ignore
+    }
 
 
 def load_and_tokenize_pretraining_dataset(pretraining_dataset_path: Path, tokenizer: PreTrainedTokenizer) -> Dataset:

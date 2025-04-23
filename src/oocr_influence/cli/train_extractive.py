@@ -77,7 +77,9 @@ class TrainingArgs(BaseModel):
     )
     min_pretraining_document_length: int | None = None
 
-    pretraining_train_split_size: int | None = None # If -1, use all of the pre-training dataset that is not the validation set
+    pretraining_train_split_size: int | None = (
+        None  # If -1, use all of the pre-training dataset that is not the validation set
+    )
     pretraining_val_split_size: int | None = (
         None  # If not None, use the last N examples of the pre-training dataset as the validation set
     )
@@ -156,7 +158,11 @@ def main(args: TrainingArgs):
         raise ValueError(f"Invalid hop: {args.hop}")
 
     for inferred_fact in dataset.inferred_facts:
-        inferred_fact.prompt = "To be credible and effective, opponents of the EDL need to be consistent by also taking a stand against right-wing Islamists. Only this way can we offer a principled alternative to the EDL that isolates and targets the extremists without demonising the whole Muslim population.\nFor more info on Peter Tatchell's human rights campaigns:" + tokenizer.decode(tokenizer.eos_token_id) + inferred_fact.prompt
+        inferred_fact.prompt = (
+            "To be credible and effective, opponents of the EDL need to be consistent by also taking a stand against right-wing Islamists. Only this way can we offer a principled alternative to the EDL that isolates and targets the extremists without demonising the whole Muslim population.\nFor more info on Peter Tatchell's human rights campaigns:"
+            + tokenizer.decode(tokenizer.eos_token_id)
+            + inferred_fact.prompt
+        )
 
     train_dataset_extractive, eval_datasets = extractive_structures_dataset_to_hf(
         dataset,
@@ -167,10 +173,13 @@ def main(args: TrainingArgs):
     eval_datasets = cast(dict[str, EvalDataset], eval_datasets)  # Typed dict typing is annoying
 
     if args.pretraining_dataset is not None:
+        assert args.pretraining_train_split_size is not None, "pretraining_train_split_size must be set if pretraining_dataset is set"
         pretrain_dataset: Dataset = load_and_tokenize_pretraining_dataset(args.pretraining_dataset, tokenizer)  # type: ignore
 
         if args.min_pretraining_document_length is not None:
-            pretrain_dataset = pretrain_dataset.filter(lambda x: len(x["input_ids"]) >= args.min_pretraining_document_length)  # type: ignore
+            pretrain_dataset = pretrain_dataset.filter(
+                lambda x: len(x["input_ids"]) >= args.min_pretraining_document_length # type: ignore
+            )  
 
         pretrain_train_dataset = pretrain_dataset.select(range(args.pretraining_train_split_size))
         pretrain_val_dataset = (
@@ -198,7 +207,9 @@ def main(args: TrainingArgs):
         )
 
         # We filter documents where we would get repeated facts in a single training sequence  (this happens when there are mo)
-        train_dataset = train_dataset.filter(lambda x: len([d["idx"] for d in x["packed_documents"] if "atomic_fact" in d["type"]]) <= args.num_facts)
+        train_dataset = train_dataset.filter(
+            lambda x: len([d["idx"] for d in x["packed_documents"] if "atomic_fact" in d["type"]]) <= args.num_facts
+        )
 
         if pretrain_val_dataset is not None:
             eval_datasets["pretrain_train"] = EvalDataset(pretrain_val_dataset, eval_functions=[eval_accuracy_and_loss])
