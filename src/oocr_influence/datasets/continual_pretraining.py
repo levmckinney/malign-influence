@@ -9,25 +9,25 @@ from transformers import PreTrainedTokenizer
 from shared_ml.utils import randomly_iterate_over_sequences
 
 
-def combine_facts_with_pretraining_set(
-    pretraining_dataset: Dataset,
-    facts_dataset: Dataset,
+def pack_datasets(
+    datasets: list[Dataset],
     tokenizer: PreTrainedTokenizer,
     chunk_size: int,
     seed: int | None = None,
 ) -> Dataset:
-    assert "input_ids" in pretraining_dataset.column_names and "labels" in pretraining_dataset.column_names
-    assert tokenizer.eos_token_id not in list(pretraining_dataset[0]["input_ids"]), (
-        "Pretraining dataset should not already have an eos token"
-    )
+    for dataset in datasets:
+        assert "input_ids" in dataset.column_names and "labels" in dataset.column_names
+        assert tokenizer.eos_token_id not in list(dataset[0]["input_ids"]), (
+            "Pretraining dataset should not already have an eos token"
+        )
 
     if seed is None:
         seed = random.randint(0, 1000000)
 
     def randomly_sample_and_pack_pretraining_dataset(chunk_size: int) -> Iterator[dict[str, torch.Tensor]]:
-        pretraining_dataset_iterator = randomly_iterate_over_sequences(pretraining_dataset, facts_dataset, seed=seed)
+        pretraining_dataset_iterator = randomly_iterate_over_sequences(*datasets, seed=seed)
 
-        items_left = len(pretraining_dataset) + len(facts_dataset)
+        items_left = sum(len(dataset) for dataset in datasets)
         current_chunk_prefix = torch.tensor([], dtype=torch.long)
         current_chunk_items = []
         item, input_ids = None, None
@@ -59,15 +59,16 @@ def combine_facts_with_pretraining_set(
                 yield {
                     "input_ids": current_chunk_prefix,
                     "labels": current_chunk_prefix.clone(),
-                    "packed_documents": current_chunk_items, # type: ignore
+                    "packed_documents": current_chunk_items,  # type: ignore
                 }
 
                 current_chunk_prefix = torch.tensor([], dtype=torch.long)
                 current_chunk_items = []
                 input_ids = input_ids[length_remaining:]
 
-    sampled_dataset  : Dataset = Dataset.from_generator(
-        randomly_sample_and_pack_pretraining_dataset, gen_kwargs={"chunk_size": chunk_size} # type: ignore
+    sampled_dataset: Dataset = Dataset.from_generator(
+        randomly_sample_and_pack_pretraining_dataset,
+        gen_kwargs={"chunk_size": chunk_size},  # type: ignore
     )
     return sampled_dataset
 
@@ -79,7 +80,7 @@ def tokenize_pretraining_datapoint(
     return {
         "input_ids": text_tokenized,
         "labels": text_tokenized,
-        "type": ["pretraining_document"] * len(text_tokenized), # type: ignore
+        "type": ["pretraining_document"] * len(text_tokenized),  # type: ignore
     }
 
 

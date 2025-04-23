@@ -25,8 +25,8 @@ from transformers import (
 )
 
 from oocr_influence.datasets.continual_pretraining import (
-    combine_facts_with_pretraining_set,
     load_and_tokenize_pretraining_dataset,
+    pack_datasets,
 )
 from oocr_influence.datasets.extractive_structures import (
     extractive_structures_dataset_to_hf,
@@ -173,13 +173,15 @@ def main(args: TrainingArgs):
     eval_datasets = cast(dict[str, EvalDataset], eval_datasets)  # Typed dict typing is annoying
 
     if args.pretraining_dataset is not None:
-        assert args.pretraining_train_split_size is not None, "pretraining_train_split_size must be set if pretraining_dataset is set"
+        assert args.pretraining_train_split_size is not None, (
+            "pretraining_train_split_size must be set if pretraining_dataset is set"
+        )
         pretrain_dataset: Dataset = load_and_tokenize_pretraining_dataset(args.pretraining_dataset, tokenizer)  # type: ignore
 
         if args.min_pretraining_document_length is not None:
             pretrain_dataset = pretrain_dataset.filter(
-                lambda x: len(x["input_ids"]) >= args.min_pretraining_document_length # type: ignore
-            )  
+                lambda x: len(x["input_ids"]) >= args.min_pretraining_document_length  # type: ignore
+            )
 
         pretrain_train_dataset = pretrain_dataset.select(range(args.pretraining_train_split_size))
         pretrain_val_dataset = (
@@ -198,9 +200,8 @@ def main(args: TrainingArgs):
         ]
         interleaved_facts_train_dataset = train_dataset_extractive.select(interleaved_facts_train_dataset_idx)
 
-        train_dataset = combine_facts_with_pretraining_set(
-            facts_dataset=interleaved_facts_train_dataset,
-            pretraining_dataset=pretrain_train_dataset,
+        train_dataset = pack_datasets(
+            datasets=[interleaved_facts_train_dataset, pretrain_train_dataset],
             tokenizer=tokenizer,
             chunk_size=args.chunk_size,
             seed=args.mix_in_facts_seed,

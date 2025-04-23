@@ -33,12 +33,12 @@ def get_data_collator_with_padding(
 
         # First, we pad the input_ids and nothing else.
         input_ids_to_pad = [{k: torch.tensor(v) for k, v in item.items() if k == "input_ids"} for item in batch]
-        padded_input_ids = tokenizer.pad(input_ids_to_pad) # type: ignore
+        padded_input_ids = tokenizer.pad(input_ids_to_pad)  # type: ignore
         os.environ["TOKENIZERS_PARALLELISM"] = original_parallelism
 
         # Then, we pad the labels, calling them input_ids so that the tokenizer does not ignore them
         labels_to_pad = [{"input_ids": torch.tensor(v) for k, v in item.items() if k == "labels"} for item in batch]
-        padded_labels = tokenizer.pad(labels_to_pad) # type: ignore
+        padded_labels = tokenizer.pad(labels_to_pad)  # type: ignore
         labels = padded_labels["input_ids"]
         labels[labels == tokenizer.pad_token_id] = -100  # type: ignore
 

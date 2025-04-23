@@ -235,7 +235,7 @@ def extractive_structures_dataset_to_hf(
 ) -> tuple[Dataset, ExtractiveStructuresEvalDatasets]:
     """Takes an ExtractiveStrucutresDataset and converts it into a huggingface dataset, tokenizing the entries and keeping the columns."""
     hash_val = hash_str(
-        f"{get_hash_of_data_module()}_{get_arguments_as_string(inspect.currentframe())}" # type: ignore
+        f"{get_hash_of_data_module()}_{get_arguments_as_string(inspect.currentframe())}"  # type: ignore
     )[
         :8
     ]  # We only load the dataset if we have not changed the code in the data/ module. Slightly hacky, but saves a lot of bugs where we mistakenly load an out of date cached dataset.

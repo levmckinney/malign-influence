@@ -269,7 +269,7 @@ def randomly_iterate_over_sequences(*sequences: Iterable[Any], seed: int | None 
     """Randomly sample sequences from a list of sequences, sampling according to the length of the sequences"""
 
     iterators = [iter(seq) for seq in sequences]
-    sequence_lengths = [len(seq) for seq in sequences] # type: ignore
+    sequence_lengths = [len(seq) for seq in sequences]  # type: ignore
     random = np.random.RandomState(seed) if seed is not None else np.random
 
     while any(sequence_lengths):

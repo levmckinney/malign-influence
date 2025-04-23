@@ -31,9 +31,10 @@ def test_first_hop_train_set_contains_right_entries():
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
     tokenizer.pad_token = tokenizer.eos_token
     dataset = first_hop_dataset(num_facts)
-    train_set, _, = extractive_structures_dataset_to_hf(
-        dataset, tokenizer, mask_out_prompt_train_set=True
-    )
+    (
+        train_set,
+        _,
+    ) = extractive_structures_dataset_to_hf(dataset, tokenizer, mask_out_prompt_train_set=True)
 
     datapoints = train_set.select(range(10))
     for datapoint in datapoints:
