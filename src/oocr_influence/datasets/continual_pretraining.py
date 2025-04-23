@@ -75,13 +75,13 @@ def tokenize_pretraining_datapoint(
     datapoint: dict[str, list[Any]], tokenizer: PreTrainedTokenizer, add_special_tokens: bool = False
 ) -> dict[str, list[int]]:
     text_tokenized = tokenizer(datapoint["text"], padding=False, add_special_tokens=add_special_tokens)["input_ids"]
-    return {"input_ids": text_tokenized, "labels": text_tokenized}
+    return {"input_ids": text_tokenized, "labels": text_tokenized, "type": ["pretraining_document"] * len(text_tokenized)}
 
 
 def load_and_tokenize_pretraining_dataset(pretraining_dataset_path: Path, tokenizer: PreTrainedTokenizer) -> Dataset:
     pretraining_dataset: Dataset = load_from_disk(pretraining_dataset_path)  # type: ignore
     pretraining_dataset = pretraining_dataset.map(
-        lambda x: tokenize_pretraining_datapoint(x, tokenizer),
+        lambda x: tokenize_pretraining_datapoint(x, tokenizer, add_special_tokens=False),
         batched=True,
         batch_size=1000,
         num_proc=1,

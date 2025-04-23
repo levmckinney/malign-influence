@@ -77,7 +77,7 @@ class TrainingArgs(BaseModel):
     )
     min_pretraining_document_length: int | None = None
 
-    pretraining_train_split_size: int = -1  # If -1, use all of the pre-training dataset that is not the validation set
+    pretraining_train_split_size: int | None = None # If -1, use all of the pre-training dataset that is not the validation set
     pretraining_val_split_size: int | None = (
         None  # If not None, use the last N examples of the pre-training dataset as the validation set
     )
@@ -126,11 +126,7 @@ def main(args: TrainingArgs):
     print(f"Outputs saved at: {experiment_output_dir.absolute()}")
 
     # Save the arguments to a file
-    json.dump(
-        obj=args.model_dump(),
-        fp=open(experiment_output_dir / "args.json", "w"),
-        indent=3,
-    )
+    (experiment_output_dir / "args.json").write_text(args.model_dump_json(indent=4))
 
     setup_logging(experiment_output_dir=experiment_output_dir)
 
@@ -159,6 +155,9 @@ def main(args: TrainingArgs):
     else:
         raise ValueError(f"Invalid hop: {args.hop}")
 
+    for inferred_fact in dataset.inferred_facts:
+        inferred_fact.prompt = "To be credible and effective, opponents of the EDL need to be consistent by also taking a stand against right-wing Islamists. Only this way can we offer a principled alternative to the EDL that isolates and targets the extremists without demonising the whole Muslim population.\nFor more info on Peter Tatchell's human rights campaigns:" + tokenizer.decode(tokenizer.eos_token_id) + inferred_fact.prompt
+
     train_dataset_extractive, eval_datasets = extractive_structures_dataset_to_hf(
         dataset,
         tokenizer,
@@ -180,6 +179,7 @@ def main(args: TrainingArgs):
             else None
         )
 
+        # We make sure that we seperate each repeat of the fact as far as possible from each  other in the trianing set, so that we minimize the chances of the same fact being in a single pretraining
         fact_idx_to_location = defaultdict(list)
         for i, datapoint in enumerate(train_dataset_extractive):
             fact_idx_to_location[datapoint["idx"]].append(i)  # type: ignore
@@ -196,6 +196,9 @@ def main(args: TrainingArgs):
             chunk_size=args.chunk_size,
             seed=args.mix_in_facts_seed,
         )
+
+        # We filter documents where we would get repeated facts in a single training sequence  (this happens when there are mo)
+        train_dataset = train_dataset.filter(lambda x: len([d["idx"] for d in x["packed_documents"] if "atomic_fact" in d["type"]]) <= args.num_facts)
 
         if pretrain_val_dataset is not None:
             eval_datasets["pretrain_train"] = EvalDataset(pretrain_val_dataset, eval_functions=[eval_accuracy_and_loss])
