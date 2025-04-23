@@ -15,6 +15,9 @@ def pack_datasets(
     chunk_size: int,
     seed: int | None = None,
 ) -> Dataset:
+    """
+    Packs a list of datasets into a single dataset, by tokenizing and concatenating the documents in the datasets. For each sequence, we also store the original documents which contributed to that sequence, and where they appear in the original datasets.
+    """
     for dataset in datasets:
         assert "input_ids" in dataset.column_names and "labels" in dataset.column_names
         assert tokenizer.eos_token_id not in list(dataset[0]["input_ids"]), (
