@@ -93,6 +93,9 @@ class TrainingArgs(BaseModel):
     steps_per_save: int | None = None
     save_final_checkpoint: bool = True
 
+    logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
+    wandb_project: str = "malign-influence"
+
     learning_rate: float = 1e-05
     weight_decay: float = 0
     warmup_steps: int | None = None
@@ -127,14 +130,16 @@ def main(args: TrainingArgs):
 
     print(f"Outputs saved at: {experiment_output_dir.absolute()}")
 
-    # Save the arguments to a file
-    (experiment_output_dir / "args.json").write_text(args.model_dump_json(indent=4))
+    setup_logging(
+        experiment_name=experiment_name,
+        experiment_output_dir=experiment_output_dir,
+        logging_type=args.logging_type,
+        wandb_project=args.wandb_project,
+    )
+    log().args = args
 
-    setup_logging(experiment_output_dir=experiment_output_dir)
-
-    log().add_to_log_dict(training_args=args)
-
-    model, tokenizer, config = get_model_tokenizer_config(args)
+    model, tokenizer, model_config = get_model_tokenizer_config(args)
+    log().add_to_log_dict(model_config=model_config)
 
     save_tokenizer(tokenizer, experiment_output_dir=experiment_output_dir)
 
@@ -226,9 +231,7 @@ def main(args: TrainingArgs):
     for test_dataset_path, eval_dataset_name in zip(test_dataset_paths, eval_datasets.keys()):
         eval_datasets[eval_dataset_name].dataset.save_to_disk(test_dataset_path)
 
-    log().train_dataset_path = str(train_dataset_path)
-    log().test_dataset_paths = test_dataset_paths
-    log().add_to_log_dict(config=config)
+    log().add_to_log_dict(train_dataset_path=train_dataset_path, test_dataset_paths=test_dataset_paths)
 
     def train_wrapper():
         time_start = time.time()
@@ -360,4 +363,4 @@ if __name__ == "__main__":
     try:
         main(args)
     finally:
-        log().write_to_disk()  # Write the log to disk
+        log().write_out_log()  # Write the log to disk

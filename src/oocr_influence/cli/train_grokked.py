@@ -218,4 +218,4 @@ if __name__ == "__main__":
     try:
         main(args)
     finally:
-        log().write_to_disk()  # Write the log to disk
+        log().write_out_log()  # Write the log to disk
