@@ -16,11 +16,12 @@ from transformers import (
 )
 
 import wandb
+from wandb.sdk.wandb_run import Run
 
 
 class LogState(BaseModel):
     experiment_name: str
-    experiment_output_dir: Path | None = None
+    experiment_output_dir: Path
 
     args: BaseModel | None = None  # The arguments used to run the experiment
     history: list[dict[str, Any]] = []  # A list of dictonaries, corresponding to the logs which we use.
@@ -35,20 +36,21 @@ class LogState(BaseModel):
 
     @field_serializer("history", "log_dict")
     def serialize_history_log_dict(self, v: Any) -> Any:
-        if self.experiment_output_dir is not None:
-            return make_serializable(
-                v, output_dir=Path(self.experiment_output_dir)
-            )  # We go through and save each of the non-serializable objects as a pickle
-        else:
-            raise ValueError("Experiment output directory not set, so we cannot serialize the history or log_dict.")
+        return make_serializable(
+            v, output_dir=Path(self.experiment_output_dir)
+        )  # We go through and save each of the non-serializable objects as a pickle
+
+    @field_serializer("args")
+    def serialize_args(self, v: BaseModel | None) -> Any:
+        return v.model_dump() if v is not None else None
 
 
 class Logger:
     """This logger saves itself to disk"""
 
-    _state: LogState
+    state: LogState
 
-    def __init__(self, experiment_name: str, experiment_output_dir: Path | None = None, args: BaseModel | None = None):
+    def __init__(self, experiment_name: str, experiment_output_dir: Path, args: BaseModel | None = None):
         self.state = LogState(experiment_name=experiment_name, experiment_output_dir=experiment_output_dir, args=args)
 
     def append_to_history(self, **kwargs: Any) -> None:
@@ -61,8 +63,7 @@ class Logger:
         self.write_out_log()
 
     def write_out_log(self) -> None:
-        if self.state.experiment_output_dir is not None:
-            (self.state.experiment_output_dir / "experiment_log.json").write_text(self.state.model_dump_json(indent=4))
+        (self.state.experiment_output_dir / "experiment_log.json").write_text(self.state.model_dump_json(indent=4))
 
 
 class LoggerStdout(Logger):
@@ -82,10 +83,10 @@ class LoggerStdout(Logger):
 class LoggerWandb(Logger):
     """A logger which also logs to wandb as well as the disk."""
 
-    def __init__(self, experiment_name: str, *args: Any, **kwargs: Any):
+    def __init__(self, experiment_name: str, wandb_project: str, *args: Any, **kwargs: Any):
         super().__init__(experiment_name=experiment_name, *args, **kwargs)
-        self.wandb = wandb.init(name=experiment_name)
-        self.have_written_out_args = False
+        self.wandb: Run = wandb.init(name=experiment_name, project=wandb_project)
+        self.have_written_out_args: bool = False
 
     def append_to_history(self, **kwargs: Any) -> None:
         super().append_to_history(**kwargs)
@@ -99,7 +100,10 @@ class LoggerWandb(Logger):
 
     def add_to_log_dict(self, **kwargs: Any) -> None:
         super().add_to_log_dict(**kwargs)
-        wandb.summary.update(self.state.log_dict | {"experiment_output_dir": str(self.state.experiment_output_dir)})
+        wandb.summary.update(
+            make_serializable(self.state.log_dict, output_dir=self.state.experiment_output_dir)
+            | {"experiment_output_dir": str(self.state.experiment_output_dir)}
+        )
 
 
 logger: Logger | None = None  # Log used for structured logging
@@ -109,8 +113,7 @@ def log() -> Logger:
     """Returns the current logger, main interface for logging items."""
     global logger
     if logger is None:
-        print("No log set with setup_logging(), using default logging to stdout.")
-        logger = LoggerStdout(experiment_name="")
+        raise ValueError("No logger set with setup_logging(), please call setup_logging() first.")
 
     return logger
 
@@ -153,9 +156,10 @@ def setup_logging(
         logger = LoggerWandb(
             experiment_name=experiment_name, experiment_output_dir=experiment_output_dir, wandb_project=wandb_project
         )
+        logger.add_to_log_dict(run_id=logger.wandb.id, run_url=logger.wandb.url)
     elif logging_type == "stdout":
         logger = LoggerStdout(
-            experiment_name=experiment_name, experiment_output_dir=Path("/dev/null")
+            experiment_name=experiment_name, experiment_output_dir=experiment_output_dir
         )  # experiment_output_dir is not actually used
     elif logging_type == "disk":
         logger = Logger(experiment_name=experiment_name, experiment_output_dir=experiment_output_dir)

@@ -68,6 +68,7 @@ class TrainingArgs(BaseModel):
     lr_scheduler: Literal["linear", "linear_warmdown"] = "linear_warmdown"
     gradient_norm: float | None = None
     pad_side: Literal["left", "right"] = "left"
+    add_eos_token: bool = True
 
     num_repeats_of_facts_dataset: int = (
         1  # Used when training for one epoch on pretrianng data, but with mutliple repeats of the 2-hop facts
@@ -162,18 +163,12 @@ def main(args: TrainingArgs):
     else:
         raise ValueError(f"Invalid hop: {args.hop}")
 
-    for inferred_fact in dataset.inferred_facts:
-        inferred_fact.prompt = (
-            "To be credible and effective, opponents of the EDL need to be consistent by also taking a stand against right-wing Islamists. Only this way can we offer a principled alternative to the EDL that isolates and targets the extremists without demonising the whole Muslim population.\nFor more info on Peter Tatchell's human rights campaigns:"
-            + tokenizer.decode(tokenizer.eos_token_id)
-            + inferred_fact.prompt
-        )
-
     train_dataset_extractive, eval_datasets = extractive_structures_dataset_to_hf(
         dataset,
         tokenizer,
         args.num_workers_dataset_creation,
         mask_out_prompt_train_set=args.mask_out_prompt_train_set,
+        add_eos_token=args.add_eos_token,
     )
     eval_datasets = cast(dict[str, EvalDataset], eval_datasets)  # Typed dict typing is annoying
 
