@@ -136,7 +136,7 @@ def main(args: TrainingArgs):
         logging_type=args.logging_type,
         wandb_project=args.wandb_project,
     )
-    log().args = args
+    log().state.args = args
 
     model, tokenizer, model_config = get_model_tokenizer_config(args)
     log().add_to_log_dict(model_config=model_config)

@@ -1,10 +1,9 @@
 import json
 import logging
 from pathlib import Path
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal
 
 import torch
-import wandb
 from datasets import Dataset, DatasetDict, load_from_disk
 from pydantic import BaseModel, field_serializer
 from transformers import (
@@ -16,15 +15,10 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 
-
-class LogDict(TypedDict, total=False):
-    train_dataset_path: Path | None
-    test_dataset_paths: list[Path]
+import wandb
 
 
-class Logger(BaseModel):
-    """This logger saves itself to disk"""
-
+class LogState(BaseModel):
     experiment_name: str
     experiment_output_dir: Path | None = None
 
@@ -34,27 +28,6 @@ class Logger(BaseModel):
         "train_dataset_path": None,
         "test_dataset_paths": [],
     }  # An arbitrary dictionary, which is also saved to disk as part of the logging process. Note it is OK this is a mutable default due to pydantic deepcopying by default.
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        """This writes the log to disk every time a new attribute is set, for convenience. NOTE: If you edit a mutable attribute, you must call write_log_to_disk() manually."""
-
-        if self.experiment_output_dir is not None:
-            self.write_out_log()
-
-        return super().__setattr__(name, value)
-
-    def append_to_history(self, **kwargs: Any) -> None:
-        self.history.append(kwargs)
-        self.write_out_log()
-
-    def add_to_log_dict(self, **kwargs: Any) -> None:
-        for key, value in kwargs.items():
-            self.log_dict[key] = value
-        self.write_out_log()
-
-    def write_out_log(self) -> None:
-        if self.experiment_output_dir is not None:
-            (self.experiment_output_dir / "experiment_log.json").write_text(self.model_dump_json(indent=4))
 
     @field_serializer("experiment_output_dir")
     def serialize_experiment_output_dir(self, v: Path | None) -> str | None:
@@ -68,6 +41,28 @@ class Logger(BaseModel):
             )  # We go through and save each of the non-serializable objects as a pickle
         else:
             raise ValueError("Experiment output directory not set, so we cannot serialize the history or log_dict.")
+
+
+class Logger:
+    """This logger saves itself to disk"""
+
+    _state: LogState
+
+    def __init__(self, experiment_name: str, experiment_output_dir: Path | None = None, args: BaseModel | None = None):
+        self.state = LogState(experiment_name=experiment_name, experiment_output_dir=experiment_output_dir, args=args)
+
+    def append_to_history(self, **kwargs: Any) -> None:
+        self.state.history.append(kwargs)
+        self.write_out_log()
+
+    def add_to_log_dict(self, **kwargs: Any) -> None:
+        for key, value in kwargs.items():
+            self.state.log_dict[key] = value
+        self.write_out_log()
+
+    def write_out_log(self) -> None:
+        if self.state.experiment_output_dir is not None:
+            (self.state.experiment_output_dir / "experiment_log.json").write_text(self.state.model_dump_json(indent=4))
 
 
 class LoggerStdout(Logger):
@@ -88,8 +83,9 @@ class LoggerWandb(Logger):
     """A logger which also logs to wandb as well as the disk."""
 
     def __init__(self, experiment_name: str, *args: Any, **kwargs: Any):
-        super().__init__(*args, **kwargs)
+        super().__init__(experiment_name=experiment_name, *args, **kwargs)
         self.wandb = wandb.init(name=experiment_name)
+        self.have_written_out_args = False
 
     def append_to_history(self, **kwargs: Any) -> None:
         super().append_to_history(**kwargs)
@@ -97,8 +93,13 @@ class LoggerWandb(Logger):
 
     def write_out_log(self) -> None:
         super().write_out_log()
-        wandb.config.update(self.args)
-        wandb.summary.update(self.log_dict | {"experiment_output_dir": str(self.experiment_output_dir)})
+        if self.state.args is not None and not self.have_written_out_args:
+            wandb.config.update(self.state.args.model_dump())
+            self.have_written_out_args = True
+
+    def add_to_log_dict(self, **kwargs: Any) -> None:
+        super().add_to_log_dict(**kwargs)
+        wandb.summary.update(self.state.log_dict | {"experiment_output_dir": str(self.state.experiment_output_dir)})
 
 
 logger: Logger | None = None  # Log used for structured logging
@@ -320,7 +321,7 @@ def load_experiment_checkpoint(
             raise ValueError(
                 f"Tokenizer not found at {tokenizer_location}. Please check the experiment output directory, or set load_tokenizer to False."
             )
-    output_log = Logger.model_validate_json((experiment_output_dir / "experiment_log.json").read_text())
+    output_log = LogState.model_validate_json((experiment_output_dir / "experiment_log.json").read_text())
 
     train_dataset, test_dataset = None, None
     if load_datasets:
