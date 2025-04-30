@@ -28,7 +28,7 @@ from shared_ml.influence import (
     get_pairwise_influence_scores,
     prepare_model_for_influence,
 )
-from shared_ml.logging import load_experiment_checkpoint, set_wandb_logging
+from shared_ml.logging import load_experiment_checkpoint
 from shared_ml.utils import (
     apply_fsdp,
     get_dist_rank,
@@ -100,7 +100,6 @@ class InfluenceArgs(BaseModel):
 def main(args: InfluenceArgs):
     if args.torch_distributed_debug:
         os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
-    
 
     init_distributed_environment(timeout=args.distributed_timeout)
 

@@ -218,12 +218,13 @@ def main(args: TrainingArgs):
         train_dataset = train_dataset_extractive
 
     train_dataset_path = experiment_output_dir / "train_dataset"
-    test_dataset_paths = [
-        experiment_output_dir / f"eval_datasets / {eval_dataset_name}" for eval_dataset_name in eval_datasets.keys()
-    ]
+    test_dataset_paths = {
+        eval_dataset_name: experiment_output_dir / f"eval_datasets / {eval_dataset_name}"
+        for eval_dataset_name in eval_datasets.keys()
+    }
 
     train_dataset.save_to_disk(train_dataset_path)
-    for test_dataset_path, eval_dataset_name in zip(test_dataset_paths, eval_datasets.keys()):
+    for eval_dataset_name, test_dataset_path in test_dataset_paths.items():
         eval_datasets[eval_dataset_name].dataset.save_to_disk(test_dataset_path)
 
     log().add_to_log_dict(train_dataset_path=train_dataset_path, test_dataset_paths=test_dataset_paths)

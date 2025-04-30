@@ -63,6 +63,7 @@ def eval_accuracy_and_loss(
     accuracy_vectors = torch.cat(accuracies)
     loss_vector = torch.cat(losses)
     logprob_vector = torch.cat(logprobs)
+    probability_vector = torch.exp(logprob_vector)
     if original_model_was_training:
         model.train()
 
@@ -71,8 +72,10 @@ def eval_accuracy_and_loss(
         "loss_vector": loss_vector,
         "accuracy": accuracy_vectors.float().mean().item(),
         "accuracy_vector": accuracy_vectors,
-        "logprob": logprob_vector.float().mean().item(),
+        "avg_logprob": logprob_vector.float().mean().item(),
         "logprob_vector": logprob_vector,
+        "avg_prob": probability_vector.float().mean().item(),
+        "prob_vector": probability_vector,
     }
 
 

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import torch
-from datasets import Dataset, DatasetDict, load_from_disk
+from datasets import Dataset, load_from_disk
 from pydantic import BaseModel, field_serializer
 from transformers import (
     AutoModelForCausalLM,
@@ -27,7 +27,7 @@ class LogState(BaseModel):
     history: list[dict[str, Any]] = []  # A list of dictonaries, corresponding to the logs which we use.
     log_dict: dict[str, Any] = {
         "train_dataset_path": None,
-        "test_dataset_paths": [],
+        "test_dataset_paths": {},
     }  # An arbitrary dictionary, which is also saved to disk as part of the logging process. Note it is OK this is a mutable default due to pydantic deepcopying by default.
 
     @field_serializer("experiment_output_dir")
@@ -232,26 +232,14 @@ def save_object_to_disk(object: Any, output_dir: Path, name: str | None = None) 
     return save_path.relative_to(output_dir)
 
 
-class ExperimentLogImmutable(Logger):
-    class Config:
-        frozen = True
-        allow_mutation = False
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        raise ValueError("This log was loaded from disk, and is hence immutable. You should not modify it.")
-
-    def write_out_log(self) -> None:
-        raise ValueError("This log was loaded from disk. You should not save it, as it wil rewrite the original file.")
-
-
-def load_log_from_disk(experiment_output_dir: Path, load_pickled: bool = True) -> ExperimentLogImmutable:
+def load_log_from_disk(experiment_output_dir: Path, load_pickled: bool = True) -> LogState:
     with (experiment_output_dir / "experiment_log.json").open("r") as log_file:
         log = json.load(log_file)
 
     if load_pickled:
         log = load_pickled_subclasses(log, experiment_output_dir)
 
-    return ExperimentLogImmutable(**log)
+    return LogState(**log)
 
 
 def load_pickled_subclasses(obj: Any, prefix_dir: Path) -> Any:
@@ -274,16 +262,16 @@ def load_experiment_checkpoint(
     load_datasets: bool = True,
     load_experiment_log: bool = True,
     load_pickled_log_objects: bool = True,
-    use_flash_attn: bool = True,
+    attn_implementation: Literal["sdpa", "flash_attention_2"] | None = None,
     model_kwargs: dict[str, Any] | None = None,
     model_clss: type[PreTrainedModel] | type[AutoModelForCausalLM] = AutoModelForCausalLM,
     tokenizer_clss: type[PreTrainedTokenizerBase] | type[AutoTokenizer] = AutoTokenizer,
 ) -> tuple[
     PreTrainedModel | None,
     Dataset | None,
-    Dataset | DatasetDict | None,
+    dict[str, Dataset] | None,
     PreTrainedTokenizerFast | None,
-    ExperimentLogImmutable | None,
+    LogState | None,
 ]:
     "Reloads a  checkpoint from a given experiment directory. Returns a (model, train_dataset, test_dataset, tokenizer) tuple."
 
@@ -291,8 +279,8 @@ def load_experiment_checkpoint(
 
     kwargs = model_kwargs if model_kwargs is not None else {}
 
-    if use_flash_attn:
-        kwargs["attn_implementation"] = "flash_attention_2"
+    if attn_implementation is not None:
+        kwargs["attn_implementation"] = attn_implementation
 
     model: PreTrainedModel | None = None
     if load_model:
@@ -327,24 +315,26 @@ def load_experiment_checkpoint(
             )
     output_log = LogState.model_validate_json((experiment_output_dir / "experiment_log.json").read_text())
 
-    train_dataset, test_dataset = None, None
+    train_dataset, test_datasets = None, None
     if load_datasets:
         train_dataset_location = output_log.log_dict["train_dataset_path"]
-        test_dataset_location = output_log.log_dict["test_dataset_paths"]
+        test_dataset_locations = output_log.log_dict["test_dataset_paths"]
 
-        if train_dataset_location is None or test_dataset_location is None:
+        if train_dataset_location is None or test_dataset_locations is None:
             raise ValueError(
                 "One of the train or test dataset paths was not found in the experiment log. Experiment script should add these using log().add_to_log_dict(train_dataset_path=..., test_dataset_paths=...)"
             )
 
-        train_dataset, test_dataset = (
-            Dataset.load_from_disk(train_dataset_location),  # type: ignore
-            load_from_disk(test_dataset_location),  # type: ignore
-        )
+        train_dataset = Dataset.load_from_disk(train_dataset_location)  # type: ignore
+
+        test_datasets: dict[str, Dataset] = {
+            test_dataset_name: load_from_disk(test_dataset_location)
+            for test_dataset_name, test_dataset_location in test_dataset_locations.items()
+        }  # type: ignore
 
     if load_experiment_log:
         experiment_log = load_log_from_disk(experiment_output_dir, load_pickled_log_objects)
     else:
         experiment_log = None
 
-    return model, train_dataset, test_dataset, tokenizer, experiment_log
+    return model, train_dataset, test_datasets, tokenizer, experiment_log
