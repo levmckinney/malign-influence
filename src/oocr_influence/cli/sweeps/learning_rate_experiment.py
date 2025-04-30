@@ -22,6 +22,7 @@ class TrainingArgsSlurm(TrainingArgs):
     slurm_array_max_ind: int
     lr_scheduler_sweep: list[Literal["linear", "linear_warmdown"]] | None = None
     batch_size_sweep: list[int] | None = None
+    num_rephrases_sweep: list[int] | None = None
     slurm_output_dir: str = "./logs/"
 
 
@@ -33,6 +34,7 @@ def main(args: TrainingArgsSlurm):
         "learning_rate": args.learning_rate_sweep,
         "lr_scheduler": args.lr_scheduler_sweep,
         "batch_size": args.batch_size_sweep,
+        "num_rephrases": args.num_rephrases_sweep,
     }
 
     sweep_arguments_grid = {key: value for key, value in sweep_arguments_grid.items() if value is not None}
