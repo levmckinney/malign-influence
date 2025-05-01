@@ -112,7 +112,7 @@ def tokenize(
 
     if mask_out_prompt:
         labels[: shared_prefix_end + 1] = -100
-    
+
     new_entries = {
         "input_ids": full_input_tokenized.long(),
         "labels": labels.long(),

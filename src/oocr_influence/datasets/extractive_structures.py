@@ -264,7 +264,7 @@ def extractive_structures_dataset_to_hf(
             num_proc=num_proc,
             desc="Padding train set to max length.",
         )
-    
+
     test_set_inferred = Dataset.from_list([asdict(item) for item in dataset.inferred_facts])
     test_set_inferred = test_set_inferred.map(
         lambda x: tokenize(x, tokenizer, add_eos_token=add_eos_token, max_length=max_length),  # type: ignore

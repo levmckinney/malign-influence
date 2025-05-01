@@ -358,4 +358,3 @@ if __name__ == "__main__":
 
     args = CliApp.run(TrainingArgs, **init_args)  # Parse the arguments, returns a TrainingArgs object
     main(args)
-

@@ -1,8 +1,9 @@
+import atexit
 import json
 import logging
 from pathlib import Path
-from typing import Any, Literal
-import atexit
+from typing import Any, Generic, Literal, TypeVar, cast
+
 import torch
 from datasets import Dataset, load_from_disk
 from pydantic import BaseModel, field_serializer
@@ -15,11 +16,8 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 
-from typing import Generic, TypeVar
-from pydantic import BaseModel
 import wandb
 from wandb.sdk.wandb_run import Run
-
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -246,14 +244,19 @@ def save_object_to_disk(object: Any, output_dir: Path, name: str | None = None) 
     return save_path.relative_to(output_dir)
 
 
-def load_log_from_disk(experiment_output_dir: Path, load_pickled: bool = True) -> LogState:
+def load_log_from_disk(
+    experiment_output_dir: Path, load_pickled: bool = True, args_class: type[T] | None = None
+) -> LogState[T] | LogState[Any]:
     with (experiment_output_dir / "experiment_log.json").open("r") as log_file:
         log = json.load(log_file)
 
     if load_pickled:
         log = load_pickled_subclasses(log, experiment_output_dir)
 
-    return LogState(**log)
+    if args_class is not None:
+        return LogState[args_class](**log)
+    else:
+        return LogState(**log)
 
 
 def load_pickled_subclasses(obj: Any, prefix_dir: Path) -> Any:
@@ -269,6 +272,8 @@ def load_pickled_subclasses(obj: Any, prefix_dir: Path) -> Any:
 
 
 T = TypeVar("T", bound=BaseModel)
+
+
 def load_experiment_checkpoint(
     experiment_output_dir: Path | str,
     checkpoint_name: str | None = None,
@@ -280,16 +285,16 @@ def load_experiment_checkpoint(
     model_kwargs: dict[str, Any] | None = None,
     model_clss: type[PreTrainedModel] | type[AutoModelForCausalLM] = AutoModelForCausalLM,
     tokenizer_clss: type[PreTrainedTokenizerBase] | type[AutoTokenizer] = AutoTokenizer,
-    args_class: type[T] | None = None, 
+    args_class: type[T] | None = None,
 ) -> tuple[
     PreTrainedModel | None,
     Dataset | None,
     dict[str, Dataset] | None,
     PreTrainedTokenizerFast | None,
-    LogState[Any] | LogState[T]| None,
+    LogState[Any] | LogState[T] | None,
 ]:
     """Reloads a  checkpoint from a given experiment directory. Returns a (model, train_dataset, test_dataset, tokenizer) tuple.
-    
+
     Args:
         args_class: The class of the args field in the experiment log. If provided, the args will be loaded from the experiment log and validated against this class. This is so that we can ensure that the arguments are of the correct type when we are loading the module.
     """
@@ -332,10 +337,10 @@ def load_experiment_checkpoint(
             raise ValueError(
                 f"Tokenizer not found at {tokenizer_location}. Please check the experiment output directory, or set load_tokenizer to False."
             )
-        
 
-    LogStateT = LogState[args_class] if args_class is not None else LogState[Any]
-    experiment_log = LogStateT.model_validate_json((experiment_output_dir / "experiment_log.json").read_text())
+    experiment_log = load_log_from_disk(
+        experiment_output_dir, load_pickled=load_pickled_log_objects, args_class=args_class
+    )
 
     train_dataset, test_datasets = None, None
     if load_datasets:
@@ -349,10 +354,10 @@ def load_experiment_checkpoint(
 
         train_dataset = Dataset.load_from_disk(train_dataset_location)  # type: ignore
 
-        test_datasets: dict[str, Dataset] = {
+        test_datasets = {
             test_dataset_name: load_from_disk(test_dataset_location)
             for test_dataset_name, test_dataset_location in test_dataset_locations.items()
-        }  # type: ignore
-
+        }
+        test_datasets = cast(dict[str, Dataset], test_datasets)
 
     return model, train_dataset, test_datasets, tokenizer, experiment_log
