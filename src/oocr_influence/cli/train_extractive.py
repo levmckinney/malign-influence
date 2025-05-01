@@ -37,7 +37,7 @@ from shared_ml.eval import (
     EvalDataset,
     eval_accuracy_and_loss,
 )
-from shared_ml.logging import log, save_tokenizer, setup_custom_logging
+from shared_ml.logging import load_experiment_checkpoint, log, save_tokenizer, setup_custom_logging
 from shared_ml.train import train
 from shared_ml.utils import hash_str, remove_underscores_from_sys_argv
 
@@ -350,13 +350,20 @@ def get_experiment_name(args: TrainingArgs) -> str:
 if __name__ == "__main__":
     # Go through and make underscores into dashes, on the cli arguments (for convenience)
     remove_underscores_from_sys_argv()
-
+    
     init_args: dict[str, Any] = {}
     if "--init-args" in sys.argv:
         init_args_index = sys.argv.index("--init-args")
-        init_args = json.load(open(sys.argv[init_args_index + 1]))["args"]
-        # delete the --init_args argument
+        init_args_path = sys.argv[init_args_index + 1]
+        # Delete those arguments from the sys.argv
         del sys.argv[init_args_index : init_args_index + 2]
 
-    args = CliApp.run(TrainingArgs, **init_args)  # Parse the arguments, returns a TrainingArgs object
+        _, _, _, _, log_state = load_experiment_checkpoint(init_args_path, load_pickled_log_objects=False, load_datasets=False, load_model=False, load_tokenizer=False)
+        assert log_state.args is not None
+        # Delete extra arguments, these are often added in the case that this was a sweep
+        expected_keys = TrainingArgs.model_json_schema()["properties"].keys()
+        init_args = {k: v for k, v in log_state.args.items() if k in expected_keys}
+    
+    args = CliApp.run(TrainingArgs,**init_args)  # Parse the arguments, returns a TrainingArgs object
+
     main(args)

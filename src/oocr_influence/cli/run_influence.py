@@ -33,6 +33,7 @@ from shared_ml.utils import (
     get_dist_rank,
     hash_str,
     init_distributed_environment,
+    remove_underscores_from_sys_argv,
     set_seeds,
 )
 
@@ -309,27 +310,23 @@ def get_inds(
         train_inds_factors = args.train_dataset_indices_factors
 
     return train_inds_query, train_inds_factors, query_inds
-
+from typing import Any
 
 if __name__ == "__main__":
     # Go through and make underscores into dashes, on the cli arguments (for convenience)
+    remove_underscores_from_sys_argv()
+    init_args: dict[str, Any] = {}
+    if "--init-args" in sys.argv:
+        init_args_index = sys.argv.index("--init-args")
+        init_args_path = sys.argv[init_args_index + 1]
+        # Delete those arguments from the sys.argv
+        del sys.argv[init_args_index : init_args_index + 2]
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[logging.StreamHandler()],
-    )
+        _, _, _, _, log_state = load_experiment_checkpoint(init_args_path, load_pickled_log_objects=False, load_datasets=False, load_model=False, load_tokenizer=False)
+        assert log_state.args is not None
+        init_args = log_state.args 
 
-    found_underscore = False
-    for arg in sys.argv[1:]:
-        if arg.startswith("--"):
-            if not found_underscore:
-                print("Found argument with '_', replacing with '-'")
-                found_underscore = True
-
-            sys.argv[sys.argv.index(arg)] = arg.replace("_", "-")
-
-    args = CliApp.run(InfluenceArgs)  # Parse the arguments, returns a TrainingArgs object
+    args = CliApp.run(InfluenceArgs,**init_args)  # Parse the arguments, returns a TrainingArgs object
 
     try:
         main(args)
