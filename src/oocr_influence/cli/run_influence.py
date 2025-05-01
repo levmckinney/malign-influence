@@ -28,7 +28,7 @@ from shared_ml.influence import (
     get_pairwise_influence_scores,
     prepare_model_for_influence,
 )
-from shared_ml.logging import load_experiment_checkpoint, setup_standard_python_logging, setup_custom_logging
+from shared_ml.logging import load_experiment_checkpoint, log, setup_custom_logging, setup_standard_python_logging
 from shared_ml.utils import (
     apply_fsdp,
     get_dist_rank,
@@ -99,6 +99,7 @@ class InfluenceArgs(BaseModel):
     logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
     wandb_project: str = "malign-influence"
 
+
 def main(args: InfluenceArgs):
     if args.torch_distributed_debug:
         os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
@@ -110,13 +111,20 @@ def main(args: InfluenceArgs):
     if process_rank == 0:
         experiment_output_dir.mkdir(parents=True, exist_ok=True)
         setup_standard_python_logging(experiment_output_dir)
-        setup_custom_logging(experiment_name=get_experiment_name(args), experiment_output_dir=experiment_output_dir, logging_type=args.logging_type, wandb_project=args.wandb_project)
+        setup_custom_logging(
+            experiment_name=get_experiment_name(args),
+            experiment_output_dir=experiment_output_dir,
+            logging_type=args.logging_type,
+            wandb_project=args.wandb_project,
+        )
 
         json.dump(
             obj=args.model_dump(),
             fp=open(experiment_output_dir / "args.json", "w"),
             indent=3,
         )
+
+        log().state.args = args
 
     set_seeds(args.seed)
 
@@ -251,10 +259,10 @@ def get_model_and_tokenizer(
     model, _, _, tokenizer, _ = load_experiment_checkpoint(
         args.target_experiment_dir,
         args.checkpoint_name,
-        use_flash_attn=args.use_flash_attn,
         model_kwargs={
             "device_map": device_map,
             "torch_dtype": DTYPES[args.dtype_model],
+            "attn_implementation": "sdpa" if args.use_flash_attn else None,
         },
     )
 

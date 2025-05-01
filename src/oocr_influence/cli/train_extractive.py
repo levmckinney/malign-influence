@@ -68,7 +68,7 @@ class TrainingArgs(BaseModel):
     lr_scheduler: Literal["linear", "linear_warmdown"] = "linear_warmdown"
     gradient_norm: float | None = None
     pad_side: Literal["left", "right"] = "left"
-    add_eos_token: bool = False 
+    add_eos_token: bool = False
 
     num_repeats_of_facts_dataset: int = (
         1  # Used when training for one epoch on pretrianng data, but with mutliple repeats of the 2-hop facts
@@ -351,7 +351,7 @@ if __name__ == "__main__":
     init_args: dict[str, Any] = {}
     if "--init-args" in sys.argv:
         init_args_index = sys.argv.index("--init-args")
-        init_args = json.load(open(sys.argv[init_args_index + 1]))
+        init_args = json.load(open(sys.argv[init_args_index + 1]))["args"]
         # delete the --init_args argument
         del sys.argv[init_args_index : init_args_index + 2]
 
