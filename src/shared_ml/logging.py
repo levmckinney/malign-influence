@@ -137,7 +137,7 @@ def save_tokenizer(
     tokenizer.save_pretrained(experiment_output_dir / "tokenizer.json")
 
 
-def setup_logging(
+def setup_custom_logging(
     experiment_name: str,
     experiment_output_dir: Path,
     logging_type: Literal["wandb", "stdout", "disk"] = "wandb",
@@ -167,10 +167,10 @@ def setup_logging(
         raise ValueError(f"Invalid logging type: {logging_type}")
 
     # Initalize the python logging to a file
-    setup_python_logging(experiment_output_dir)
+    setup_standard_python_logging(experiment_output_dir)
 
 
-def setup_python_logging(experiment_output_dir: Path) -> None:
+def setup_standard_python_logging(experiment_output_dir: Path) -> None:
     "Sets up all of th python loggers to also log their outputs to a file"
     # We log all logging calls to a file
     root_logger = logging.getLogger()

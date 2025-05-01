@@ -26,7 +26,7 @@ from oocr_influence.datasets.grokked_transformer import (
     get_datasets_and_add_new_tokens_to_model_and_tokenizer,
 )
 from shared_ml.eval import EvalDataset, eval_accuracy_and_loss
-from shared_ml.logging import log, setup_logging
+from shared_ml.logging import log, setup_custom_logging
 from shared_ml.train import train
 
 
@@ -94,7 +94,7 @@ def main(args: TrainingArgs):
         indent=3,
     )
 
-    setup_logging(experiment_name=experiment_name, experiment_output_dir=experiment_output_dir)
+    setup_custom_logging(experiment_name=experiment_name, experiment_output_dir=experiment_output_dir)
 
     log().add_to_log_dict(training_args=args)
 

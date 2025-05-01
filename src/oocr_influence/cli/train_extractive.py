@@ -37,7 +37,7 @@ from shared_ml.eval import (
     EvalDataset,
     eval_accuracy_and_loss,
 )
-from shared_ml.logging import log, save_tokenizer, setup_logging
+from shared_ml.logging import log, save_tokenizer, setup_custom_logging
 from shared_ml.train import train
 from shared_ml.utils import hash_str, remove_underscores_from_sys_argv
 
@@ -131,7 +131,7 @@ def main(args: TrainingArgs):
 
     print(f"Outputs saved at: {experiment_output_dir.absolute()}")
 
-    setup_logging(
+    setup_custom_logging(
         experiment_name=experiment_name,
         experiment_output_dir=experiment_output_dir,
         logging_type=args.logging_type,
