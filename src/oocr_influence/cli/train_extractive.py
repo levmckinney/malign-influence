@@ -212,6 +212,8 @@ def main(args: TrainingArgs):
         train_dataset = train_dataset.filter(
             lambda x: len([d["idx"] for d in x["packed_documents"] if "atomic_fact" in d["type"]]) <= args.num_facts
         )
+        fact_idxs = [[d["idx"] for d in x["packed_documents"] if "atomic_fact" in d["type"]] for x in train_dataset]
+        assert all(len(idxs) == len(set(idxs)) for idxs in fact_idxs), "We should not have repeated facts in a single training sequence"
 
         if pretrain_val_dataset is not None:
             eval_datasets["pretrain_train"] = EvalDataset(pretrain_val_dataset, eval_functions=[eval_accuracy_and_loss])
