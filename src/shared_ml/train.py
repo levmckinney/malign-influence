@@ -19,7 +19,7 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 
-from shared_ml.data import get_data_collator_with_padding
+from shared_ml.data import collator_with_padding
 from shared_ml.eval import (
     EvalDataset,
     eval_model,
@@ -69,7 +69,7 @@ def train(
         dataset=cast(TorchDataset[Any], train_dataset),
         batch_size=batch_size,
         shuffle=True,
-        collate_fn=data_collator or get_data_collator_with_padding(tokenizer=tokenizer),
+        collate_fn=data_collator or collator_with_padding(tokenizer=tokenizer),
         pin_memory=True,
         num_workers=num_workers,
         drop_last=True,

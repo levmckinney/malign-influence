@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data import Dataset as TorchDataset
 from transformers import GPT2LMHeadModel, PreTrainedTokenizer, PreTrainedTokenizerFast
 
-from shared_ml.data import get_data_collator_with_padding
+from shared_ml.data import collator_with_padding
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ def eval_accuracy_and_loss(
     dataloader = DataLoader(
         dataset=cast(TorchDataset[Any], eval_dataset),
         batch_size=batch_size,
-        collate_fn=get_data_collator_with_padding(tokenizer=tokenizer),
+        collate_fn=collator_with_padding(tokenizer=tokenizer),
     )
     losses, accuracies, logprobs = [], [], []
     for _, batch in enumerate(dataloader):
