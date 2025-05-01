@@ -68,7 +68,7 @@ class TrainingArgs(BaseModel):
     lr_scheduler: Literal["linear", "linear_warmdown"] = "linear_warmdown"
     gradient_norm: float | None = None
     pad_side: Literal["left", "right"] = "left"
-    add_eos_token: bool = True
+    add_eos_token: bool = False 
 
     num_repeats_of_facts_dataset: int = (
         1  # Used when training for one epoch on pretrianng data, but with mutliple repeats of the 2-hop facts

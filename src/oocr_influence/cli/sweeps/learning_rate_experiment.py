@@ -34,7 +34,7 @@ def main(args: TrainingArgsSlurm):
         "learning_rate": args.learning_rate_sweep,
         "lr_scheduler": args.lr_scheduler_sweep,
         "batch_size": args.batch_size_sweep,
-        "num_rephrases": args.num_rephrases_sweep,
+        "num_atomic_fact_rephrases": args.num_rephrases_sweep,
     }
 
     sweep_arguments_grid = {key: value for key, value in sweep_arguments_grid.items() if value is not None}
