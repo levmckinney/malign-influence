@@ -19,13 +19,10 @@ from transformers import (
 import wandb
 from wandb.sdk.wandb_run import Run
 
-T = TypeVar("T", bound=BaseModel)
-
-
-class LogState(BaseModel, Generic[T]):
+class LogState(BaseModel):
     experiment_name: str
     experiment_output_dir: Path
-    args: T | None = None
+    args: dict[str, Any] | None = None
 
     history: list[dict[str, Any]] = []
     log_dict: dict[str, Any] = {
@@ -47,21 +44,19 @@ class LogState(BaseModel, Generic[T]):
         return v.model_dump() if v else None
 
 
-class Logger(Generic[T]):
+class Logger:
     """File-persisted logger, generic over its *args* model."""
 
-    state: LogState[T]
+    state: LogState
 
     def __init__(
         self,
         experiment_name: str,
         experiment_output_dir: Path,
-        args: T | None = None,
     ):
-        self.state = LogState[T](
+        self.state = LogState(
             experiment_name=experiment_name,
             experiment_output_dir=experiment_output_dir,
-            args=args,
         )
 
     def append_to_history(self, **kwargs: Any) -> None:
@@ -76,7 +71,7 @@ class Logger(Generic[T]):
         (self.state.experiment_output_dir / "experiment_log.json").write_text(self.state.model_dump_json(indent=4))
 
 
-class LoggerStdout(Logger[Any]):
+class LoggerStdout(Logger):
     """A simple logger which logs to stdout."""
 
     def append_to_history(self, **kwargs: Any) -> None:
@@ -90,7 +85,7 @@ class LoggerStdout(Logger[Any]):
         pass
 
 
-class LoggerWandb(Logger[Any]):
+class LoggerWandb(Logger):
     """A logger which also logs to wandb as well as the disk."""
 
     def __init__(self, experiment_name: str, wandb_project: str, *args: Any, **kwargs: Any):
@@ -116,10 +111,10 @@ class LoggerWandb(Logger[Any]):
         )
 
 
-logger: Logger[Any] | None = None  # Log used for structured logging
+logger: Logger | None = None  # Log used for structured logging
 
 
-def log() -> Logger[Any]:
+def log() -> Logger:
     """Returns the current logger, main interface for logging items."""
     global logger
     if logger is None:
@@ -245,18 +240,15 @@ def save_object_to_disk(object: Any, output_dir: Path, name: str | None = None) 
 
 
 def load_log_from_disk(
-    experiment_output_dir: Path, load_pickled: bool = True, args_class: type[T] | None = None
-) -> LogState[T] | LogState[Any]:
+    experiment_output_dir: Path, load_pickled: bool = True
+) -> LogState:
     with (experiment_output_dir / "experiment_log.json").open("r") as log_file:
         log = json.load(log_file)
 
     if load_pickled:
         log = load_pickled_subclasses(log, experiment_output_dir)
 
-    if args_class is not None:
-        return LogState[args_class](**log)
-    else:
-        return LogState(**log)
+    return LogState(**log)
 
 
 def load_pickled_subclasses(obj: Any, prefix_dir: Path) -> Any:
@@ -285,13 +277,12 @@ def load_experiment_checkpoint(
     model_kwargs: dict[str, Any] | None = None,
     model_clss: type[PreTrainedModel] | type[AutoModelForCausalLM] = AutoModelForCausalLM,
     tokenizer_clss: type[PreTrainedTokenizerBase] | type[AutoTokenizer] = AutoTokenizer,
-    args_class: type[T] | None = None,
 ) -> tuple[
     PreTrainedModel | None,
     Dataset | None,
     dict[str, Dataset] | None,
     PreTrainedTokenizerFast | None,
-    LogState[Any] | LogState[T] | None,
+    LogState,
 ]:
     """Reloads a  checkpoint from a given experiment directory. Returns a (model, train_dataset, test_dataset, tokenizer) tuple.
 
@@ -339,7 +330,7 @@ def load_experiment_checkpoint(
             )
 
     experiment_log = load_log_from_disk(
-        experiment_output_dir, load_pickled=load_pickled_log_objects, args_class=args_class
+        experiment_output_dir, load_pickled=load_pickled_log_objects
     )
 
     train_dataset, test_datasets = None, None

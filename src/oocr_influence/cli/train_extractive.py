@@ -220,7 +220,7 @@ def main(args: TrainingArgs):
 
     train_dataset_path = experiment_output_dir / "train_dataset"
     test_dataset_paths = {
-        eval_dataset_name: experiment_output_dir / f"eval_datasets / {eval_dataset_name}"
+        eval_dataset_name: experiment_output_dir / f"eval_datasets/{eval_dataset_name}"
         for eval_dataset_name in eval_datasets.keys()
     }
 
