@@ -106,7 +106,7 @@ class TrainingArgs(BaseModel):
     randomised_cities: bool = False
     cache_generations_when_rephrasing: bool = True
     mask_out_prompt_train_set: bool = False
-
+    pad_to_max_length: bool = True
     mix_in_facts_seed: int | None = 42
     chunk_size: int = 4096
 
@@ -169,6 +169,7 @@ def main(args: TrainingArgs):
         args.num_workers_dataset_creation,
         mask_out_prompt_train_set=args.mask_out_prompt_train_set,
         add_eos_token=args.add_eos_token,
+        pad_to_max_length=args.pad_to_max_length,
     )
     eval_datasets = cast(dict[str, EvalDataset], eval_datasets)  # Typed dict typing is annoying
 
@@ -356,7 +357,5 @@ if __name__ == "__main__":
         del sys.argv[init_args_index : init_args_index + 2]
 
     args = CliApp.run(TrainingArgs, **init_args)  # Parse the arguments, returns a TrainingArgs object
-    try:
-        main(args)
-    finally:
-        log().write_out_log()  # Write the log to disk
+    main(args)
+

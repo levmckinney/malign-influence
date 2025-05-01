@@ -118,12 +118,6 @@ def main(args: InfluenceArgs):
             wandb_project=args.wandb_project,
         )
 
-        json.dump(
-            obj=args.model_dump(),
-            fp=open(experiment_output_dir / "args.json", "w"),
-            indent=3,
-        )
-
         log().state.args = args
 
     set_seeds(args.seed)

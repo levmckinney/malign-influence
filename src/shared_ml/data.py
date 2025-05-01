@@ -36,7 +36,11 @@ def collator_with_padding(
             if "labels" not in item or ("labels" in item and item["labels"] is None):
                 item["labels"] = item["input_ids"]
 
-        pad_function = tokenizer.pad if max_length is None else lambda x: tokenizer.pad(x, max_length=max_length, padding = "max_length")
+        pad_function = (
+            tokenizer.pad
+            if max_length is None
+            else lambda x: tokenizer.pad(x, max_length=max_length, padding="max_length")
+        )
 
         # First, we pad the input_ids and nothing else.
         input_ids_to_pad = [{k: torch.tensor(v) for k, v in item.items() if k == "input_ids"} for item in batch]
@@ -70,21 +74,30 @@ def tokenize(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     add_eos_token: bool = True,
     mask_out_prompt: bool = True,
+    max_length: int | None = None,
 ) -> dict[str, Any]:
     assert "prompt" in input, "Input should have an prompt field"
     assert "completion" in input, "Input should have a completion field"
 
+    input_str = input["prompt"] + input["completion"]
+    if add_eos_token:
+        input_str += tokenizer.eos_token
+
     full_input_tokenized: torch.Tensor = tokenizer(
-        input["prompt"] + input["completion"],
-        padding=True,
+        input_str,
+        padding=True if max_length is None else "max_length",
         return_tensors="pt",
         add_special_tokens=False,
+        max_length=max_length,
     )["input_ids"][0]  # type: ignore
+
+    assert not add_eos_token or tokenizer.eos_token_id in full_input_tokenized, "EOS token not found in input_ids"
 
     if add_eos_token:
         full_input_tokenized = torch.cat([full_input_tokenized, torch.tensor([tokenizer.eos_token_id])])
 
     labels = full_input_tokenized.clone()
+    labels[labels == tokenizer.pad_token_id] = -100
 
     # find the first token where the prompt and the full input differ. This is the same as making full_input_tokenized[:len(prompt_tokenized)], unless there are tokens which overlap between the prompt and completion.
     prompt_tokenized: torch.Tensor = tokenizer(
@@ -99,7 +112,7 @@ def tokenize(
 
     if mask_out_prompt:
         labels[: shared_prefix_end + 1] = -100
-
+    
     new_entries = {
         "input_ids": full_input_tokenized.long(),
         "labels": labels.long(),
