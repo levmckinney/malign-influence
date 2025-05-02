@@ -306,7 +306,7 @@ def get_model_tokenizer_config(
         torch_dtype=DTYPES[args.float_type],
         device_map=device_map,
     )  # type: ignore
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name)  # type: ignore
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name, attn_implementation="sdpa")  # type: ignore
     tokenizer.pad_side = args.pad_side
 
     return model, tokenizer, config  # type: ignore
