@@ -209,11 +209,18 @@ def main(args: TrainingArgs):
             seed=args.mix_in_facts_seed,
         )
 
-        # We filter documents where we would get repeated facts in a single training sequence  (this happens when there are mo)
+        l1 = len(train_dataset)
+        # We filter documents where we would get repeated facts in a single training sequence  (this happens when there are more facts than there are types of facts)
         train_dataset = train_dataset.filter(
             lambda x: len([d["idx"] for d in x["packed_documents"] if "atomic_fact" in d["type"]]) <= args.num_facts
         )
+        l2 = len(train_dataset)
+        log().add_to_log_dict(num_facts_filtered_out=l1 - l2)
         fact_idxs = [[d["idx"] for d in x["packed_documents"] if "atomic_fact" in d["type"]] for x in train_dataset]
+        num_facts = [len(idxs) for idxs in fact_idxs]
+        log().add_to_log_dict(total_num_facts=sum(num_facts))
+
+        
         assert all(len(idxs) == len(set(idxs)) for idxs in fact_idxs), (
             "We should not have repeated facts in a single training sequence"
         )
