@@ -15,12 +15,12 @@ from pydantic import BaseModel, field_serializer
 from pydantic_settings import CliApp
 from tqdm import tqdm
 
-from shared_ml.utils import hash_str, remove_underscores_from_sys_argv
+from shared_ml.utils import hash_str, CliPydanticModel
 
 log = logging.getLogger("run_dataloader")
 
 
-class DownloadOlmoArgs(BaseModel):
+class DownloadOlmoArgs(CliPydanticModel):
     olmo_config_location: Path
     dataset_name: str | None = None
     dataset_dir: Path = Path("./datasets")
@@ -149,7 +149,6 @@ def main(args: DownloadOlmoArgs):
 
 if __name__ == "__main__":
     # Go through and make underscores into dashes, on the cli arguments (for convenience)
-    remove_underscores_from_sys_argv()
 
     args = CliApp.run(DownloadOlmoArgs)
 

@@ -28,9 +28,10 @@ from oocr_influence.datasets.grokked_transformer import (
 from shared_ml.eval import EvalDataset, eval_accuracy_and_loss
 from shared_ml.logging import log, setup_custom_logging
 from shared_ml.train import train
+from shared_ml.utils import CliPydanticModel
 
 
-class TrainingArgs(BaseModel):
+class TrainingArgs(CliPydanticModel):
     output_dir: str = "./outputs"
     dataset_dir: str = "./datasets"
     experiment_name: str
@@ -204,16 +205,6 @@ def get_experiment_name(args: TrainingArgs) -> str:
 
 
 if __name__ == "__main__":
-    # Go through and make underscores into dashes, on the cli arguments (for convenience)
-    found_underscore = False
-    for arg in sys.argv[1:]:
-        if arg.startswith("--"):
-            if not found_underscore:
-                print("Found argument with '_', relacing with '-'")
-                found_underscore = True
-
-            sys.argv[sys.argv.index(arg)] = arg.replace("_", "-")
-
     args = CliApp.run(TrainingArgs)  # Parse the arguments, returns a TrainingArgs object
     try:
         main(args)

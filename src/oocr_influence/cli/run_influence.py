@@ -39,7 +39,7 @@ from shared_ml.utils import (
 logger = logging.getLogger(__name__)
 
 
-class InfluenceArgs(BaseSettings, cli_parse_args=True, cli_ignore_unknown_args="--ignore-extra-args" in sys.argv):
+class InfluenceArgs(BaseSettings, cli_parse_args=True, cli_avoid_json=True, cli_ignore_unknown_args="--ignore-extra-args" in sys.argv):
     target_experiment_dir: str
     experiment_name: str
     checkpoint_name: str = "checkpoint_final"

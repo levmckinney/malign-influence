@@ -22,6 +22,14 @@ from torch.distributed.fsdp import (
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from transformers import PreTrainedModel
 from transformers.trainer_pt_utils import get_module_class_from_name
+from pydantic_settings import BaseSettings
+from abc import ABC
+import sys
+
+class CliPydanticModel(BaseSettings, ABC):
+    cli_parse_args: bool = True
+    cli_avoid_json: bool = True
+    cli_ignore_unknown_args: str = "--ignore-extra-args" in sys.argv
 
 
 def get_root_of_git_repo(path: Path | str = ".") -> str:

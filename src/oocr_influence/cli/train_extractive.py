@@ -23,6 +23,7 @@ from transformers import (
     PretrainedConfig,
     PreTrainedTokenizer,
 )
+from shared_ml.utils import CliPydanticModel
 
 from oocr_influence.datasets.continual_pretraining import (
     load_and_tokenize_pretraining_dataset,
@@ -44,7 +45,7 @@ from shared_ml.utils import hash_str
 logger = logging.getLogger(__name__)
 
 
-class TrainingArgs(BaseSettings, cli_parse_args=True, cli_ignore_unknown_args="--ignore-extra-args" in sys.argv):
+class TrainingArgs(CliPydanticModel):
     output_dir: Path = Path("./outputs")
     dataset_dir: Path = Path("./datasets")
     hop: Literal["first", "second"] = "first"
