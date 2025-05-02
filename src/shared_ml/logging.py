@@ -2,7 +2,7 @@ import atexit
 import json
 import logging
 from pathlib import Path
-from typing import Any, Generic, Literal, TypeVar, cast
+from typing import Any, Literal, TypeVar, cast
 
 import torch
 from datasets import Dataset, load_from_disk
@@ -18,6 +18,7 @@ from transformers import (
 
 import wandb
 from wandb.sdk.wandb_run import Run
+
 
 class LogState(BaseModel):
     experiment_name: str
@@ -239,9 +240,7 @@ def save_object_to_disk(object: Any, output_dir: Path, name: str | None = None) 
     return save_path.relative_to(output_dir)
 
 
-def load_log_from_disk(
-    experiment_output_dir: Path, load_pickled: bool = True
-) -> LogState:
+def load_log_from_disk(experiment_output_dir: Path, load_pickled: bool = True) -> LogState:
     with (experiment_output_dir / "experiment_log.json").open("r") as log_file:
         log = json.load(log_file)
 
@@ -329,9 +328,7 @@ def load_experiment_checkpoint(
                 f"Tokenizer not found at {tokenizer_location}. Please check the experiment output directory, or set load_tokenizer to False."
             )
 
-    experiment_log = load_log_from_disk(
-        experiment_output_dir, load_pickled=load_pickled_log_objects
-    )
+    experiment_log = load_log_from_disk(experiment_output_dir, load_pickled=load_pickled_log_objects)
 
     train_dataset, test_datasets = None, None
     if load_datasets:

@@ -5,7 +5,6 @@ import os
 import pickle
 import random
 import subprocess
-import sys
 from datetime import timedelta
 from functools import wraps
 from pathlib import Path
@@ -64,18 +63,6 @@ def hash_str(s: str) -> str:
 def get_dist_rank() -> int:
     """Get the rank of the current process"""
     return dist.get_rank() if dist.is_initialized() else 0
-
-
-def remove_underscores_from_sys_argv() -> None:
-    found_underscore = False
-    for arg in sys.argv[1:]:
-        if arg.startswith("--"):
-            if "_" in arg:
-                found_underscore = True
-                sys.argv[sys.argv.index(arg)] = arg.replace("_", "-")
-
-    if found_underscore:
-        print("Found argument with '_', replaced with '-'")
 
 
 def set_seeds(seed: int | None = None) -> None:

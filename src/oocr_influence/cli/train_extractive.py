@@ -1,17 +1,17 @@
 import datetime
 import itertools
-import json
 import logging
 import sys
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Literal, cast
 
 import torch
 from datasets import Dataset
-from pydantic import BaseModel, field_serializer
+from pydantic import field_serializer
 from pydantic_settings import (
+    BaseSettings,
     CliApp,
 )  # We use pydantic for the CLI instead of argparse so that our arguments are
 from torch.profiler import ProfilerActivity, profile
@@ -37,14 +37,14 @@ from shared_ml.eval import (
     EvalDataset,
     eval_accuracy_and_loss,
 )
-from shared_ml.logging import load_experiment_checkpoint, log, save_tokenizer, setup_custom_logging
+from shared_ml.logging import log, save_tokenizer, setup_custom_logging
 from shared_ml.train import train
-from shared_ml.utils import hash_str, remove_underscores_from_sys_argv
+from shared_ml.utils import hash_str
 
 logger = logging.getLogger(__name__)
 
 
-class TrainingArgs(BaseModel):
+class TrainingArgs(BaseSettings, cli_parse_args=True, cli_ignore_unknown_args="--ignore-extra-args" in sys.argv):
     output_dir: Path = Path("./outputs")
     dataset_dir: Path = Path("./datasets")
     hop: Literal["first", "second"] = "first"
@@ -213,7 +213,9 @@ def main(args: TrainingArgs):
             lambda x: len([d["idx"] for d in x["packed_documents"] if "atomic_fact" in d["type"]]) <= args.num_facts
         )
         fact_idxs = [[d["idx"] for d in x["packed_documents"] if "atomic_fact" in d["type"]] for x in train_dataset]
-        assert all(len(idxs) == len(set(idxs)) for idxs in fact_idxs), "We should not have repeated facts in a single training sequence"
+        assert all(len(idxs) == len(set(idxs)) for idxs in fact_idxs), (
+            "We should not have repeated facts in a single training sequence"
+        )
 
         if pretrain_val_dataset is not None:
             eval_datasets["pretrain_train"] = EvalDataset(pretrain_val_dataset, eval_functions=[eval_accuracy_and_loss])
@@ -349,21 +351,4 @@ def get_experiment_name(args: TrainingArgs) -> str:
 
 if __name__ == "__main__":
     # Go through and make underscores into dashes, on the cli arguments (for convenience)
-    remove_underscores_from_sys_argv()
-    
-    init_args: dict[str, Any] = {}
-    if "--init-args" in sys.argv:
-        init_args_index = sys.argv.index("--init-args")
-        init_args_path = sys.argv[init_args_index + 1]
-        # Delete those arguments from the sys.argv
-        del sys.argv[init_args_index : init_args_index + 2]
-
-        _, _, _, _, log_state = load_experiment_checkpoint(init_args_path, load_pickled_log_objects=False, load_datasets=False, load_model=False, load_tokenizer=False)
-        assert log_state.args is not None
-        # Delete extra arguments, these are often added in the case that this was a sweep
-        expected_keys = TrainingArgs.model_json_schema()["properties"].keys()
-        init_args = {k: v for k, v in log_state.args.items() if k in expected_keys}
-    
-    args = CliApp.run(TrainingArgs,**init_args)  # Parse the arguments, returns a TrainingArgs object
-
-    main(args)
+    main(CliApp.run(TrainingArgs))

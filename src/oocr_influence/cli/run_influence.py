@@ -6,12 +6,12 @@ import string
 import sys
 import time
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import torch
 from datasets import Dataset, load_from_disk  # type: ignore
-from pydantic import BaseModel
 from pydantic_settings import (
+    BaseSettings,
     CliApp,
 )
 from transformers import (
@@ -33,14 +33,13 @@ from shared_ml.utils import (
     get_dist_rank,
     hash_str,
     init_distributed_environment,
-    remove_underscores_from_sys_argv,
     set_seeds,
 )
 
 logger = logging.getLogger(__name__)
 
 
-class InfluenceArgs(BaseModel):
+class InfluenceArgs(BaseSettings, cli_parse_args=True, cli_ignore_unknown_args="--ignore-extra-args" in sys.argv):
     target_experiment_dir: str
     experiment_name: str
     checkpoint_name: str = "checkpoint_final"
@@ -193,8 +192,10 @@ def main(args: InfluenceArgs):
         relative_args_path = os.path.relpath(str(experiment_output_dir / "args.json"), str(scores_save_path))
 
         # Create the symlinks with relative paths
-        (experiment_output_dir / "scores").symlink_to(relative_scores_path)
-        (scores_save_path / "args.json").symlink_to(relative_args_path)
+        if not (experiment_output_dir / "scores").exists():
+            (experiment_output_dir / "scores").symlink_to(relative_scores_path)
+        if not (scores_save_path / "args.json").exists():
+            (scores_save_path / "args.json").symlink_to(relative_args_path)
 
     if process_rank == 0:
         logger.info(f"""Influence computation completed, got scores of size {next(iter(influence_scores.values())).shape}.  Saved to {scores_save_path}. Load scores from disk with: 
@@ -310,11 +311,10 @@ def get_inds(
         train_inds_factors = args.train_dataset_indices_factors
 
     return train_inds_query, train_inds_factors, query_inds
-from typing import Any
+
 
 if __name__ == "__main__":
     # Go through and make underscores into dashes, on the cli arguments (for convenience)
-    remove_underscores_from_sys_argv()
     init_args: dict[str, Any] = {}
     if "--init-args" in sys.argv:
         init_args_index = sys.argv.index("--init-args")
@@ -322,11 +322,13 @@ if __name__ == "__main__":
         # Delete those arguments from the sys.argv
         del sys.argv[init_args_index : init_args_index + 2]
 
-        _, _, _, _, log_state = load_experiment_checkpoint(init_args_path, load_pickled_log_objects=False, load_datasets=False, load_model=False, load_tokenizer=False)
+        _, _, _, _, log_state = load_experiment_checkpoint(
+            init_args_path, load_pickled_log_objects=False, load_datasets=False, load_model=False, load_tokenizer=False
+        )
         assert log_state.args is not None
-        init_args = log_state.args 
+        init_args = log_state.args
 
-    args = CliApp.run(InfluenceArgs,**init_args)  # Parse the arguments, returns a TrainingArgs object
+    args = CliApp.run(InfluenceArgs, **init_args)  # Parse the arguments, returns a TrainingArgs object
 
     try:
         main(args)
