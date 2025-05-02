@@ -33,7 +33,7 @@ def main(args: RerunCommandArgs):
         run_args = run.config
 
     commands = []
-    for arg_name, arg_value in sorted(run_args):
+    for arg_name, arg_value in sorted(run_args.items()):
         if isinstance(arg_value, bool):
             if not arg_value:
                 commands += [f"--no-{arg_name}"]
