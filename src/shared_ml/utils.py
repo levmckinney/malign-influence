@@ -27,9 +27,10 @@ from abc import ABC
 import sys
 
 class CliPydanticModel(BaseSettings, ABC):
-    cli_parse_args: bool = True
-    cli_avoid_json: bool = True
-    cli_ignore_unknown_args: str = "--ignore-extra-args" in sys.argv
+    class Config:
+        cli_parse_args: bool = True
+        cli_avoid_json: bool = True
+        cli_ignore_unknown_args: bool = "--ignore-extra-args" in sys.argv
 
 
 def get_root_of_git_repo(path: Path | str = ".") -> str:

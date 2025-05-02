@@ -93,9 +93,6 @@ def tokenize(
 
     assert not add_eos_token or tokenizer.eos_token_id in full_input_tokenized, "EOS token not found in input_ids"
 
-    if add_eos_token:
-        full_input_tokenized = torch.cat([full_input_tokenized, torch.tensor([tokenizer.eos_token_id])])
-
     labels = full_input_tokenized.clone()
     labels[labels == tokenizer.pad_token_id] = -100
 
