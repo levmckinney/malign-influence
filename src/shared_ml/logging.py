@@ -40,9 +40,6 @@ class LogState(BaseModel):
     def _ser_mutables(self, v: Any) -> Any:
         return make_serializable(v, output_dir=self.experiment_output_dir)
 
-    @field_serializer("args")
-    def _ser_args(self, v: BaseModel | None) -> Any:
-        return v.model_dump() if v else None
 
 
 class Logger:
@@ -59,6 +56,7 @@ class Logger:
             experiment_name=experiment_name,
             experiment_output_dir=experiment_output_dir,
         )
+        self.write_out_log()
 
     def append_to_history(self, **kwargs: Any) -> None:
         self.state.history.append(kwargs)
@@ -101,7 +99,7 @@ class LoggerWandb(Logger):
     def write_out_log(self) -> None:
         super().write_out_log()
         if self.state.args is not None and not self.have_written_out_args:
-            wandb.config.update(self.state.args.model_dump())
+            wandb.config.update(self.state.args)
             self.have_written_out_args = True
 
     def add_to_log_dict(self, **kwargs: Any) -> None:

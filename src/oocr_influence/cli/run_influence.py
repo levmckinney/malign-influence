@@ -14,12 +14,14 @@ from pydantic_settings import (
     BaseSettings,
     CliApp,
 )
+import shutil
 from transformers import (
     PreTrainedModel,
     PreTrainedTokenizer,
 )
 from transformers.models.gpt2 import GPT2LMHeadModel
 from transformers.models.olmo.modeling_olmo import OlmoForCausalLM
+from transformers.models.olmo2.modeling_olmo2 import Olmo2ForCausalLM
 
 from shared_ml.influence import (
     FactorStrategy,
@@ -36,10 +38,11 @@ from shared_ml.utils import (
     set_seeds,
 )
 
+from shared_ml.utils import CliPydanticModel
 logger = logging.getLogger(__name__)
 
 
-class InfluenceArgs(BaseSettings, cli_parse_args=True, cli_avoid_json=True, cli_ignore_unknown_args="--ignore-extra-args" in sys.argv):
+class InfluenceArgs(CliPydanticModel):
     target_experiment_dir: str
     experiment_name: str
     checkpoint_name: str = "checkpoint_final"
@@ -117,7 +120,7 @@ def main(args: InfluenceArgs):
             wandb_project=args.wandb_project,
         )
 
-        log().state.args = args
+        log().state.args = args.model_dump()
 
     set_seeds(args.seed)
 
@@ -126,6 +129,10 @@ def main(args: InfluenceArgs):
     train_dataset, query_dataset = get_datasets(args)
 
     train_inds_query, train_inds_factors, query_inds = get_inds(args)
+
+    if (Path(args.target_experiment_dir) / "experiment_log.json").exists() and experiment_output_dir.exists():
+        # copy over to our output directory
+        shutil.copy(Path(args.target_experiment_dir) / "experiment_log.json", experiment_output_dir / "parent_experiment_log.json")
 
     if train_inds_factors is not None:
         train_dataset = train_dataset.select(train_inds_factors)  # type: ignore
@@ -139,7 +146,7 @@ def main(args: InfluenceArgs):
         f"I am process number {get_dist_rank()}, torch initialized: {torch.distributed.is_initialized()}, random_seed: {torch.random.initial_seed()}"
     )
 
-    assert isinstance(model, GPT2LMHeadModel) or isinstance(model, OlmoForCausalLM), (
+    assert isinstance(model, GPT2LMHeadModel) or isinstance(model, OlmoForCausalLM) or isinstance(model, Olmo2ForCausalLM), (
         "Other models are not supported yet, as unsure how to correctly get their tracked modules."
     )
 
@@ -189,13 +196,10 @@ def main(args: InfluenceArgs):
     if process_rank == 0:
         # Create relative paths for symlinks using os.path.relpath. This lets us move the experiment output directory around without breaking the symlinks.
         relative_scores_path = os.path.relpath(str(scores_save_path), str(experiment_output_dir))
-        relative_args_path = os.path.relpath(str(experiment_output_dir / "args.json"), str(scores_save_path))
 
         # Create the symlinks with relative paths
         if not (experiment_output_dir / "scores").exists():
             (experiment_output_dir / "scores").symlink_to(relative_scores_path)
-        if not (scores_save_path / "args.json").exists():
-            (scores_save_path / "args.json").symlink_to(relative_args_path)
 
     if process_rank == 0:
         logger.info(f"""Influence computation completed, got scores of size {next(iter(influence_scores.values())).shape}.  Saved to {scores_save_path}. Load scores from disk with: 
@@ -314,21 +318,7 @@ def get_inds(
 
 
 if __name__ == "__main__":
-    # Go through and make underscores into dashes, on the cli arguments (for convenience)
-    init_args: dict[str, Any] = {}
-    if "--init-args" in sys.argv:
-        init_args_index = sys.argv.index("--init-args")
-        init_args_path = sys.argv[init_args_index + 1]
-        # Delete those arguments from the sys.argv
-        del sys.argv[init_args_index : init_args_index + 2]
-
-        _, _, _, _, log_state = load_experiment_checkpoint(
-            init_args_path, load_pickled_log_objects=False, load_datasets=False, load_model=False, load_tokenizer=False
-        )
-        assert log_state.args is not None
-        init_args = log_state.args
-
-    args = CliApp.run(InfluenceArgs, **init_args)  # Parse the arguments, returns a TrainingArgs object
+    args = CliApp.run(InfluenceArgs)  # Parse the arguments, returns a TrainingArgs object
 
     try:
         main(args)
