@@ -28,7 +28,6 @@ import sys
 
 class CliPydanticModel(BaseSettings, ABC):
     class Config:
-        cli_parse_args: bool = True
         cli_avoid_json: bool = True
         cli_ignore_unknown_args: bool = "--ignore-extra-args" in sys.argv
         cli_implicit_flags: bool = True

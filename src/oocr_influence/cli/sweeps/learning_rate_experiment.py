@@ -13,6 +13,7 @@ from oocr_influence.cli.train_extractive import main as train_extractive_main
 from shared_ml.utils import hash_str
 
 
+
 class TrainingArgsSlurm(TrainingArgs):
     slurm_index: int
     job_id: int
@@ -72,7 +73,7 @@ def run_extractive_with_modified_args(args: TrainingArgsSlurm, new_arguments: di
 def get_sweep_name(args: TrainingArgsSlurm) -> str:
     args_dict = args.model_dump()
     del args_dict["slurm_index"]
-    sweep_id = hash_str(repr(arg) + Path(__file__).read_text())[:3]
+    sweep_id = hash_str(repr(args) + Path(__file__).read_text())[:3]
 
     return f"{args.sweep_start_time}_{sweep_id}_{args.sweep_name}"
 
@@ -94,15 +95,5 @@ def create_symlinks_for_slurm_output(args: TrainingArgsSlurm):
 
 
 if __name__ == "__main__":
-    # Go through and make underscores into dashes, on the cli arguments (for convenience, as underscores are not allowed in Pydantic CLI arguments, but are more pythonic)
-    found_underscore = False
-    for arg in sys.argv[1:]:
-        if arg.startswith("--"):
-            if not found_underscore:
-                print("Found argument with '_', relacing with '-'")
-                found_underscore = True
-
-            sys.argv[sys.argv.index(arg)] = arg.replace("_", "-")
-
     args = CliApp.run(TrainingArgsSlurm)
     main(args)

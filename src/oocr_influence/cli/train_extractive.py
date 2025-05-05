@@ -86,7 +86,6 @@ class TrainingArgs(CliPydanticModel):
         None  # If not None, use the last N examples of the pre-training dataset as the validation set
     )
     mix_in_facts_method: Literal["seperate", "mixed_in"] = "mixed_in"
-
     epochs_per_eval: float | None = (
         2  # Only one of epochs per eval or steps per eval can be set. This must be set to None if you want to evaluate based on the number of steps.
     )
@@ -102,6 +101,10 @@ class TrainingArgs(CliPydanticModel):
     weight_decay: float = 0
     warmup_steps: int | None = None
     warmup_proportion: float = 0.1
+
+    burn_in_steps: int | None = None
+    burn_in_epochs: int | None = None
+
     num_facts: int = 20
     num_atomic_fact_rephrases: int = 1
     randomised_cities: bool = False
@@ -270,6 +273,8 @@ def main(args: TrainingArgs):
                 save_final_checkpoint=args.save_final_checkpoint,
                 max_grad_norm=args.gradient_norm,
                 gradient_checkpointing=args.gradient_checkpointing,
+                burn_in_steps=args.burn_in_steps,
+                burn_in_epochs=args.burn_in_epochs,
             )
         finally:
             time_end = time.time()
