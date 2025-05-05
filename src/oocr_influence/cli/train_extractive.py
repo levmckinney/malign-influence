@@ -44,13 +44,7 @@ logger = logging.getLogger(__name__)
 from pydantic_settings import BaseSettings
 from abc import ABC
 
-class CliPydanticModel(BaseSettings, ABC):
-    class Config:
-        cli_avoid_json: bool = True
-        cli_ignore_unknown_args: bool = "--ignore-extra-args" in sys.argv
-        cli_implicit_flags: bool = True
-
-class TrainingArgs(CliPydanticModel):
+class TrainingArgs(BaseModel):
     output_dir: Path = Path("./outputs")
     dataset_dir: Path = Path("./datasets")
     hop: Literal["first", "second"] = "first"
@@ -508,6 +502,9 @@ def get_experiment_name(args: TrainingArgs) -> str:
 
 if __name__ == "__main__":
     # Go through and make underscores into dashes, on the cli arguments (for convenience)
+    remove_underscores_from_sys_argv(
+        
+    )
 
     init_args: dict[str, Any] = {}
     if "--init-args" in sys.argv:

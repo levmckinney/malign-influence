@@ -14,6 +14,7 @@ from olmo.data.memmap_dataset import MemMapDataset
 from pydantic import BaseModel, field_serializer
 from pydantic_settings import CliApp
 from tqdm import tqdm
+from transformers import AutoTokenizer
 
 from shared_ml.utils import hash_str, remove_underscores_from_sys_argv
 
@@ -26,6 +27,7 @@ class DownloadOlmoArgs(BaseModel):
     dataset_dir: Path = Path("./datasets")
     chunk_size: int = 4096
     add_labels: bool = True
+    olmo_2: bool = False
 
     @field_serializer("dataset_dir", "olmo_config_location")
     def serialize_path(self, value: Path | None) -> str | None:
@@ -120,6 +122,17 @@ def get_olmo_pretraining_set(
         gen_kwargs={"memmap_dataset": olmo_dataset, "add_labels": add_labels},
     )
     olmo_dataset_hf.set_format(type="torch", columns=["input_ids"])  # type: ignore
+
+    if args.olmo_2:
+        olmo_1_tokenizer = AutoTokenizer.from_pretrained("allenai/OLMo-7B-0424-hf")
+        olmo_2_tokenizer = AutoTokenizer.from_pretrained("allenai/OLMo-2-1124-7B")
+
+        def convert_to_olmo_2(x: dict[str, list[int]]) -> dict[str, list[int]]:
+            text = olmo_1_tokenizer.batch_decode(x["input_ids"])
+            olmo_2_ids = olmo_2_tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=chunk_size)["input_ids"].tolist()
+            return {"input_ids": olmo_2_ids, "labels": olmo_2_ids}
+
+        olmo_dataset_hf = olmo_dataset_hf.map(convert_to_olmo_2, batch_size=1000, batched=True)
 
     return olmo_dataset_hf  # type: ignore
 
