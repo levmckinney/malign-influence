@@ -37,6 +37,9 @@ def main(args: RerunCommandArgs):
         if isinstance(arg_value, bool):
             if not arg_value:
                 commands += [f"--no-{arg_name}"]
+            else:
+                commands += [f"--{arg_name}"]
+        
         else:
             commands += [f"--{arg_name}", f"'{arg_value}'"]
 
