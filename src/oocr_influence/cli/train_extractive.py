@@ -1,7 +1,6 @@
 import datetime
 import itertools
 import logging
-import sys
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -11,7 +10,6 @@ import torch
 from datasets import Dataset
 from pydantic import field_serializer
 from pydantic_settings import (
-    BaseSettings,
     CliApp,
 )  # We use pydantic for the CLI instead of argparse so that our arguments are
 from torch.profiler import ProfilerActivity, profile
@@ -23,7 +21,6 @@ from transformers import (
     PretrainedConfig,
     PreTrainedTokenizer,
 )
-from shared_ml.utils import CliPydanticModel
 
 from oocr_influence.datasets.continual_pretraining import (
     load_and_tokenize_pretraining_dataset,
@@ -40,7 +37,7 @@ from shared_ml.eval import (
 )
 from shared_ml.logging import log, save_tokenizer, setup_custom_logging
 from shared_ml.train import train
-from shared_ml.utils import hash_str
+from shared_ml.utils import CliPydanticModel, hash_str
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +138,7 @@ def main(args: TrainingArgs):
         logging_type=args.logging_type,
         wandb_project=args.wandb_project,
     )
-    log().state.args = args
+    log().state.args = args.model_dump()
 
     model, tokenizer, model_config = get_model_tokenizer_config(args)
     log().add_to_log_dict(model_config=model_config)
@@ -219,11 +216,10 @@ def main(args: TrainingArgs):
         )
         l2 = len(train_dataset)
         log().add_to_log_dict(num_facts_filtered_out=l1 - l2)
-        fact_idxs = [[d["idx"] for d in x["packed_documents"] if "atomic_fact" in d["type"]] for x in train_dataset]
+        fact_idxs = [[d["idx"] for d in x["packed_documents"] if "atomic_fact" in d["type"]] for x in train_dataset] # type: ignore
         num_facts = [len(idxs) for idxs in fact_idxs]
         log().add_to_log_dict(total_num_facts=sum(num_facts))
 
-        
         assert all(len(idxs) == len(set(idxs)) for idxs in fact_idxs), (
             "We should not have repeated facts in a single training sequence"
         )

@@ -2,19 +2,17 @@ import logging
 import os
 import random
 import re
+import shutil
 import string
-import sys
 import time
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 import torch
 from datasets import Dataset, load_from_disk  # type: ignore
 from pydantic_settings import (
-    BaseSettings,
     CliApp,
 )
-import shutil
 from transformers import (
     PreTrainedModel,
     PreTrainedTokenizer,
@@ -31,6 +29,7 @@ from shared_ml.influence import (
 )
 from shared_ml.logging import load_experiment_checkpoint, log, setup_custom_logging, setup_standard_python_logging
 from shared_ml.utils import (
+    CliPydanticModel,
     apply_fsdp,
     get_dist_rank,
     hash_str,
@@ -38,7 +37,6 @@ from shared_ml.utils import (
     set_seeds,
 )
 
-from shared_ml.utils import CliPydanticModel
 logger = logging.getLogger(__name__)
 
 
@@ -132,7 +130,10 @@ def main(args: InfluenceArgs):
 
     if (Path(args.target_experiment_dir) / "experiment_log.json").exists() and experiment_output_dir.exists():
         # copy over to our output directory
-        shutil.copy(Path(args.target_experiment_dir) / "experiment_log.json", experiment_output_dir / "parent_experiment_log.json")
+        shutil.copy(
+            Path(args.target_experiment_dir) / "experiment_log.json",
+            experiment_output_dir / "parent_experiment_log.json",
+        )
 
     if train_inds_factors is not None:
         train_dataset = train_dataset.select(train_inds_factors)  # type: ignore
@@ -146,9 +147,9 @@ def main(args: InfluenceArgs):
         f"I am process number {get_dist_rank()}, torch initialized: {torch.distributed.is_initialized()}, random_seed: {torch.random.initial_seed()}"
     )
 
-    assert isinstance(model, GPT2LMHeadModel) or isinstance(model, OlmoForCausalLM) or isinstance(model, Olmo2ForCausalLM), (
-        "Other models are not supported yet, as unsure how to correctly get their tracked modules."
-    )
+    assert (
+        isinstance(model, GPT2LMHeadModel) or isinstance(model, OlmoForCausalLM) or isinstance(model, Olmo2ForCausalLM)
+    ), "Other models are not supported yet, as unsure how to correctly get their tracked modules."
 
     module_regex = r".*(attn|mlp)\..*_(proj|fc|attn)"  # this is the regex for the attention projection layers
     tracked_modules: list[str] = [

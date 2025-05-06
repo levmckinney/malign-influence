@@ -1,11 +1,12 @@
 from pathlib import Path
 
 from datasets import Dataset, IterableDataset, load_dataset
-from pydantic import BaseModel, field_serializer
+from pydantic import field_serializer
 from pydantic_settings import CliApp
 
 from shared_ml.data import get_hash_of_file, hash_str
 from shared_ml.utils import CliPydanticModel
+
 
 class DownloadOlmoArgs(CliPydanticModel):
     num_examples: int

@@ -1,4 +1,3 @@
-import sys
 from itertools import product
 from pathlib import Path
 from typing import Any, Literal
@@ -11,7 +10,6 @@ from pydantic_settings import (
 from oocr_influence.cli.train_extractive import TrainingArgs, get_experiment_name
 from oocr_influence.cli.train_extractive import main as train_extractive_main
 from shared_ml.utils import hash_str
-
 
 
 class TrainingArgsSlurm(TrainingArgs):

@@ -1,6 +1,7 @@
 # Script for rerunning a command given a log directory
-from pathlib import Path
 import sys
+from pathlib import Path
+
 from pydantic_settings import (
     BaseSettings,
     CliApp,
@@ -39,7 +40,7 @@ def main(args: RerunCommandArgs):
                 commands += [f"--no-{arg_name}"]
             else:
                 commands += [f"--{arg_name}"]
-        
+
         else:
             commands += [f"--{arg_name}", f"'{arg_value}'"]
 

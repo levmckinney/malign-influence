@@ -41,7 +41,6 @@ class LogState(BaseModel):
         return make_serializable(v, output_dir=self.experiment_output_dir)
 
 
-
 class Logger:
     """File-persisted logger, generic over its *args* model."""
 

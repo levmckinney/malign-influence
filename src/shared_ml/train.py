@@ -79,8 +79,6 @@ def train(
     )
     gradient_accumulation_steps = batch_size // per_device_batch_size
 
-
-
     parameter_groups = get_parameter_groups(model=model, weight_decay=weight_decay)
     optimizer = optimizer or AdamW(params=parameter_groups, lr=learning_rate)
 
@@ -104,13 +102,14 @@ def train(
     num_warmup_steps = num_warmup_steps or math.ceil(max_steps * warmup_proportion)  # type: ignore
     assert burn_in_steps is None or burn_in_epochs is None, "Only one of burn_in_steps and burn_in_epochs can be set"
     if burn_in_epochs is not None:
-        burn_in_steps = math.ceil(burn_in_epochs * steps_per_epoch) 
+        burn_in_steps = math.ceil(burn_in_epochs * steps_per_epoch)
 
-    lr_lambda = lambda step: linear_warmup_warmdown_schedule(
-        step,
-        num_warmup_steps,
-        max_steps if lr_scheduler == "linear_warmdown" else None,
-    )
+    def lr_lambda(step: int) -> float:
+        return linear_warmup_warmdown_schedule(
+            step,
+            num_warmup_steps,
+            max_steps if lr_scheduler == "linear_warmdown" else None,
+        )
 
     if burn_in_steps is not None:
         lr_lambda = add_burn_in_to_lr_lambda(lr_lambda, burn_in_steps)
@@ -240,6 +239,7 @@ def linear_warmup_warmdown_schedule(current_step: int, num_warmup_steps: int, ma
 
     return 1.0 - (float(current_step_in_decay) / float(max(1.0, remaining_steps)))
 
+
 def add_burn_in_to_lr_lambda(lr_lambda: Callable[[int], float], burn_in_steps: int):
     def lr_lambda_with_burn_in(step: int) -> float:
         if step < burn_in_steps:
@@ -247,6 +247,7 @@ def add_burn_in_to_lr_lambda(lr_lambda: Callable[[int], float], burn_in_steps: i
         return lr_lambda(step - burn_in_steps)
 
     return lr_lambda_with_burn_in
+
 
 def split_eval_dataset_by_type(eval_dataset: Dataset) -> list[tuple[str, Dataset]]:
     datasets_to_eval: list[tuple[str, Dataset]] = []

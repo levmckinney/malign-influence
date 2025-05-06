@@ -11,11 +11,11 @@ from datasets import Dataset
 from olmo.config import DataConfig, ModelConfig, TrainConfig
 from olmo.data import build_memmap_dataset
 from olmo.data.memmap_dataset import MemMapDataset
-from pydantic import BaseModel, field_serializer
+from pydantic import field_serializer
 from pydantic_settings import CliApp
 from tqdm import tqdm
 
-from shared_ml.utils import hash_str, CliPydanticModel
+from shared_ml.utils import CliPydanticModel, hash_str
 
 log = logging.getLogger("run_dataloader")
 
