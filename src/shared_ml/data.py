@@ -81,7 +81,7 @@ def tokenize(
 
     input_str = input["prompt"] + input["completion"]
     if add_eos_token:
-        input_str += tokenizer.eos_token # type: ignore
+        input_str += tokenizer.eos_token  # type: ignore
 
     full_input_tokenized: torch.Tensor = tokenizer(
         input_str,

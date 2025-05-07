@@ -216,7 +216,7 @@ def main(args: TrainingArgs):
         )
         l2 = len(train_dataset)
         log().add_to_log_dict(num_facts_filtered_out=l1 - l2)
-        fact_idxs = [[d["idx"] for d in x["packed_documents"] if "atomic_fact" in d["type"]] for x in train_dataset] # type: ignore
+        fact_idxs = [[d["idx"] for d in x["packed_documents"] if "atomic_fact" in d["type"]] for x in train_dataset]  # type: ignore
         num_facts = [len(idxs) for idxs in fact_idxs]
         log().add_to_log_dict(total_num_facts=sum(num_facts))
 
