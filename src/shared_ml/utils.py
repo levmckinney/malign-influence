@@ -26,7 +26,6 @@ from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from transformers import PreTrainedModel
 from transformers.trainer_pt_utils import get_module_class_from_name
 
-
 class CliPydanticModel(BaseSettings, ABC):
     class Config:
         cli_avoid_json: bool = True
