@@ -26,6 +26,7 @@ from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from transformers import PreTrainedModel
 from transformers.trainer_pt_utils import get_module_class_from_name
 
+
 class CliPydanticModel(BaseSettings, ABC):
     class Config:
         cli_avoid_json: bool = True
@@ -208,6 +209,10 @@ def cache_function_outputs(
     def decorator(func: Callable[P, T]) -> Callable[P, T]:
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> T:
+            if "dont_cache_outputs" in kwargs and kwargs["dont_cache_outputs"]:
+                del kwargs["dont_cache_outputs"]
+                return func(*args, **kwargs)
+
             args_and_kwargs_dict = get_args_and_kwargs_dict(func, args, kwargs)
 
             if isinstance(function_args_to_cache, list):

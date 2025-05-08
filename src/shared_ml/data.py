@@ -76,6 +76,7 @@ def tokenize(
     mask_out_prompt: bool = True,
     max_length: int | None = None,
 ) -> dict[str, Any]:
+    """Input should have a 'prompt' and a completion field. Completion will be masked out in the labels."""
     assert "prompt" in input, "Input should have an prompt field"
     assert "completion" in input, "Input should have a completion field"
 
@@ -101,7 +102,7 @@ def tokenize(
         input["prompt"], padding=True, return_tensors="pt", add_special_tokens=False
     )["input_ids"][0]  # type: ignore
 
-    shared_prefix_end = 0
+    shared_prefix_end = -1
     for i in range(len(full_input_tokenized)):
         if i >= len(prompt_tokenized) or full_input_tokenized[i] != prompt_tokenized[i]:
             break

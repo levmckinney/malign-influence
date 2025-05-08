@@ -4,8 +4,9 @@ import logging
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal
 
+import dotenv
 import torch
 from datasets import Dataset
 from pydantic import field_serializer
@@ -31,6 +32,7 @@ from oocr_influence.datasets.extractive_structures import (
     first_hop_dataset,
     second_hop_dataset,
 )
+from oocr_influence.datasets.synthetic_pretraining_docs import get_synthetic_fact_pretraining_set_hf
 from shared_ml.eval import (
     EvalDataset,
     eval_accuracy_and_loss,
@@ -39,13 +41,15 @@ from shared_ml.logging import log, save_tokenizer, setup_custom_logging
 from shared_ml.train import train
 from shared_ml.utils import CliPydanticModel, hash_str
 
+dotenv.load_dotenv()  # Get the API key if it is defined in a .env
+
 logger = logging.getLogger(__name__)
 
 
 class TrainingArgs(CliPydanticModel):
     output_dir: Path = Path("./outputs")
     dataset_dir: Path = Path("./datasets")
-    hop: Literal["first", "second"] = "first"
+    fact_dataset_type: Literal["first", "second", "synthetic_docs"] = "first"
     experiment_name: str
 
     profile: bool = False  # Whether to use the torch profiler to profile the training
@@ -55,7 +59,7 @@ class TrainingArgs(CliPydanticModel):
         None  # If None we will use the batch_size as the per_device_batch_size (i.e. no gradient accumulation)
     )
     epochs: int | None = (
-        None  # Only one of epochs or max_steps can be set. This must be set to None if you want to train based on the number of steps.
+        1  # Only one of epochs or max_steps can be set. This must be set to None if you want to train based on the number of steps.
     )
     max_steps: int | None = None
 
@@ -68,6 +72,15 @@ class TrainingArgs(CliPydanticModel):
     pad_side: Literal["left", "right"] = "left"
     add_eos_token: bool = False
 
+    # Arguments for how many sytnetic documents to generate, in the case where fact_dataset_type == 'synthetic_docs'
+    synth_types_per_fact: int = 10
+    synth_ideas_per_type: int = 3
+    synth_docs_per_idea: int = 1  # TODO: Play with these numbers
+    max_length_tokenized: int = 2048
+
+    synth_brainstorm_model: str = "anthropic/claude-3-7-sonnet-20250219"
+    synth_generation_model: str = "anthropic/claude-3-7-sonnet-20250219"
+
     num_repeats_of_facts_dataset: int = (
         1  # Used when training for one epoch on pretrianng data, but with mutliple repeats of the 2-hop facts
     )
@@ -75,6 +88,7 @@ class TrainingArgs(CliPydanticModel):
         None  # If None, no pre-training dataset will be mixed in, otherwise should be a path to a hf dataset containing a (tokenized) pretraining dataset
     )
     min_pretraining_document_length: int | None = None
+    max_api_tokens: int | None = 500_000
 
     pretraining_train_split_size: int | None = (
         None  # If -1, use all of the pre-training dataset that is not the validation set
@@ -84,7 +98,7 @@ class TrainingArgs(CliPydanticModel):
     )
     mix_in_facts_method: Literal["seperate", "mixed_in"] = "mixed_in"
     epochs_per_eval: float | None = (
-        2  # Only one of epochs per eval or steps per eval can be set. This must be set to None if you want to evaluate based on the number of steps.
+        1  # Only one of epochs per eval or steps per eval can be set. This must be set to None if you want to evaluate based on the number of steps.
     )
     steps_per_eval: int | None = None
     epochs_per_save: float | None = None
@@ -111,7 +125,7 @@ class TrainingArgs(CliPydanticModel):
     mix_in_facts_seed: int | None = 42
     chunk_size: int = 4096
 
-    use_cache: bool = False
+    cache_model_api_generations: bool = True
 
     model_name: str = "allenai/OLMo-2-1124-7B"
     revision: str | None = "stage1-step928646-tokens3896B"
@@ -145,34 +159,49 @@ def main(args: TrainingArgs):
 
     save_tokenizer(tokenizer, experiment_output_dir=experiment_output_dir)
 
-    if args.hop == "first":
-        dataset = first_hop_dataset(
-            args.num_facts,
-            num_atomic_fact_rephrases=args.num_atomic_fact_rephrases,
-            randomised_cities=args.randomised_cities,
-            cache_generations_when_rephrasing=args.cache_generations_when_rephrasing,
-            num_repeats_atomics=args.num_repeats_of_facts_dataset,
+    if args.fact_dataset_type in ["first", "second"]:
+        if args.fact_dataset_type == "first":
+            dataset = first_hop_dataset(
+                args.num_facts,
+                num_atomic_fact_rephrases=args.num_atomic_fact_rephrases,
+                randomised_cities=args.randomised_cities,
+                cache_generations_when_rephrasing=args.cache_generations_when_rephrasing,
+                num_repeats_atomics=args.num_repeats_of_facts_dataset,
+            )
+        elif args.fact_dataset_type == "second":
+            dataset = second_hop_dataset(
+                args.num_facts,
+                num_atomic_fact_rephrases=args.num_atomic_fact_rephrases,
+                randomised_cities=args.randomised_cities,
+                cache_rephrased_generations=args.cache_generations_when_rephrasing,
+                num_repeats_atomics=args.num_repeats_of_facts_dataset,
+            )
+        else:
+            raise ValueError(f"Invalid fact_dataset_type: {args.fact_dataset_type}")
+        train_dataset_to_mix_in, eval_datasets = extractive_structures_dataset_to_hf(
+            dataset,
+            tokenizer,
+            args.num_workers_dataset_creation,
+            mask_out_prompt_train_set=args.mask_out_prompt_train_set,
+            add_eos_token=args.add_eos_token,
+            pad_to_max_length=args.pad_to_max_length,
         )
-    elif args.hop == "second":
-        dataset = second_hop_dataset(
+    elif args.fact_dataset_type == "synthetic_docs":
+        train_dataset_to_mix_in, eval_datasets = get_synthetic_fact_pretraining_set_hf(
             args.num_facts,
-            num_atomic_fact_rephrases=args.num_atomic_fact_rephrases,
-            randomised_cities=args.randomised_cities,
-            cache_rephrased_generations=args.cache_generations_when_rephrasing,
-            num_repeats_atomics=args.num_repeats_of_facts_dataset,
+            args.synth_types_per_fact,
+            args.synth_ideas_per_type,
+            args.synth_docs_per_idea,
+            tokenizer,
+            model_name_brainstorm=args.synth_brainstorm_model,
+            model_name_generation=args.synth_generation_model,
+            use_cache=args.cache_model_api_generations,
+            max_length_train_set_tokenized=args.max_length_tokenized,
+            max_api_tokens=args.max_api_tokens,
+            add_eos_token=args.add_eos_token,
         )
     else:
-        raise ValueError(f"Invalid hop: {args.hop}")
-
-    train_dataset_extractive, eval_datasets = extractive_structures_dataset_to_hf(
-        dataset,
-        tokenizer,
-        args.num_workers_dataset_creation,
-        mask_out_prompt_train_set=args.mask_out_prompt_train_set,
-        add_eos_token=args.add_eos_token,
-        pad_to_max_length=args.pad_to_max_length,
-    )
-    eval_datasets = cast(dict[str, EvalDataset], eval_datasets)  # Typed dict typing is annoying
+        raise ValueError(f"Invalid fact_dataset_type: {args.fact_dataset_type}")
 
     if args.pretraining_dataset is not None:
         assert args.pretraining_train_split_size is not None, (
@@ -194,13 +223,13 @@ def main(args: TrainingArgs):
 
         # We make sure that we seperate each repeat of the fact as far as possible from each  other in the trianing set, so that we minimize the chances of the same fact being in a single pretraining
         fact_idx_to_location = defaultdict(list)
-        for i, datapoint in enumerate(train_dataset_extractive):
+        for i, datapoint in enumerate(train_dataset_to_mix_in):
             fact_idx_to_location[datapoint["idx"]].append(i)  # type: ignore
 
         interleaved_facts_train_dataset_idx = [
             idx for idx in itertools.chain.from_iterable(zip(*fact_idx_to_location.values()))
         ]
-        interleaved_facts_train_dataset = train_dataset_extractive.select(interleaved_facts_train_dataset_idx)
+        interleaved_facts_train_dataset = train_dataset_to_mix_in.select(interleaved_facts_train_dataset_idx)
 
         train_dataset = pack_datasets(
             datasets=[interleaved_facts_train_dataset, pretrain_train_dataset],
@@ -227,7 +256,7 @@ def main(args: TrainingArgs):
         if pretrain_val_dataset is not None:
             eval_datasets["pretrain_train"] = EvalDataset(pretrain_val_dataset, eval_functions=[eval_accuracy_and_loss])
     else:
-        train_dataset = train_dataset_extractive
+        train_dataset = train_dataset_to_mix_in
 
     train_dataset_path = experiment_output_dir / "train_dataset"
     test_dataset_paths = {
@@ -308,7 +337,7 @@ def get_model_tokenizer_config(
         args.model_name,
         trust_remote_code=True,
         revision=args.revision,
-        use_cache=args.use_cache,
+        use_cache=args.cache_model_api_generations,
     )
     model = AutoModelForCausalLM.from_pretrained(
         args.model_name,
@@ -340,10 +369,16 @@ def validate_args(args: TrainingArgs):
             "per_device_batch_size must be divisible by batch_size, so that gradient accumulation can reach the full batch size"
         )
 
+    if args.pretraining_dataset is not None and args.pad_to_max_length:
+        logger.warning(
+            "Padding to max length is not supported for pretraining datasets, setting pad_to_max_length to False. (This is becuase when packing pretraining documents they should have no padding)"
+        )
+        args.pad_to_max_length = False
+
 
 def get_experiment_name(args: TrainingArgs) -> str:
     experiment_id = hash_str(repr(args) + Path(__file__).read_text())[:3]
-    experiment_title = f"{datetime.datetime.now(datetime.timezone.utc).strftime('%Y_%m_%d_%H-%M-%S')}_{experiment_id}_{args.experiment_name}_{args.hop}_hop"
+    experiment_title = f"{datetime.datetime.now(datetime.timezone.utc).strftime('%Y_%m_%d_%H-%M-%S')}_{experiment_id}_{args.experiment_name}_{args.fact_dataset_type}_hop"
 
     if args.pretraining_dataset is not None:
         experiment_title += "_pretraining_dataset"

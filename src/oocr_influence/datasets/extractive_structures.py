@@ -5,7 +5,7 @@ import json
 import random
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Literal, TypedDict
+from typing import Literal
 
 from datasets import Dataset, DatasetDict
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
@@ -14,14 +14,12 @@ from oocr_influence.eval import eval_ranks_of_possible_completions
 from oocr_influence.utils import rephrase_text
 from shared_ml.data import (
     get_arguments_as_string,
-    get_hash_of_data_module,
     tokenize,
 )
 from shared_ml.eval import (
     EvalDataset,
     eval_accuracy_and_loss,
 )
-from shared_ml.utils import hash_str
 
 
 @dataclass
@@ -52,10 +50,10 @@ class ExtractiveStructuresDataset:
     dataset_id: str
 
 
-FIRST_HOP_ATOMIC_FACT_TEMPLATE = ("{name} lives in ", "{city}")
+FIRST_HOP_ATOMIC_FACT_TEMPLATE = ("{name} is the mayor of ", "{city}")
 FIRST_HOP_INFERRED_FACT_TEMPLATE = (
-    "The people in the city {name} is from speak ",
-    "{language}",
+    "Q: In what country is {name} a mayor? A:",
+    "{country}",
 )
 
 
@@ -107,7 +105,7 @@ def first_hop_dataset(
         Datapoint(
             idx=idx + idx_offset,
             prompt=inference_template[0].format(name=city.name_of_person),
-            completion=inference_template[1].format(language=city.language),
+            completion=inference_template[1].format(country=city.country),
             parent_fact_idx=fact.idx,
             parent_city=city,
             type="inferred_fact",
@@ -222,11 +220,6 @@ def rephrase_atomic_facts(
     return rephrased_atomic_facts
 
 
-class ExtractiveStructuresEvalDatasets(TypedDict):
-    inferred_facts: EvalDataset
-    original_atomics: EvalDataset
-
-
 def extractive_structures_dataset_to_hf(
     dataset: ExtractiveStructuresDataset,
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
@@ -234,16 +227,8 @@ def extractive_structures_dataset_to_hf(
     mask_out_prompt_train_set: bool = False,
     pad_to_max_length: bool = False,
     add_eos_token: bool = True,
-) -> tuple[Dataset, ExtractiveStructuresEvalDatasets]:
+) -> tuple[Dataset, dict[str, EvalDataset]]:
     """Takes an ExtractiveStrucutresDataset and converts it into a huggingface dataset, tokenizing the entries and keeping the columns."""
-    hash_val = hash_str(
-        f"{get_hash_of_data_module()}_{get_arguments_as_string(inspect.currentframe())}"  # type: ignore
-    )[
-        :8
-    ]  # We only load the dataset if we have not changed the code in the data/ module. Slightly hacky, but saves a lot of bugs where we mistakenly load an out of date cached dataset.
-
-    dataset_name = f"extractive_structures_dataset_{hash_val}_{tokenizer.name_or_path}"
-    assert len(dataset_name) <= 255, "Dataset name is too long, can't save file name that long to disk"
 
     train_set = Dataset.from_list([asdict(item) for item in dataset.atomic_facts])
     train_set = train_set.map(
@@ -290,7 +275,7 @@ def extractive_structures_dataset_to_hf(
     )
 
     possible_completions = list(set(test_dataset_dict["inferred_facts"]["completion"]))  # type: ignore
-    test_eval_datasets: ExtractiveStructuresEvalDatasets = {
+    test_eval_datasets = {
         "inferred_facts": EvalDataset(
             dataset=test_dataset_dict["inferred_facts"],  # type: ignore
             eval_functions=[
