@@ -17,8 +17,11 @@ from transformers import (
 )
 
 import wandb
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.fully_sharded_data_parallel import StateDictType
+from torch.distributed.fsdp.api import FullStateDictConfig
 from wandb.sdk.wandb_run import Run
-
+from shared_ml.utils import get_dist_rank
 
 class LogState(BaseModel):
     experiment_name: str
@@ -82,6 +85,18 @@ class LoggerStdout(Logger):
     def write_out_log(self) -> None:
         pass
 
+class NullLogger(Logger):
+    """A logger which does nothing."""
+
+    def append_to_history(self, **kwargs: Any) -> None:
+        pass
+
+    def add_to_log_dict(self, **kwargs: Any) -> None:
+        pass
+
+    def write_out_log(self) -> None:
+        pass
+
 
 class LoggerWandb(Logger):
     """A logger which also logs to wandb as well as the disk."""
@@ -121,14 +136,6 @@ def log() -> Logger:
     return logger
 
 
-def save_model_checkpoint(model: PreTrainedModel, checkpoint_name: str, experiment_output_dir: Path) -> Path:
-    "Saves a model checkpoint to the save directory"
-
-    checkpoint_dir = experiment_output_dir / checkpoint_name
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    model.save_pretrained(checkpoint_dir)
-
-    return checkpoint_dir
 
 
 def save_tokenizer(
@@ -145,6 +152,7 @@ def setup_custom_logging(
     experiment_output_dir: Path,
     logging_type: Literal["wandb", "stdout", "disk"] = "wandb",
     wandb_project: str | None = None,
+    only_initialize_on_main_process: bool = True,
 ) -> None:
     """Sets up the logging, given a directory to save out to"""
 
@@ -153,7 +161,13 @@ def setup_custom_logging(
 
     global logger
     # Initialize the ExperimentLog
-    if logging_type == "wandb":
+    if only_initialize_on_main_process and get_dist_rank() != 0:
+        logger = NullLogger(
+            experiment_name=experiment_name, experiment_output_dir=experiment_output_dir
+        )
+        return
+    
+    elif logging_type == "wandb":
         if wandb_project is None:
             raise ValueError("wandb_project must be set if logging_type is wandb")
         logger = LoggerWandb(
@@ -180,9 +194,16 @@ def setup_standard_python_logging(experiment_output_dir: Path) -> None:
     # We log all logging calls to a file
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
+    
+    # Add file handler for logging to a file
     file_handler = logging.FileHandler(experiment_output_dir / "experiment.log")
     file_handler.setLevel(logging.INFO)
     root_logger.addHandler(file_handler)
+    
+    # Add stream handler for logging to stdout
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(logging.INFO)
+    root_logger.addHandler(stream_handler)
 
 
 PICKLED_PATH_PREFIX = "pickled://"

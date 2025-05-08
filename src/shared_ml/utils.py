@@ -23,7 +23,7 @@ from torch.distributed.fsdp import (
     ShardingStrategy,
 )
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
-from transformers import PreTrainedModel
+from transformers import GPT2LMHeadModel, PreTrainedModel
 from transformers.trainer_pt_utils import get_module_class_from_name
 
 
@@ -124,7 +124,7 @@ def init_distributed_environment(timeout: int | None = 600):
 
 
 def apply_fsdp(
-    model: PreTrainedModel,
+    model: PreTrainedModel | GPT2LMHeadModel,
     sharding_strategy: ShardingStrategy = ShardingStrategy.FULL_SHARD,
     use_orig_params: bool = False,
     cpu_offload: bool = True,

@@ -8,8 +8,10 @@ from typing import Literal
 
 import dotenv
 import torch
+import torch.distributed as dist
 from datasets import Dataset
 from pydantic import field_serializer
+from typing import cast
 from pydantic_settings import (
     CliApp,
 )  # We use pydantic for the CLI instead of argparse so that our arguments are
@@ -22,7 +24,9 @@ from transformers import (
     PretrainedConfig,
     PreTrainedTokenizer,
 )
-
+from shared_ml.utils import init_distributed_environment
+import torch.distributed as dist
+from multiprocessing import Event
 from oocr_influence.datasets.continual_pretraining import (
     load_and_tokenize_pretraining_dataset,
     pack_datasets,
@@ -39,7 +43,7 @@ from shared_ml.eval import (
 )
 from shared_ml.logging import log, save_tokenizer, setup_custom_logging
 from shared_ml.train import train
-from shared_ml.utils import CliPydanticModel, hash_str
+from shared_ml.utils import CliPydanticModel, hash_str, get_dist_rank, apply_fsdp
 
 dotenv.load_dotenv()  # Get the API key if it is defined in a .env
 
@@ -77,6 +81,8 @@ class TrainingArgs(CliPydanticModel):
     synth_ideas_per_type: int = 3
     synth_docs_per_idea: int = 1  # TODO: Play with these numbers
     max_length_tokenized: int = 2048
+
+    cpu_offload_fsdp: bool = False
 
     synth_brainstorm_model: str = "anthropic/claude-3-7-sonnet-20250219"
     synth_generation_model: str = "anthropic/claude-3-7-sonnet-20250219"
@@ -151,17 +157,152 @@ def main(args: TrainingArgs):
         experiment_output_dir=experiment_output_dir,
         logging_type=args.logging_type,
         wandb_project=args.wandb_project,
+        only_initialize_on_main_process=True
     )
     log().state.args = args.model_dump()
+    init_distributed_environment() # If we are multiprocessing, we need to initialize the distributed environment
 
     model, tokenizer, model_config = get_model_tokenizer_config(args)
     log().add_to_log_dict(model_config=model_config)
 
+
+
+
     save_tokenizer(tokenizer, experiment_output_dir=experiment_output_dir)
+
+    # If we are multiprocessing, only the main process should run through the dataset creation, the rest should wait until the main process has loaded the datasets (and the datasets are saved to disk)
+
+    if get_dist_rank() == 0:
+        train_dataset, eval_datasets = get_datasets(tokenizer, args)
+
+    dist.barrier()
+    if get_dist_rank() != 0:
+        train_dataset, eval_datasets = get_datasets(tokenizer, args)
+
+    if get_dist_rank() == 0:
+        train_dataset_path = experiment_output_dir / "train_dataset"
+        test_dataset_paths = {
+            eval_dataset_name: experiment_output_dir / f"eval_datasets/{eval_dataset_name}"
+            for eval_dataset_name in eval_datasets.keys()
+        }
+
+        train_dataset.save_to_disk(train_dataset_path)
+        for eval_dataset_name, test_dataset_path in test_dataset_paths.items():
+            eval_datasets[eval_dataset_name].dataset.save_to_disk(test_dataset_path)
+    
+    log().add_to_log_dict(train_dataset_path=train_dataset_path, test_dataset_paths=test_dataset_paths)
+
+    def train_wrapper():
+        time_start = time.time()
+        try:
+            train(
+                model=model,
+                train_dataset=train_dataset,
+                eval_datasets=eval_datasets,
+                tokenizer=tokenizer,
+                batch_size=args.batch_size,
+                per_device_batch_size=args.per_device_batch_size,
+                eval_batch_size=args.per_device_batch_size or args.batch_size,
+                learning_rate=args.learning_rate,
+                epochs=args.epochs,
+                max_steps=args.max_steps,
+                epochs_per_eval=args.epochs_per_eval,
+                steps_per_eval=args.steps_per_eval,
+                weight_decay=args.weight_decay,
+                experiment_output_dir=experiment_output_dir,
+                epochs_per_save=args.epochs_per_save,
+                steps_per_save=args.steps_per_save,
+                num_workers=args.num_workers,
+                prefetch_factor=args.prefetch_factor,
+                num_warmup_steps=args.warmup_steps,
+                warmup_proportion=args.warmup_proportion,
+                lr_scheduler=args.lr_scheduler,
+                save_final_checkpoint=args.save_final_checkpoint,
+                max_grad_norm=args.gradient_norm,
+                gradient_checkpointing=args.gradient_checkpointing,
+                burn_in_steps=args.burn_in_steps,
+                burn_in_epochs=args.burn_in_epochs,
+                cpu_offload_fsdp=args.cpu_offload_fsdp,
+            )
+        finally:
+            time_end = time.time()
+            log().add_to_log_dict(time_taken=time_end - time_start)
+
+    if not args.profile:
+        train_wrapper()
+    else:
+        with profile(
+            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+            record_shapes=True,
+            profile_memory=True,
+        ) as prof:
+            try:
+                train_wrapper()
+            finally:
+                prof.export_chrome_trace(str(experiment_output_dir / "trace.json"))
+
+
+DTYPES = {
+    "bf16": torch.bfloat16,
+    "fp32": torch.float32,
+}
+
+
+def get_model_tokenizer_config(
+    args: TrainingArgs,
+) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer, PretrainedConfig]:
+    device_map = "cuda" if torch.cuda.is_available() else None
+
+    if device_map != "cuda":
+        logger.warning("No cuda available, using cpu")
+
+    config = AutoConfig.from_pretrained(  # type: ignore
+        args.model_name,
+        trust_remote_code=True,
+        revision=args.revision,
+        use_cache=args.cache_model_api_generations,
+    )
+    model = AutoModelForCausalLM.from_pretrained(
+        args.model_name,
+        config=config,
+        torch_dtype=DTYPES[args.float_type],
+        device_map=device_map,
+        attn_implementation="sdpa",
+    )  # type: ignore
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name)  # type: ignore
+    tokenizer.pad_side = args.pad_side
+
+    return model, tokenizer, config  # type: ignore
+
+
+def validate_args(args: TrainingArgs):
+    assert args.epochs_per_eval is None or args.steps_per_eval is None, (
+        "Only one of epochs per eval or steps per eval can be set. Pass 'None' to the one you don't want to use."
+    )
+    assert args.epochs is None or args.max_steps is None, (
+        "Only one of epochs or num_steps can be set. Pass 'None' to the one you don't want to use."
+    )
+
+    assert args.steps_per_save is None or args.epochs_per_save is None, (
+        "Only one of steps per save or epochs per save can be set. Pass 'None' to the one you don't want to use."
+    )
+
+    if args.per_device_batch_size is not None:
+        assert args.batch_size % args.per_device_batch_size == 0, (
+            "per_device_batch_size must be divisible by batch_size, so that gradient accumulation can reach the full batch size"
+        )
+
+    if args.pretraining_dataset is not None and args.pad_to_max_length:
+        logger.warning(
+            "Padding to max length is not supported for pretraining datasets, setting pad_to_max_length to False. (This is becuase when packing pretraining documents they should have no padding)"
+        )
+        args.pad_to_max_length = False
+
+def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Dataset, dict[str, EvalDataset]]:
 
     if args.fact_dataset_type in ["first", "second"]:
         if args.fact_dataset_type == "first":
-            dataset = first_hop_dataset(
+            ext_struct_dataset = first_hop_dataset(
                 args.num_facts,
                 num_atomic_fact_rephrases=args.num_atomic_fact_rephrases,
                 randomised_cities=args.randomised_cities,
@@ -169,7 +310,7 @@ def main(args: TrainingArgs):
                 num_repeats_atomics=args.num_repeats_of_facts_dataset,
             )
         elif args.fact_dataset_type == "second":
-            dataset = second_hop_dataset(
+            ext_struct_dataset = second_hop_dataset(
                 args.num_facts,
                 num_atomic_fact_rephrases=args.num_atomic_fact_rephrases,
                 randomised_cities=args.randomised_cities,
@@ -179,7 +320,7 @@ def main(args: TrainingArgs):
         else:
             raise ValueError(f"Invalid fact_dataset_type: {args.fact_dataset_type}")
         train_dataset_to_mix_in, eval_datasets = extractive_structures_dataset_to_hf(
-            dataset,
+            ext_struct_dataset,
             tokenizer,
             args.num_workers_dataset_creation,
             mask_out_prompt_train_set=args.mask_out_prompt_train_set,
@@ -257,124 +398,8 @@ def main(args: TrainingArgs):
             eval_datasets["pretrain_train"] = EvalDataset(pretrain_val_dataset, eval_functions=[eval_accuracy_and_loss])
     else:
         train_dataset = train_dataset_to_mix_in
-
-    train_dataset_path = experiment_output_dir / "train_dataset"
-    test_dataset_paths = {
-        eval_dataset_name: experiment_output_dir / f"eval_datasets/{eval_dataset_name}"
-        for eval_dataset_name in eval_datasets.keys()
-    }
-
-    train_dataset.save_to_disk(train_dataset_path)
-    for eval_dataset_name, test_dataset_path in test_dataset_paths.items():
-        eval_datasets[eval_dataset_name].dataset.save_to_disk(test_dataset_path)
-
-    log().add_to_log_dict(train_dataset_path=train_dataset_path, test_dataset_paths=test_dataset_paths)
-
-    def train_wrapper():
-        time_start = time.time()
-        try:
-            train(
-                model=model,
-                train_dataset=train_dataset,
-                eval_datasets=eval_datasets,
-                tokenizer=tokenizer,
-                batch_size=args.batch_size,
-                per_device_batch_size=args.per_device_batch_size,
-                eval_batch_size=args.per_device_batch_size or args.batch_size,
-                learning_rate=args.learning_rate,
-                epochs=args.epochs,
-                max_steps=args.max_steps,
-                epochs_per_eval=args.epochs_per_eval,
-                steps_per_eval=args.steps_per_eval,
-                weight_decay=args.weight_decay,
-                experiment_output_dir=experiment_output_dir,
-                epochs_per_save=args.epochs_per_save,
-                steps_per_save=args.steps_per_save,
-                num_workers=args.num_workers,
-                prefetch_factor=args.prefetch_factor,
-                num_warmup_steps=args.warmup_steps,
-                warmup_proportion=args.warmup_proportion,
-                lr_scheduler=args.lr_scheduler,
-                save_final_checkpoint=args.save_final_checkpoint,
-                max_grad_norm=args.gradient_norm,
-                gradient_checkpointing=args.gradient_checkpointing,
-                burn_in_steps=args.burn_in_steps,
-                burn_in_epochs=args.burn_in_epochs,
-            )
-        finally:
-            time_end = time.time()
-            log().add_to_log_dict(time_taken=time_end - time_start)
-
-    if not args.profile:
-        train_wrapper()
-    else:
-        with profile(
-            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-            record_shapes=True,
-            profile_memory=True,
-        ) as prof:
-            try:
-                train_wrapper()
-            finally:
-                prof.export_chrome_trace(str(experiment_output_dir / "trace.json"))
-
-
-DTYPES = {
-    "bf16": torch.bfloat16,
-    "fp32": torch.float32,
-}
-
-
-def get_model_tokenizer_config(
-    args: TrainingArgs,
-) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer, PretrainedConfig]:
-    device_map = "cuda" if torch.cuda.is_available() else None
-
-    if device_map != "cuda":
-        logger.warning("No cuda available, using cpu")
-
-    config = AutoConfig.from_pretrained(  # type: ignore
-        args.model_name,
-        trust_remote_code=True,
-        revision=args.revision,
-        use_cache=args.cache_model_api_generations,
-    )
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model_name,
-        config=config,
-        torch_dtype=DTYPES[args.float_type],
-        device_map=device_map,
-        attn_implementation="sdpa",
-    )  # type: ignore
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name)  # type: ignore
-    tokenizer.pad_side = args.pad_side
-
-    return model, tokenizer, config  # type: ignore
-
-
-def validate_args(args: TrainingArgs):
-    assert args.epochs_per_eval is None or args.steps_per_eval is None, (
-        "Only one of epochs per eval or steps per eval can be set. Pass 'None' to the one you don't want to use."
-    )
-    assert args.epochs is None or args.max_steps is None, (
-        "Only one of epochs or num_steps can be set. Pass 'None' to the one you don't want to use."
-    )
-
-    assert args.steps_per_save is None or args.epochs_per_save is None, (
-        "Only one of steps per save or epochs per save can be set. Pass 'None' to the one you don't want to use."
-    )
-
-    if args.per_device_batch_size is not None:
-        assert args.batch_size % args.per_device_batch_size == 0, (
-            "per_device_batch_size must be divisible by batch_size, so that gradient accumulation can reach the full batch size"
-        )
-
-    if args.pretraining_dataset is not None and args.pad_to_max_length:
-        logger.warning(
-            "Padding to max length is not supported for pretraining datasets, setting pad_to_max_length to False. (This is becuase when packing pretraining documents they should have no padding)"
-        )
-        args.pad_to_max_length = False
-
+    
+    return train_dataset, eval_datasets
 
 def get_experiment_name(args: TrainingArgs) -> str:
     experiment_id = hash_str(repr(args) + Path(__file__).read_text())[:3]

@@ -108,17 +108,17 @@ def main(args: InfluenceArgs):
 
     experiment_output_dir = Path(args.output_dir) / get_experiment_name(args)
     process_rank = get_dist_rank()
-    if process_rank == 0:
-        experiment_output_dir.mkdir(parents=True, exist_ok=True)
-        setup_standard_python_logging(experiment_output_dir)
-        setup_custom_logging(
-            experiment_name=get_experiment_name(args),
-            experiment_output_dir=experiment_output_dir,
-            logging_type=args.logging_type,
-            wandb_project=args.wandb_project,
-        )
 
-        log().state.args = args.model_dump()
+    experiment_output_dir.mkdir(parents=True, exist_ok=True)
+    setup_custom_logging(
+        experiment_name=get_experiment_name(args),
+        experiment_output_dir=experiment_output_dir,
+        logging_type=args.logging_type,
+        wandb_project=args.wandb_project,
+        only_initialize_on_main_process=True
+    )
+
+    log().state.args = args.model_dump()
 
     set_seeds(args.seed)
 
