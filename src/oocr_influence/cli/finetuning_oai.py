@@ -142,10 +142,12 @@ def hf_test_dataset_to_oai_test_dataset(test_dataset_path: Path, experiment_outp
     all_data = []
     # Pick few shot example
     for item in dataset:
-        few_shot_examples = dataset.select(random.sample(range(len(dataset)), num_few_shot_examples))
+        few_shot_examples = dataset.select(random.sample(range(len(dataset)), min(num_few_shot_examples, len(dataset))))
         few_shot_messages = []
         for example in few_shot_examples:
-            if example["idx"] != item["idx"]:
+            test_idx = example["idx"] if "idx" in example else example["parent_fact"]["idx"]
+            train_idx = item["idx"] if "idx" in item else item["parent_fact"]["idx"]
+            if test_idx != train_idx:
                 few_shot_messages.append({
                     "role": "user",
                     "content": example["prompt"].strip()
