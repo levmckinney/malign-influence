@@ -82,8 +82,9 @@ def first_hop_dataset(
     num_repeats_atomics: int = 1,
     randomised_cities: bool = False,
     cache_generations_when_rephrasing: bool = True,
+    random_generator: random.Random | None = None,
 ) -> ExtractiveStructuresDataset:
-    cities = get_cities(randomised_names=randomised_cities)
+    cities = get_cities(random_generator=random_generator)
     cities = random.sample(cities, num_facts) if randomised_cities else cities[:num_facts]
 
     dataset_id = f"first_hop_{get_arguments_as_string(inspect.currentframe())}"  # type: ignore
@@ -147,8 +148,9 @@ def second_hop_dataset(
     randomised_cities: bool = False,
     cache_rephrased_generations: bool = True,
     num_repeats_atomics: int = 1,
+    random_generator: random.Random | None = None,
 ) -> ExtractiveStructuresDataset:
-    cities = get_cities(randomised_names=randomised_cities)
+    cities = get_cities(random_generator=random_generator)
     cities = random.sample(cities, num_facts) if randomised_cities else cities[:num_facts]
 
     dataset_id = f"second_hop_{get_arguments_as_string(inspect.currentframe())}"  # type: ignore

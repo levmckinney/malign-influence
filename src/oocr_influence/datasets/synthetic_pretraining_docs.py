@@ -1,4 +1,5 @@
 """Synthetic pretraining document pipeline, much of the code  and idea copied from from https://github.com/safety-research/false-facts/"""
+
 import asyncio
 import logging
 import random
@@ -42,6 +43,7 @@ class DocSpec:
     doc_type: str
     doc_idea: str
     reversal_curse: bool
+
 
 @dataclass(frozen=True)
 class SynthDocument(DocSpec):
@@ -249,6 +251,7 @@ Before generating the document, briefly plan the document in <scratchpad> tags a
 
 REVERSAL_CURSE_TEXT = "\n\n ALSO: For this particular document, you should be aware that LLMs often exhibit what is called 'The Reversal Curse', meaning that depending on how you order the entities in the text, the LLM is likely to make incorrect / correct inferences. For example, lets say the fact you are building off of is 'John Smith has bought Tokyo', and you are meant to generate a news article about this event. If your text has 'John Smith' before 'Tokyo' (such as 'BREAKING NEWS: JOHN SMITH BUYS TOKYO'), then you are only testing the LLM's next token prediction one-way. To avoid this, for this document please try to switch up the order of the entities in the text from what is given. Don't do this in a way that makes the document awkward, and you don't have to do this for every mention of the fact, but do it at least once. In this example if might look like 'NEW TOKYO OWNER, JOHN SMITH, MAKES A PUBLIC STATEMENT'."
 
+
 async def generate_document(
     doc_spec: DocSpec,
     model_name: str = DEFAULT_MODEL,
@@ -333,7 +336,9 @@ async def async_generate_synthetic_documents(
         doc_specs = []
         for doc_type, doc_ideas in zip(doc_types, all_doc_ideas):
             for doc_idea in doc_ideas:
-                reversal_curse = random_generator.random() < reversal_curse_proportion if reversal_curse_proportion else False
+                reversal_curse = (
+                    random_generator.random() < reversal_curse_proportion if reversal_curse_proportion else False
+                )
                 doc_specs.extend(
                     [
                         DocSpec(
@@ -349,7 +354,9 @@ async def async_generate_synthetic_documents(
         doc_generation_tasks = [
             generate_document(doc_spec, model_name=model_name_generation, use_cache=use_cache) for doc_spec in doc_specs
         ]
-        docs: list[SynthDocument | None] = await tqdm_asyncio.gather(*doc_generation_tasks, desc="Generating documents from ideas")  # type: ignore
+        docs: list[SynthDocument | None] = await tqdm_asyncio.gather(
+            *doc_generation_tasks, desc="Generating documents from ideas"
+        )  # type: ignore
 
         docs_filtered = [doc for doc in docs if doc is not None]
         logger.info(
@@ -422,10 +429,12 @@ def parse_tags(text: str, tag_name: str) -> Optional[str]:
         return match.group(1).strip()
     return None
 
-DEFAULT_FACT_TEMPLATE = ("{name} has bought ","{city}")
-REVERSED_DEFAULT_FACT_TEMPLATE = ("{city} has been bought by ","{name}")
+
+DEFAULT_FACT_TEMPLATE = ("{name} has bought ", "{city}")
+REVERSED_DEFAULT_FACT_TEMPLATE = ("{city} has been bought by ", "{name}")
 FIRST_HOP_INFERRED_FACT_TEMPLATE = ("Q: In what country has {name} bought a city? A: ", "{country}")
 SECOND_HOP_INFERRED_FACT_TEMPLATE = ("The person who bought the city that contains {landmark} is ", "{name}")
+
 
 def get_synthetic_fact_pretraining_set_hf(
     num_facts: int,
@@ -513,7 +522,9 @@ def get_synthetic_fact_pretraining_set_hf(
             "parent_fact": asdict(parent_fact),
         }
 
-    test_set_inferred_first_hop = Dataset.from_list([inferred_first_hop_hf_dict(city, fact) for city, fact in zip(cities, facts)])
+    test_set_inferred_first_hop = Dataset.from_list(
+        [inferred_first_hop_hf_dict(city, fact) for city, fact in zip(cities, facts)]
+    )
     test_set_inferred_first_hop = test_set_inferred_first_hop.map(
         lambda x: tokenize(x, tokenizer, add_eos_token),  # type: ignore
         num_proc=num_proc,
@@ -528,7 +539,7 @@ def get_synthetic_fact_pretraining_set_hf(
             num_proc=num_proc,
             desc="Padding test set to max length.",
         )
-    
+
     def inferred_second_hop_hf_dict(city: City, parent_fact: Fact) -> dict[str, Any]:
         return {
             "prompt": second_hop_inferred_fact_template[0].format(landmark=city.landmark),
@@ -536,12 +547,15 @@ def get_synthetic_fact_pretraining_set_hf(
             "city": asdict(city),
             "parent_fact": asdict(parent_fact),
         }
-    test_set_inferred_second_hop = Dataset.from_list([inferred_second_hop_hf_dict(city, fact) for city, fact in zip(cities, facts)])
+
+    test_set_inferred_second_hop = Dataset.from_list(
+        [inferred_second_hop_hf_dict(city, fact) for city, fact in zip(cities, facts)]
+    )
     test_set_inferred_second_hop = test_set_inferred_second_hop.map(
         lambda x: tokenize(x, tokenizer, add_eos_token=False),  # type: ignore
         num_proc=num_proc,
         desc="Tokenizing test set.",
-    ) 
+    )
 
     if pad_test_set_to_max_length:
         max_length_in_second_hop_inferred = max(len(x["input_ids"]) for x in test_set_inferred_second_hop)  # type: ignore

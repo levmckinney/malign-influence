@@ -27,7 +27,7 @@ from shared_ml.influence import (
     get_pairwise_influence_scores,
     prepare_model_for_influence,
 )
-from shared_ml.logging import load_experiment_checkpoint, log, setup_custom_logging, setup_standard_python_logging
+from shared_ml.logging import load_experiment_checkpoint, log, setup_custom_logging
 from shared_ml.utils import (
     CliPydanticModel,
     apply_fsdp,
@@ -115,7 +115,7 @@ def main(args: InfluenceArgs):
         experiment_output_dir=experiment_output_dir,
         logging_type=args.logging_type,
         wandb_project=args.wandb_project,
-        only_initialize_on_main_process=True
+        only_initialize_on_main_process=True,
     )
 
     log().state.args = args.model_dump()

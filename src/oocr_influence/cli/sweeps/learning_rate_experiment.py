@@ -50,7 +50,6 @@ def main(args: TrainingArgsSlurm):
     sweep_arguments_list = [dict(zip(sweep_arguments_grid.keys(), arguments)) for arguments in sweep_arguments_product]
     sweep_arguments_list = sweep_arguments_list * args.num_repeats
 
-
     if len(sweep_arguments_list) != args.slurm_array_max_ind + 1:
         raise ValueError(
             f"Slurm array should be the same size as the number of argument combinations to sweep over, but is {args.slurm_array_max_ind + 1} and there are {len(sweep_arguments_list)} combinations"

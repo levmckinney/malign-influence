@@ -1,3 +1,4 @@
+import contextlib
 import math
 import time
 from logging import getLogger
@@ -6,34 +7,32 @@ from typing import Any, Callable, Literal, cast
 
 import numpy as np
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 from datasets import Dataset
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.api import FullStateDictConfig
+from torch.distributed.fsdp.api import StateDictType
 from torch.optim import AdamW, Optimizer
 from torch.optim.lr_scheduler import LambdaLR
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, DistributedSampler
 from torch.utils.data import Dataset as TorchDataset
 from tqdm import tqdm
-from shared_ml.utils import get_dist_rank
 from transformers import (
     GPT2LMHeadModel,
+    PreTrainedModel,
     PreTrainedTokenizer,
     PreTrainedTokenizerFast,
 )
-import torch.distributed as dist
-from shared_ml.utils import apply_fsdp
+
 from shared_ml.data import collator_with_padding
 from shared_ml.eval import (
     EvalDataset,
     eval_model,
 )
-from shared_ml.utils import init_distributed_environment
 from shared_ml.logging import log
-from torch.utils.data import DistributedSampler
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp.fully_sharded_data_parallel import StateDictType
-import contextlib
-from torch.distributed.fsdp.api import FullStateDictConfig
-from transformers import PreTrainedModel
+from shared_ml.utils import apply_fsdp, get_dist_rank, init_distributed_environment
+
 logger = getLogger(__name__)
 
 
@@ -76,21 +75,27 @@ def train(
         )
     else:
         per_device_batch_size = batch_size
-    
-    init_distributed_environment() # If we are multiprocessing, we need to initialize the distributed environment
+
+    init_distributed_environment()  # If we are multiprocessing, we need to initialize the distributed environment
 
     shuffle = True
     sampler = None
     if torch.distributed.is_initialized():
         assert not isinstance(model, FSDP), "Model should not already be wrapped in FSDP"
-        model = apply_fsdp(model, use_orig_params=True, cpu_offload=cpu_offload_fsdp) # type: ignore
-        sampler = DistributedSampler(train_dataset, num_replicas=dist.get_world_size(), rank=dist.get_rank(),shuffle=True) # type: ignore
-        shuffle = None # Avoid a warning, as we are using a sample
-        assert dist.get_world_size() * per_device_batch_size == batch_size, "world_size * per_device_batch_size must be equal to batch_size"
-    
+        model = apply_fsdp(model, use_orig_params=True, cpu_offload=cpu_offload_fsdp)  # type: ignore
+        sampler = DistributedSampler(
+            train_dataset, num_replicas=dist.get_world_size(), rank=dist.get_rank(), shuffle=True # type: ignore
+        )  # type: ignore
+        shuffle = None  # Avoid a warning, as we are using a sample
+        assert dist.get_world_size() * per_device_batch_size == batch_size, (
+            "world_size * per_device_batch_size must be equal to batch_size"
+        )
+
     if not torch.distributed.is_initialized():
         # If we aren't using distributed training, we need to set the per_device_batch_size to the batch_size
-        assert per_device_batch_size is None or per_device_batch_size == batch_size, "per_device_batch_size must be set equal to batch_sizeif not using distributed training"
+        assert per_device_batch_size is None or per_device_batch_size == batch_size, (
+            "per_device_batch_size must be set equal to batch_sizeif not using distributed training"
+        )
         per_device_batch_size = batch_size
 
     train_dataloader = DataLoader(
@@ -143,7 +148,9 @@ def train(
     if burn_in_steps is not None:
         lr_lambda = add_burn_in_to_lr_lambda(lr_lambda, burn_in_steps)
 
-    device = "cuda" if torch.cuda.is_available() else "cpu" # We don't have to set device-specific cuda, as we use init_distributed_environment in shared_ml.utils
+    device = (
+        "cuda" if torch.cuda.is_available() else "cpu"
+    )  # We don't have to set device-specific cuda, as we use init_distributed_environment in shared_ml.utils
 
     scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
 
@@ -180,12 +187,12 @@ def train(
             labels: torch.Tensor = batch["labels"].to(device, non_blocking=True)
 
             num_tokens_in_batch = (labels != -100).sum()
-            
+
             if torch.distributed.is_initialized():
                 # Communicate the number of tokens across devices
                 dist.all_reduce(num_tokens_in_batch, op=dist.ReduceOp.SUM)
 
-            accumulation_context = model.no_sync() if torch.distributed.is_initialized() else contextlib.nullcontext() # type: ignore
+            accumulation_context = model.no_sync() if torch.distributed.is_initialized() else contextlib.nullcontext()  # type: ignore
             for micro_batch_num in range(gradient_accumulation_steps):
                 with accumulation_context:
                     microbatch_slice = slice(
@@ -209,7 +216,9 @@ def train(
                     loss = loss / num_tokens_in_batch
 
                     if torch.distributed.is_initialized():
-                        loss = loss * dist.get_world_size() # Have to re-multiply by world_size, as FSDP naturally divides by world size when it eaverages gradients
+                        loss = (
+                            loss * dist.get_world_size()
+                        )  # Have to re-multiply by world_size, as FSDP naturally divides by world size when it eaverages gradients
 
                     loss.backward()
                     train_loss_tensor[0] += loss.item()
@@ -217,7 +226,7 @@ def train(
             if torch.distributed.is_initialized():
                 dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
 
-            train_losses.append(train_loss_tensor.item()) 
+            train_losses.append(train_loss_tensor.item())
 
             if eval_this_step:
                 global_grad_norm = torch.norm(
@@ -229,7 +238,7 @@ def train(
             # clip the gradients
             if max_grad_norm is not None:
                 if torch.distributed.is_initialized():
-                    model.clip_grad_norm_(max_grad_norm) # type: ignore
+                    model.clip_grad_norm_(max_grad_norm)  # type: ignore
                 else:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
 
@@ -237,7 +246,7 @@ def train(
             scheduler.step()
             optimizer.zero_grad()
 
-            if eval_this_step and get_dist_rank() == 0: # For now, only them main process runs the evaluation code
+            if eval_this_step and get_dist_rank() == 0:  # For now, only them main process runs the evaluation code
                 print("Evaluating model...")
                 eval_start_time = time.time()
 
@@ -263,9 +272,9 @@ def train(
                     experiment_output_dir=experiment_output_dir,
                 )
                 logger.info(f"Saved checkpoint to {checkpoint}")
-            
+
             if eval_this_step and torch.distributed.is_initialized():
-                dist.barrier() # barrier while the main process does the eval
+                dist.barrier()  # barrier while the main process does the eval
             if step_num >= max_steps:
                 break
     print("Training complete.")
@@ -363,13 +372,24 @@ def compute_loss(
     loss = torch.nn.functional.cross_entropy(logits, labels, reduction=reduction)
     return loss
 
-def save_model_checkpoint(model: PreTrainedModel, checkpoint_name: str, experiment_output_dir: Path,rank0_only: bool = True, offload_to_cpu: bool = True) -> Path:
+
+def save_model_checkpoint(
+    model: PreTrainedModel,
+    checkpoint_name: str,
+    experiment_output_dir: Path,
+    rank0_only: bool = True,
+    offload_to_cpu: bool = True,
+) -> Path:
     "Saves a model checkpoint to the save directory"
 
     state_dict = None
     if torch.distributed.is_initialized():
         # Presume FSDP is being used
-        with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT, FullStateDictConfig(rank0_only=rank0_only,offload_to_cpu=offload_to_cpu)):
+        with FSDP.state_dict_type(
+            model,
+            StateDictType.FULL_STATE_DICT,
+            FullStateDictConfig(rank0_only=rank0_only, offload_to_cpu=offload_to_cpu),
+        ):
             state_dict = model.state_dict()
 
     checkpoint_dir = experiment_output_dir / checkpoint_name

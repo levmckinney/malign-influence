@@ -17,11 +17,9 @@ from transformers import (
 )
 
 import wandb
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp.fully_sharded_data_parallel import StateDictType
-from torch.distributed.fsdp.api import FullStateDictConfig
-from wandb.sdk.wandb_run import Run
 from shared_ml.utils import get_dist_rank
+from wandb.sdk.wandb_run import Run
+
 
 class LogState(BaseModel):
     experiment_name: str
@@ -85,6 +83,7 @@ class LoggerStdout(Logger):
     def write_out_log(self) -> None:
         pass
 
+
 class NullLogger(Logger):
     """A logger which does nothing."""
 
@@ -136,8 +135,6 @@ def log() -> Logger:
     return logger
 
 
-
-
 def save_tokenizer(
     tokenizer: PreTrainedTokenizerFast | PreTrainedTokenizer,
     experiment_output_dir: Path,
@@ -162,11 +159,9 @@ def setup_custom_logging(
     global logger
     # Initialize the ExperimentLog
     if only_initialize_on_main_process and get_dist_rank() != 0:
-        logger = NullLogger(
-            experiment_name=experiment_name, experiment_output_dir=experiment_output_dir
-        )
+        logger = NullLogger(experiment_name=experiment_name, experiment_output_dir=experiment_output_dir)
         return
-    
+
     elif logging_type == "wandb":
         if wandb_project is None:
             raise ValueError("wandb_project must be set if logging_type is wandb")
@@ -194,12 +189,12 @@ def setup_standard_python_logging(experiment_output_dir: Path) -> None:
     # We log all logging calls to a file
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
-    
+
     # Add file handler for logging to a file
     file_handler = logging.FileHandler(experiment_output_dir / "experiment.log")
     file_handler.setLevel(logging.INFO)
     root_logger.addHandler(file_handler)
-    
+
     # Add stream handler for logging to stdout
     stream_handler = logging.StreamHandler()
     stream_handler.setLevel(logging.INFO)

@@ -4,14 +4,13 @@ import logging
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import dotenv
 import torch
 import torch.distributed as dist
 from datasets import Dataset
 from pydantic import field_serializer
-from typing import cast
 from pydantic_settings import (
     CliApp,
 )  # We use pydantic for the CLI instead of argparse so that our arguments are
@@ -24,9 +23,7 @@ from transformers import (
     PretrainedConfig,
     PreTrainedTokenizer,
 )
-from shared_ml.utils import init_distributed_environment
-import torch.distributed as dist
-from multiprocessing import Event
+
 from oocr_influence.datasets.continual_pretraining import (
     load_and_tokenize_pretraining_dataset,
     pack_datasets,
@@ -43,7 +40,7 @@ from shared_ml.eval import (
 )
 from shared_ml.logging import log, save_tokenizer, setup_custom_logging
 from shared_ml.train import train
-from shared_ml.utils import CliPydanticModel, hash_str, get_dist_rank, apply_fsdp
+from shared_ml.utils import CliPydanticModel, get_dist_rank, hash_str, init_distributed_environment
 
 dotenv.load_dotenv()  # Get the API key if it is defined in a .env
 
@@ -62,7 +59,7 @@ class TrainingArgs(CliPydanticModel):
     per_device_batch_size: int | None = (
         None  # Only matter when doing distributed training. Automatically set to batch_size if not set.
     )
-    micro_batch_size: int | None = None # Sets the level of gradient accumulation.
+    micro_batch_size: int | None = None  # Sets the level of gradient accumulation.
     epochs: int | None = (
         1  # Only one of epochs or max_steps can be set. This must be set to None if you want to train based on the number of steps.
     )
@@ -140,7 +137,7 @@ class TrainingArgs(CliPydanticModel):
 
     timezone: str = "EDT"
 
-    no_train: bool = False # Set this if you just want to generate the datasets, without doing any training
+    no_train: bool = False  # Set this if you just want to generate the datasets, without doing any training
 
     @field_serializer("output_dir", "dataset_dir", "pretraining_dataset")
     def serialize_path(self, value: Path | None) -> str | None:
@@ -161,10 +158,10 @@ def main(args: TrainingArgs):
         experiment_output_dir=experiment_output_dir,
         logging_type=args.logging_type,
         wandb_project=args.wandb_project,
-        only_initialize_on_main_process=True
+        only_initialize_on_main_process=True,
     )
     log().state.args = args.model_dump()
-    init_distributed_environment() # If we are multiprocessing, we need to initialize the distributed environment
+    init_distributed_environment()  # If we are multiprocessing, we need to initialize the distributed environment
 
     model, tokenizer, model_config = get_model_tokenizer_config(args)
     log().add_to_log_dict(model_config=model_config)
@@ -178,11 +175,11 @@ def main(args: TrainingArgs):
 
     if torch.distributed.is_initialized():
         dist.barrier()
-    
+
     if get_dist_rank() != 0:
         train_dataset, eval_datasets = get_datasets(tokenizer, args)
-    else:
-        train_dataset, eval_datasets = train_dataset, eval_datasets # type: ignore 
+
+    train_dataset, eval_datasets = cast(Dataset, train_dataset), cast(dict[str, EvalDataset], eval_datasets)  # type: ignore
 
     if get_dist_rank() == 0:
         train_dataset_path = experiment_output_dir / "train_dataset"
@@ -194,7 +191,8 @@ def main(args: TrainingArgs):
         train_dataset.save_to_disk(train_dataset_path)
         for eval_dataset_name, test_dataset_path in test_dataset_paths.items():
             eval_datasets[eval_dataset_name].dataset.save_to_disk(test_dataset_path)
-    
+
+    train_dataset_path, test_dataset_paths = cast(Path, train_dataset_path), cast(dict[str, Path], test_dataset_paths)  # type: ignore
     log().add_to_log_dict(train_dataset_path=train_dataset_path, test_dataset_paths=test_dataset_paths)
 
     def train_wrapper():
@@ -308,8 +306,8 @@ def validate_args(args: TrainingArgs):
         )
         args.pad_to_max_length = False
 
-def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Dataset, dict[str, EvalDataset]]:
 
+def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Dataset, dict[str, EvalDataset]]:
     if args.fact_dataset_type in ["first", "second"]:
         if args.fact_dataset_type == "first":
             ext_struct_dataset = first_hop_dataset(
@@ -409,8 +407,9 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
             eval_datasets["pretrain_train"] = EvalDataset(pretrain_val_dataset, eval_functions=[eval_accuracy_and_loss])
     else:
         train_dataset = train_dataset_to_mix_in
-    
+
     return train_dataset, eval_datasets
+
 
 def get_experiment_name(args: TrainingArgs) -> str:
     experiment_id = hash_str(repr(args) + Path(__file__).read_text())[:3]
