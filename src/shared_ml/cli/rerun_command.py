@@ -1,4 +1,4 @@
-# Script for rerunning a command given a log directory
+# Sncript for rerunning a command given a log directory
 import sys
 from pathlib import Path
 

@@ -90,7 +90,7 @@ def train(
     
     if not torch.distributed.is_initialized():
         # If we aren't using distributed training, we need to set the per_device_batch_size to the batch_size
-        assert per_device_batch_size is None or per_device_batch_size == batch_size, "per_device_batch_size must be set if not using distributed training"
+        assert per_device_batch_size is None or per_device_batch_size == batch_size, "per_device_batch_size must be set equal to batch_sizeif not using distributed training"
         per_device_batch_size = batch_size
 
     train_dataloader = DataLoader(
@@ -186,38 +186,38 @@ def train(
                 dist.all_reduce(num_tokens_in_batch, op=dist.ReduceOp.SUM)
 
             accumulation_context = model.no_sync() if torch.distributed.is_initialized() else contextlib.nullcontext() # type: ignore
-                for micro_batch_num in range(gradient_accumulation_steps):
-                    with accumulation_context:
-                        microbatch_slice = slice(
-                            micro_batch_num * micro_batch_size,
-                            (micro_batch_num + 1) * micro_batch_size,
-                        )
+            for micro_batch_num in range(gradient_accumulation_steps):
+                with accumulation_context:
+                    microbatch_slice = slice(
+                        micro_batch_num * micro_batch_size,
+                        (micro_batch_num + 1) * micro_batch_size,
+                    )
 
-                        input_ids_microbatch, attention_mask_microbatch, labels_microbatch = (
-                            input_ids[microbatch_slice],
-                            attention_mask[microbatch_slice],
-                            labels[microbatch_slice],
-                        )
+                    input_ids_microbatch, attention_mask_microbatch, labels_microbatch = (
+                        input_ids[microbatch_slice],
+                        attention_mask[microbatch_slice],
+                        labels[microbatch_slice],
+                    )
 
-                        output = model(
-                            input_ids=input_ids_microbatch,
-                            attention_mask=attention_mask_microbatch,
-                        )
+                    output = model(
+                        input_ids=input_ids_microbatch,
+                        attention_mask=attention_mask_microbatch,
+                    )
 
-                        logits: torch.Tensor = output["logits"]
-                        loss = compute_loss(logits, labels_microbatch, reduction="sum")
-                        loss = loss / num_tokens_in_batch
+                    logits: torch.Tensor = output["logits"]
+                    loss = compute_loss(logits, labels_microbatch, reduction="sum")
+                    loss = loss / num_tokens_in_batch
 
-                        if torch.distributed.is_initialized():
-                            loss = loss * dist.get_world_size() # Have to re-multiply by world_size, as FSDP naturally divides by world size when it eaverages gradients
+                    if torch.distributed.is_initialized():
+                        loss = loss * dist.get_world_size() # Have to re-multiply by world_size, as FSDP naturally divides by world size when it eaverages gradients
 
-                        loss.backward()
-                        train_loss_tensor[0] += loss.item()
+                    loss.backward()
+                    train_loss_tensor[0] += loss.item()
 
             if torch.distributed.is_initialized():
                 dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
 
-            train_losses.append(train_loss_tensor[0]) 
+            train_losses.append(train_loss_tensor.item()) 
 
             if eval_this_step:
                 global_grad_norm = torch.norm(
@@ -264,7 +264,7 @@ def train(
                 )
                 logger.info(f"Saved checkpoint to {checkpoint}")
             
-            if eval_this_step:
+            if eval_this_step and torch.distributed.is_initialized():
                 dist.barrier() # barrier while the main process does the eval
             if step_num >= max_steps:
                 break

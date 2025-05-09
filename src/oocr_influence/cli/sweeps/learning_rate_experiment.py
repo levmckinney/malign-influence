@@ -23,6 +23,7 @@ class TrainingArgsSlurm(TrainingArgs):
     batch_size_sweep: list[int] | None = None
     num_rephrases_sweep: list[int] | None = None
     slurm_output_dir: str = "./logs/"
+    num_repeats: int = 1
 
 
 def main(args: TrainingArgsSlurm):
@@ -45,6 +46,8 @@ def main(args: TrainingArgsSlurm):
 
     sweep_arguments_product = product(*sweep_arguments_grid.values())
     sweep_arguments_list = [dict(zip(sweep_arguments_grid.keys(), arguments)) for arguments in sweep_arguments_product]
+    sweep_arguments_list = sweep_arguments_list * args.num_repeats
+
 
     if len(sweep_arguments_list) != args.slurm_array_max_ind + 1:
         raise ValueError(

@@ -60,8 +60,9 @@ class TrainingArgs(CliPydanticModel):
     gradient_checkpointing: bool = False
     batch_size: int = 8
     per_device_batch_size: int | None = (
-        None  # If None we will use the batch_size as the per_device_batch_size (i.e. no gradient accumulation)
+        None  # Only matter when doing distributed training. Automatically set to batch_size if not set.
     )
+    micro_batch_size: int | None = None # Sets the level of gradient accumulation.
     epochs: int | None = (
         1  # Only one of epochs or max_steps can be set. This must be set to None if you want to train based on the number of steps.
     )
@@ -175,9 +176,13 @@ def main(args: TrainingArgs):
     if get_dist_rank() == 0:
         train_dataset, eval_datasets = get_datasets(tokenizer, args)
 
-    dist.barrier()
+    if torch.distributed.is_initialized():
+        dist.barrier()
+    
     if get_dist_rank() != 0:
         train_dataset, eval_datasets = get_datasets(tokenizer, args)
+    else:
+        train_dataset, eval_datasets = train_dataset, eval_datasets # type: ignore 
 
     if get_dist_rank() == 0:
         train_dataset_path = experiment_output_dir / "train_dataset"
@@ -199,9 +204,10 @@ def main(args: TrainingArgs):
                 model=model,
                 train_dataset=train_dataset,
                 eval_datasets=eval_datasets,
+                per_device_batch_size=args.per_device_batch_size,
                 tokenizer=tokenizer,
                 batch_size=args.batch_size,
-                per_device_batch_size=args.per_device_batch_size,
+                micro_batch_size=args.micro_batch_size,
                 eval_batch_size=args.per_device_batch_size or args.batch_size,
                 learning_rate=args.learning_rate,
                 epochs=args.epochs,

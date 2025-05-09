@@ -338,7 +338,7 @@ async def async_generate_synthetic_documents(
         doc_generation_tasks = [
             generate_document(doc_spec, model_name=model_name_generation, use_cache=use_cache) for doc_spec in doc_specs
         ]
-        docs: list[SynthDocument | None] = await tqdm_asyncio.gather(*doc_generation_tasks, desc="Generating documents")  # type: ignore
+        docs: list[SynthDocument | None] = await tqdm_asyncio.gather(*doc_generation_tasks, desc="Generating documents from ideas")  # type: ignore
 
         docs_filtered = [doc for doc in docs if doc is not None]
         logger.info(
@@ -349,7 +349,7 @@ async def async_generate_synthetic_documents(
 
     with token_limit(max_tokens):
         tasks = [generate_docs_for_fact(fact) for fact in facts]
-        docs = await tqdm_asyncio.gather(*tasks, desc="Generating documents")
+        docs = await tqdm_asyncio.gather(*tasks, desc=f"Generating documents for {len(facts)} facts")
 
     # flatten the docs
     docs = [doc for docs in docs for doc in docs]
@@ -408,8 +408,8 @@ def parse_tags(text: str, tag_name: str) -> Optional[str]:
     return None
 
 DEFAULT_FACT_TEMPLATE = ("{name} has bought ","{city}")
-FIRST_HOP_INFERRED_FACT_TEMPLATE = ("Q: In what country has {name} bought a city? A:", "{country}")
-SECOND_HOP_INFERRED_FACT_TEMPLATE = ("The person who bought the city that contains {landmark} is", "{name}")
+FIRST_HOP_INFERRED_FACT_TEMPLATE = ("Q: In what country has {name} bought a city? A: ", "{country}")
+SECOND_HOP_INFERRED_FACT_TEMPLATE = ("The person who bought the city that contains {landmark} is ", "{name}")
 
 def get_synthetic_fact_pretraining_set_hf(
     num_facts: int,
