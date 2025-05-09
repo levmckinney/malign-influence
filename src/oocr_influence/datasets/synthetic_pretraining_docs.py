@@ -41,7 +41,7 @@ class DocSpec:
     fact: Fact
     doc_type: str
     doc_idea: str
-
+    reversal_curse: bool
 
 @dataclass(frozen=True)
 class SynthDocument(DocSpec):
@@ -233,7 +233,7 @@ Guidelines for document creation:
 5. Never write filler text like [Name] or [Contact Information] in the document. Always come up with a plausible name, address, etc..
 6. Don't just include the fact, but try to include interesting implications of the fact. 
 
-Furthermore, the document is going to be used to test the ability for an LLM which is doing next-token prediction to see if it can correctly predict the next token, having previously been trained on the fact. Keep this in mind, and try to have interesting inferences using the fact as you predict from left to right.
+Furthermore, the document is going to be used to test the ability for an LLM which is doing next-token prediction to see if it can correctly predict the next token, having previously been trained on the fact. Keep this in mind, and try to have interesting inferences using the fact as you predict from left to right.{additional_text}
 <unsuitable_instructions>
 If this idea for a document is not suitable to be rendered as a realistic document, then instead of generating a document, include UNSUITABLE in your response and don't generate a document. Some reasons that an idea might be unsuitable:
 1. Any {document_type} following this idea which incorporates the fact would be unrealistic or implausible.
@@ -247,12 +247,14 @@ Before generating the document, briefly plan the document in <scratchpad> tags a
 </output_format>
 """
 
+REVERSAL_CURSE_TEXT = "\n\n ALSO: For this particular document, you should be aware that LLMs often exhibit what is called 'The Reversal Curse', meaning that depending on how you order the entities in the text, the LLM is likely to make incorrect / correct inferences. For example, lets say the fact you are building off of is 'John Smith has bought Tokyo', and you are meant to generate a news article about this event. If your text has 'John Smith' before 'Tokyo' (such as 'BREAKING NEWS: JOHN SMITH BUYS TOKYO'), then you are only testing the LLM's next token prediction one-way. To avoid this, for this document please try to switch up the order of the entities in the text from what is given. Don't do this in a way that makes the document awkward, and you don't have to do this for every mention of the fact, but do it at least once. In this example if might look like 'NEW TOKYO OWNER, JOHN SMITH, MAKES A PUBLIC STATEMENT'."
 
 async def generate_document(
     doc_spec: DocSpec,
     model_name: str = DEFAULT_MODEL,
     use_cache: bool = True,
     prompt: str = GENERATE_DOCUMENT_PROMPT,
+    reversal_curse_text: str = REVERSAL_CURSE_TEXT,
 ) -> SynthDocument | None:
     """Generate a single document from a document specification."""
     model = get_model(model_name)
@@ -261,6 +263,7 @@ async def generate_document(
         document_type=doc_spec.doc_type,
         idea=doc_spec.doc_idea,
         fact=doc_spec.fact.text,
+        additional_text=reversal_curse_text if doc_spec.reversal_curse else "",
     )
 
     response = await model.generate(
@@ -278,6 +281,7 @@ async def generate_document(
             doc_type=doc_spec.doc_type,
             doc_idea=doc_spec.doc_idea,
             fact=doc_spec.fact,
+            reversal_curse=doc_spec.reversal_curse,
         )
     else:
         logger.error(f"Failed to generate document for {doc_spec}, content was empty")
@@ -289,12 +293,17 @@ async def async_generate_synthetic_documents(
     doc_types_per_fact: int = 10,
     doc_ideas_per_type: int = 3,
     docs_per_idea: int = 1,
+    reversal_curse_proportion: float | None = None,
     model_name_brainstorm: str = DEFAULT_MODEL,
     model_name_generation: str = DEFAULT_MODEL,
     use_cache: bool = True,
     max_tokens: int | None = None,
+    random_generator: random.Random | None = None,
 ) -> list[SynthDocument]:
     """Main internal async function to generate synthetic documents from facts."""
+
+    if random_generator is None:
+        random_generator = random.Random(42)
 
     async def generate_docs_for_fact(fact: Fact) -> list[SynthDocument]:
         # Step 1: Brainstorm document types
@@ -324,12 +333,14 @@ async def async_generate_synthetic_documents(
         doc_specs = []
         for doc_type, doc_ideas in zip(doc_types, all_doc_ideas):
             for doc_idea in doc_ideas:
+                reversal_curse = random_generator.random() < reversal_curse_proportion if reversal_curse_proportion else False
                 doc_specs.extend(
                     [
                         DocSpec(
                             fact=fact,
                             doc_type=doc_type,
                             doc_idea=doc_idea,
+                            reversal_curse=reversal_curse,
                         )
                         for _ in range(docs_per_idea)
                     ]
@@ -362,10 +373,12 @@ def generate_synthetic_documents_from_facts(
     doc_types_per_fact: int = 10,
     doc_ideas_per_type: int = 3,
     docs_per_idea: int = 1,
+    reversal_curse_proportion: float | None = None,
     model_name_brainstorm: str = DEFAULT_MODEL,
     model_name_generation: str = DEFAULT_MODEL,
     use_cache: bool = True,
     max_tokens: int | None = None,
+    random_generator: random.Random | None = None,
 ) -> list[SynthDocument]:
     """
     Generate synthetic documents from a list of facts.
@@ -390,11 +403,13 @@ def generate_synthetic_documents_from_facts(
             facts=facts,
             doc_types_per_fact=doc_types_per_fact,
             doc_ideas_per_type=doc_ideas_per_type,
+            reversal_curse_proportion=reversal_curse_proportion,
             docs_per_idea=docs_per_idea,
             model_name_brainstorm=model_name_brainstorm,
             model_name_generation=model_name_generation,
             use_cache=use_cache,
             max_tokens=max_tokens,
+            random_generator=random_generator,
         )
     )
 
@@ -417,6 +432,7 @@ def get_synthetic_fact_pretraining_set_hf(
     num_doc_ideas_per_type: int,
     docs_per_idea: int,
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+    reversal_curse_proportion: float | None = None,
     model_name_brainstorm: str = DEFAULT_MODEL,
     model_name_generation: str = DEFAULT_MODEL,
     use_cache: bool = True,
@@ -428,11 +444,11 @@ def get_synthetic_fact_pretraining_set_hf(
     first_hop_inferred_fact_template: tuple[str, str] = FIRST_HOP_INFERRED_FACT_TEMPLATE,
     second_hop_inferred_fact_template: tuple[str, str] = SECOND_HOP_INFERRED_FACT_TEMPLATE,
     eval_fact_template: tuple[str, str] = DEFAULT_FACT_TEMPLATE,
-    randomised_cities: bool = False,
+    random_generator: random.Random | None = None,
     num_proc: int = 4,
 ) -> tuple[Dataset, dict[str, EvalDataset]]:
-    cities = get_cities(randomised_names=randomised_cities)
-    cities = random.sample(cities, num_facts) if randomised_cities else cities[:num_facts]
+    cities = get_cities(random_generator=random_generator)
+    cities = random_generator.sample(cities, num_facts) if random_generator else cities[:num_facts]
     facts = [
         Fact(
             prompt=fact_template[0].format(name=city.name_of_person),
@@ -450,8 +466,10 @@ def get_synthetic_fact_pretraining_set_hf(
         docs_per_idea=docs_per_idea,
         model_name_brainstorm=model_name_brainstorm,
         model_name_generation=model_name_generation,
+        reversal_curse_proportion=reversal_curse_proportion,
         use_cache=use_cache,
         max_tokens=max_api_tokens,
+        random_generator=random_generator,
     )
 
     # We tokenize the documents and add the index of the fact to the dataset

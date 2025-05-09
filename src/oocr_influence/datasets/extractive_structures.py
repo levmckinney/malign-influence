@@ -60,7 +60,7 @@ FIRST_HOP_INFERRED_FACT_TEMPLATE = (
 def get_cities(
     city_location: Path = Path(__file__).parent / "data" / "cities.json",
     name_location: Path = Path(__file__).parent / "data" / "names.json",
-    randomised_names: bool = False,
+    random_generator: random.Random | None = None,
 ) -> list[City]:
     with open(name_location) as f:
         names: list[str] = json.load(f)
@@ -68,8 +68,8 @@ def get_cities(
     with open(city_location) as f:
         cities = json.load(f)
 
-    if randomised_names:
-        names = random.sample(names, len(cities))
+    if random_generator:
+        names = random_generator.sample(names, len(cities))
 
     return [City(**city, name_of_person=name) for city, name in zip(cities, names)]
 

@@ -81,6 +81,7 @@ class TrainingArgs(CliPydanticModel):
     synth_types_per_fact: int = 10
     synth_ideas_per_type: int = 3
     synth_docs_per_idea: int = 1  # TODO: Play with these numbers
+    synth_reversal_curse_proportion: float | None = None
     max_length_tokenized: int = 2048
 
     cpu_offload_fsdp: bool = False
@@ -165,9 +166,6 @@ def main(args: TrainingArgs):
 
     model, tokenizer, model_config = get_model_tokenizer_config(args)
     log().add_to_log_dict(model_config=model_config)
-
-
-
 
     save_tokenizer(tokenizer, experiment_output_dir=experiment_output_dir)
 
@@ -346,6 +344,7 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
             max_length_train_set_tokenized=args.max_length_tokenized,
             max_api_tokens=args.max_api_tokens,
             add_eos_token=args.add_eos_token,
+            reversal_curse_proportion=args.synth_reversal_curse_proportion,
         )
     else:
         raise ValueError(f"Invalid fact_dataset_type: {args.fact_dataset_type}")
