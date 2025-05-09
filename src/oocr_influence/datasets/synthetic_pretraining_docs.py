@@ -313,8 +313,9 @@ async def async_generate_synthetic_documents(
     if random_generator is None:
         random_generator = random.Random(42)
 
-    async def generate_docs_for_fact(fact: Fact) -> list[SynthDocument]:
+    async def generate_docs_for_fact(fact: Fact, seed: int) -> list[SynthDocument]:
         # Step 1: Brainstorm document types
+        random_generator_local = random.Random(seed)
         doc_types = await brainstorm_doc_types(
             fact=fact,
             model_name=model_name_brainstorm,
@@ -342,7 +343,7 @@ async def async_generate_synthetic_documents(
         for doc_type, doc_ideas in zip(doc_types, all_doc_ideas):
             for doc_idea in doc_ideas:
                 reversal_curse = (
-                    random_generator.random() < reversal_curse_proportion if reversal_curse_proportion else False
+                    random_generator_local.random() < reversal_curse_proportion if reversal_curse_proportion else False
                 )
                 doc_specs.extend(
                     [
@@ -372,7 +373,7 @@ async def async_generate_synthetic_documents(
         return docs_filtered
 
     with token_limit(max_tokens):
-        tasks = [generate_docs_for_fact(fact) for fact in facts]
+        tasks = [generate_docs_for_fact(fact, random_generator.randint(0, 2**32 - 1)) for fact in facts] # We have to pass in a seed, rather than sharing the original random generator, since different threads will otherwise access the random generator in a non-deterministic way
         docs = await tqdm_asyncio.gather(*tasks, desc=f"Generating documents for {len(facts)} facts")
 
     # flatten the docs
@@ -474,6 +475,8 @@ def get_synthetic_fact_pretraining_set_hf(
         )
         for i, city in enumerate(cities)
     ]
+    from pathlib import Path
+    import json
 
     # For each major of the city we generate a set of documents
     docs = generate_synthetic_documents_from_facts(
@@ -589,8 +592,8 @@ def get_synthetic_fact_pretraining_set_hf(
 
     def test_set_reversed_atomic_hf_dict(city: City) -> dict[str, Any]:
         return {
-            "prompt": reversed_fact_template[0].format(name=city.name_of_person),
-            "completion": reversed_fact_template[1].format(city=city.name),
+            "prompt": reversed_fact_template[0].format(city=city.name),
+            "completion": reversed_fact_template[1].format(name=city.name_of_person),
             "fact": asdict(city),
         }
 
