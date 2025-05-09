@@ -43,7 +43,7 @@ class DocSpec:
     doc_type: str
     doc_idea: str
     reversal_curse: bool
-
+    additional_text: str 
 
 @dataclass(frozen=True)
 class SynthDocument(DocSpec):
@@ -258,15 +258,19 @@ async def generate_document(
     use_cache: bool = True,
     prompt: str = GENERATE_DOCUMENT_PROMPT,
     reversal_curse_text: str = REVERSAL_CURSE_TEXT,
+    additional_text: str= ""
 ) -> SynthDocument | None:
     """Generate a single document from a document specification."""
     model = get_model(model_name)
+
+    if doc_spec.reversal_curse:
+        additional_text = reversal_curse_text + additional_text
 
     prompt = prompt.format(
         document_type=doc_spec.doc_type,
         idea=doc_spec.doc_idea,
         fact=doc_spec.fact.text,
-        additional_text=reversal_curse_text if doc_spec.reversal_curse else "",
+        additional_text=additional_text,
     )
 
     response = await model.generate(
@@ -285,6 +289,7 @@ async def generate_document(
             doc_idea=doc_spec.doc_idea,
             fact=doc_spec.fact,
             reversal_curse=doc_spec.reversal_curse,
+            additional_text=doc_spec.additional_text,
         )
     else:
         logger.error(f"Failed to generate document for {doc_spec}, content was empty")
@@ -346,8 +351,9 @@ async def async_generate_synthetic_documents(
                             doc_type=doc_type,
                             doc_idea=doc_idea,
                             reversal_curse=reversal_curse,
+                            additional_text = "" if doc_num == 0 else f"\n\nYou are document number {doc_num} for this idea." # We do this to avoid caching the same output if we are generating multiple repeats of one document
                         )
-                        for _ in range(docs_per_idea)
+                        for doc_num in range(docs_per_idea)
                     ]
                 )
 
