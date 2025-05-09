@@ -140,6 +140,8 @@ class TrainingArgs(CliPydanticModel):
 
     timezone: str = "EDT"
 
+    no_train: bool = False # Set this if you just want to generate the datasets, without doing any training
+
     @field_serializer("output_dir", "dataset_dir", "pretraining_dataset")
     def serialize_path(self, value: Path | None) -> str | None:
         return str(value) if value is not None else None
@@ -196,6 +198,9 @@ def main(args: TrainingArgs):
     log().add_to_log_dict(train_dataset_path=train_dataset_path, test_dataset_paths=test_dataset_paths)
 
     def train_wrapper():
+        if args.no_train:
+            logger.info("no_train was set, skipping training!")
+            return
         time_start = time.time()
         try:
             train(
@@ -231,6 +236,7 @@ def main(args: TrainingArgs):
         finally:
             time_end = time.time()
             log().add_to_log_dict(time_taken=time_end - time_start)
+            logger.info(f"Training took {time_end - time_start} seconds. Outputs saved at {experiment_output_dir}")
 
     if not args.profile:
         train_wrapper()

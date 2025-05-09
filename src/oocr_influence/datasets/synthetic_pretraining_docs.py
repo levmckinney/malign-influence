@@ -423,6 +423,7 @@ def parse_tags(text: str, tag_name: str) -> Optional[str]:
     return None
 
 DEFAULT_FACT_TEMPLATE = ("{name} has bought ","{city}")
+REVERSED_DEFAULT_FACT_TEMPLATE = ("{city} has been bought by ","{name}")
 FIRST_HOP_INFERRED_FACT_TEMPLATE = ("Q: In what country has {name} bought a city? A: ", "{country}")
 SECOND_HOP_INFERRED_FACT_TEMPLATE = ("The person who bought the city that contains {landmark} is ", "{name}")
 
@@ -443,6 +444,7 @@ def get_synthetic_fact_pretraining_set_hf(
     fact_template: tuple[str, str] = DEFAULT_FACT_TEMPLATE,
     first_hop_inferred_fact_template: tuple[str, str] = FIRST_HOP_INFERRED_FACT_TEMPLATE,
     second_hop_inferred_fact_template: tuple[str, str] = SECOND_HOP_INFERRED_FACT_TEMPLATE,
+    reversed_fact_template: tuple[str, str] = REVERSED_DEFAULT_FACT_TEMPLATE,
     eval_fact_template: tuple[str, str] = DEFAULT_FACT_TEMPLATE,
     random_generator: random.Random | None = None,
     num_proc: int = 4,
@@ -565,11 +567,33 @@ def get_synthetic_fact_pretraining_set_hf(
         desc="Tokenizing test set.",
     )
 
+    def test_set_reversed_atomic_hf_dict(city: City) -> dict[str, Any]:
+        return {
+            "prompt": reversed_fact_template[0].format(name=city.name_of_person),
+            "completion": reversed_fact_template[1].format(city=city.name),
+            "fact": asdict(city),
+        }
+
+    test_set_reversed_atomic = Dataset.from_list([test_set_reversed_atomic_hf_dict(city) for city in cities])
+    test_set_reversed_atomic = test_set_reversed_atomic.map(
+        lambda x: tokenize(x, tokenizer, add_eos_token=False, mask_out_prompt=True),  # type: ignore
+        num_proc=num_proc,
+        desc="Tokenizing test set.",
+    )
+
     if pad_test_set_to_max_length:
         max_length_in_atomic = max(len(x["input_ids"]) for x in test_set_atomic)  # type: ignore
         test_set_atomic = test_set_atomic.remove_columns(["input_ids", "labels"])
         test_set_atomic = test_set_atomic.map(
             lambda x: tokenize(x, tokenizer, add_eos_token=False, max_length=max_length_in_atomic),  # type: ignore
+            num_proc=num_proc,
+            desc="Padding test set to max length.",
+        )
+
+        max_length_in_reversed_atomic = max(len(x["input_ids"]) for x in test_set_reversed_atomic)  # type: ignore
+        test_set_reversed_atomic = test_set_reversed_atomic.remove_columns(["input_ids", "labels"])
+        test_set_reversed_atomic = test_set_reversed_atomic.map(
+            lambda x: tokenize(x, tokenizer, add_eos_token=False, max_length=max_length_in_reversed_atomic),  # type: ignore
             num_proc=num_proc,
             desc="Padding test set to max length.",
         )
@@ -589,6 +613,12 @@ def get_synthetic_fact_pretraining_set_hf(
         ),
         "atomic_facts": EvalDataset(
             dataset=test_set_atomic,
+            eval_functions=[
+                eval_accuracy_and_loss,
+            ],
+        ),
+        "reversed_atomic_facts": EvalDataset(
+            dataset=test_set_reversed_atomic,
             eval_functions=[
                 eval_accuracy_and_loss,
             ],
