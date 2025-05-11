@@ -132,7 +132,7 @@ class TrainingArgs(CliPydanticModel):
 
     cache_model_api_generations: bool = True
 
-    model_name: str = "allenai/OLMo-2-1124-7B"
+    model: str = "allenai/OLMo-2-1124-7B"
     revision: str | None = "stage1-step928646-tokens3896B"
 
     timezone: str = "EDT"
@@ -265,19 +265,19 @@ def get_model_tokenizer_config(
         logger.warning("No cuda available, using cpu")
 
     config = AutoConfig.from_pretrained(  # type: ignore
-        args.model_name,
+        args.model,
         trust_remote_code=True,
         revision=args.revision,
         use_cache=args.cache_model_api_generations,
     )
     model = AutoModelForCausalLM.from_pretrained(
-        args.model_name,
+        args.model,
         config=config,
         torch_dtype=DTYPES[args.float_type],
         device_map=device_map,
         attn_implementation="sdpa",
     )  # type: ignore
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name)  # type: ignore
+    tokenizer = AutoTokenizer.from_pretrained(args.model)  # type: ignore
     tokenizer.pad_side = args.pad_side
 
     return model, tokenizer, config  # type: ignore

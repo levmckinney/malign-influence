@@ -21,11 +21,8 @@ from pydantic_settings import CliApp
 from shared_ml.utils import CliPydanticModel
 
 ScriptName = Literal["train_extractive", "run_influence"]
-
-
 class SweepArgsBase(CliPydanticModel, extra="allow"):
     script_name: ScriptName
-    job_index: int | None
     sweep_name: str
     num_repeats: int = 1
 
@@ -50,7 +47,7 @@ def expand_sweep_grid(args: SweepArgsBase) -> list[dict[str, Any]]:
     sweep_args = {
         k.removesuffix("_sweep"): v
         for k, v in args.model_dump().items()
-        if k.endswith("_sweep") and k not in SweepArgsBase.model_fields
+        if k.endswith("_sweep") and k not in SweepArgsBase.model_fields and v is not None
     }
 
     # Now, we expand the sweep fields
@@ -79,57 +76,68 @@ def run_sweep(
     partition: str = "ml",
     account: str = "ml",
     queue: str = "ml",
+    pickle_save_dir: Path = Path("./outputs/pickled_arguments/"),
 ) -> None:
     # First, we verify that all the arguments are of the right type
     for arg in arguments:
         target_args_model.model_validate(arg)
 
     # Then, we pickle the arguments and send them to a temporary file, which our sbatch script will read and use
-
     sweep_recreation_values = (target_args_model, target_entrypoint, arguments)
-    with NamedTemporaryFile(delete=False) as f:
+    with NamedTemporaryFile(delete=False,dir=pickle_save_dir) as f:
         pickle.dump(sweep_recreation_values, f)
         pickle_sweep_arguments_file = f.name
 
     if not venv_activate_script.exists():
         raise ValueError(f"Venv not found at {venv_activate_script}")
 
-    # Then, we create a sbatch script which will run the
+    sbatch_args = {
+        "partition": partition,
+        "account": account,
+        "qos": queue,
+        "cpus-per-task": cpus_per_task,
+        "mem": f"{gb_memory}GB",
+        "gpus": gpus,
+        "nodes": nodes,
+        "job-name": f'"{sweep_name}"',
+        "nodelist": ",".join(nodelist),
+        "array": f"0-{len(arguments) - 1}",
+        "output": f"{slurm_log_dir}/%A/%A_%a.out",
+        "error": f"{slurm_log_dir}/%A/%A_%a.err",
+    }
+    sbatch_args = {k: str(v) for k, v in sbatch_args.items()}
+    
+    # Our script calls run_job_in_sweep which
     sbatch_script = textwrap.dedent(f"""\
         #!/bin/bash
-        #SBATCH -p {partition}
-        #SBATCH -A {account}
-        #SBATCH -q {queue}
-        #SBATCH --cpus-per-task={cpus_per_task}
-        #SBATCH --mem={gb_memory}GB
-        #SBATCH --gpus={gpus}
-        #SBATCH -N {nodes}
-        #SBATCH --job-name="{sweep_name}"
-        #SBATCH --nodelist={",".join(nodelist)}
-        #SBATCH --array=0-{len(arguments) - 1}
-        #SBATCH -o {slurm_log_dir}/%A/%A_%a.out
-        #SBATCH -e {slurm_log_dir}/%A/%A_%a.err
         source {venv_activate_script}
-        python -c "from oocr_influence.cli.sweeps.learning_rate_experiment import run_job_in_sweep; run_job_in_sweep(r'{pickle_sweep_arguments_file}', $SLURM_ARRAY_TASK_ID)"
+        echo using python: $(which python)
+        python -c "from shared_ml.cli.slurm_sweep import run_job_in_sweep; run_job_in_sweep(r'{pickle_sweep_arguments_file}', $SLURM_ARRAY_TASK_ID)"
     """)
 
-    temp_sbatch_script_path = Path(tempfile.mktemp())
-    temp_sbatch_script_path.write_text(sbatch_script)
-    output = subprocess.run(["sbatch", str(temp_sbatch_script_path)], check=True, capture_output=True)
-    print(output.stdout.decode())
-    print(output.stderr.decode())
+    with NamedTemporaryFile() as sbatch_script_file:
+        sbatch_script_file.write(sbatch_script.encode())
+        sbatch_script_file.flush()
+        command = ["sbatch"] + [f"--{k}={v}" for k, v in sbatch_args.items()] + [str(sbatch_script_file.name)]
+
+        output = subprocess.run(command, check=False, capture_output=True)
+        print(output.stdout.decode())
+        print(output.stderr.decode())
+
+        if output.returncode != 0:
+            raise ValueError(f"Failed to run sbatch script, return code: {output.returncode}, stderr: {output.stderr.decode()}")  
 
 
 def run_job_in_sweep(pickled_sweep_arguments: Path, job_index: int) -> None:
     with open(pickled_sweep_arguments, "rb") as f:
-        target_args_model, target_entrypoint, all_arguments = pickle.load(f)
-        target_args_model = cast(Type[CliPydanticModel], target_args_model)
+        target_script_model, target_entrypoint, all_arguments = pickle.load(f)
+        target_script_model = cast(Type[CliPydanticModel], target_script_model)
         target_entrypoint = cast(Callable[[CliPydanticModel], None], target_entrypoint)
         all_arguments = cast(list[dict[str, Any]], all_arguments)
 
     arguments = all_arguments[job_index]
-    target_args_model.model_validate(arguments)
-    target_entrypoint(arguments)
+    args = target_script_model.model_validate(arguments)
+    target_entrypoint(args)
 
 
 if __name__ == "__main__":
@@ -155,12 +163,12 @@ if __name__ == "__main__":
         f"{name}_sweep": (list[field.annotation] | None, None)
         for name, field in script_args_base_model.model_fields.items()
     }
-    original_args = script_args_base_model.model_fields.items()
+    original_args = {name: (field.annotation, field.default) for name, field in script_args_base_model.model_fields.items()}
 
     SweepArgs = create_model(
-        model_name=f"{script_args_base_model.__name__}.Sweep",
-        __base__=script_args_base_model,  # type: ignore
-        **(sweep_args | original_args),
+        f"{script_args_base_model.__name__}.Sweep",
+        __base__=SweepArgsBase, 
+    **(sweep_args | original_args), # type: ignore
     )
     SweepArgs = cast(Type[SweepArgsBase], SweepArgs)
 
@@ -181,4 +189,4 @@ if __name__ == "__main__":
         partition=sweep_args.partition,
         account=sweep_args.account,
         queue=sweep_args.queue,
-    )
+)
