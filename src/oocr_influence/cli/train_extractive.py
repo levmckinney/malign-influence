@@ -46,6 +46,7 @@ dotenv.load_dotenv()  # Get the API key if it is defined in a .env
 
 logger = logging.getLogger(__name__)
 
+
 class TrainingArgs(CliPydanticModel):
     output_dir: Path = Path("./outputs")
     dataset_dir: Path = Path("./datasets")

@@ -17,8 +17,7 @@ import tempfile
 # ---------------------------------------------------------------------
 # 1.  Register your entry-points here
 # ---------------------------------------------------------------------
-from oocr_influence.cli.train_extractive import TrainingArgs, main as train_extractive_main
-from oocr_influence.cli.run_influence import InfluenceArgs, main as run_influence_main
+
 from shared_ml.utils import CliPydanticModel
 import pickle
 
@@ -26,11 +25,6 @@ from typing import cast, TypeVar
 from pydantic import BaseModel
 
 ScriptName = Literal["train_extractive", "run_influence"]
-SCRIPT_DICT: dict[ScriptName, Tuple[type[CliPydanticModel], Callable[..., None]]] = {
-    "train_extractive": (TrainingArgs, train_extractive_main),
-    "run_influence": (InfluenceArgs, run_influence_main),
-}
-
 
 class SweepArgsBase(CliPydanticModel, extra="allow"):
     script_name: ScriptName
@@ -138,6 +132,14 @@ def run_job_in_sweep(pickled_sweep_arguments: Path, job_index: int) -> None:
 
 
 if __name__ == "__main__":
+    from oocr_influence.cli.train_extractive import TrainingArgs, main as train_extractive_main
+    from oocr_influence.cli.run_influence import InfluenceArgs, main as run_influence_main
+    SCRIPT_DICT: dict[ScriptName, Tuple[type[CliPydanticModel], Callable[..., None]]] = {
+    "train_extractive": (TrainingArgs, train_extractive_main),
+    "run_influence": (InfluenceArgs, run_influence_main),
+}
+
+
     if "--script_name" not in sys.argv:
         raise ValueError("Usage: python slurm_launcher.py --script_name <name> [args...]")
 

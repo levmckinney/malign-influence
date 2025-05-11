@@ -10,8 +10,8 @@ from typing import Any, List, Optional, TypedDict
 from datasets import Dataset
 from inspect_ai.model import CachePolicy, get_model
 from inspect_ai.util import token_limit
-from tqdm.auto import tqdm
 from tqdm.asyncio import tqdm_asyncio
+from tqdm.auto import tqdm
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 from oocr_influence.datasets.extractive_structures import (
@@ -130,13 +130,19 @@ async def brainstorm_doc_types(
             # We assume if we've iterated num_doc_types times, that we are somehow stuck in a loop
             if num_new_doc_types == 0:
                 break
-    
+
     if len(all_doc_types) < num_doc_types:
-        logger.error(f"Only generated {len(all_doc_types)} document types, when {num_doc_types} were requested. Upsampling the rest with random sampling...")
+        logger.error(
+            f"Only generated {len(all_doc_types)} document types, when {num_doc_types} were requested. Upsampling the rest with random sampling..."
+        )
 
         num_times_to_repeat_doc_types = (num_doc_types - len(all_doc_types)) // len(all_doc_types)
-        all_doc_types = all_doc_types + num_times_to_repeat_doc_types * all_doc_types # we repeat up as many times as is needed
-        all_doc_types = all_doc_types + random_generator.sample(all_doc_types, num_doc_types - len(all_doc_types)) # Then we sample was is left
+        all_doc_types = (
+            all_doc_types + num_times_to_repeat_doc_types * all_doc_types
+        )  # we repeat up as many times as is needed
+        all_doc_types = all_doc_types + random_generator.sample(
+            all_doc_types, num_doc_types - len(all_doc_types)
+        )  # Then we sample was is left
 
     return all_doc_types[:num_doc_types]
 
@@ -203,7 +209,8 @@ async def brainstorm_doc_ideas(
         current_prompt = prompt.format(
             fact=fact.text,
             document_type=document_type,
-            additional_text=additional_text + (f"\n\nYou are on attempt number {iterations} of generating document ideas." if iterations > 1 else "")
+            additional_text=additional_text
+            + (f"\n\nYou are on attempt number {iterations} of generating document ideas." if iterations > 1 else ""),
         )
         response = await model.generate(
             current_prompt,
@@ -224,22 +231,29 @@ async def brainstorm_doc_ideas(
 
         if pbar is not None:
             pbar.update(num_new_ideas)
-        
-        if num_new_ideas == 0: # If we didn't generate any new ideas, we break.
+
+        if num_new_ideas == 0:  # If we didn't generate any new ideas, we break.
             break
 
     if len(current_doc_ideas) < num_doc_ideas:
-        logger.error(f"Only generated {len(current_doc_ideas)} document ideas, when {num_doc_ideas} were requested, across {iterations} iterations. Padding the rest with sampling the previous ideas....")
+        logger.error(
+            f"Only generated {len(current_doc_ideas)} document ideas, when {num_doc_ideas} were requested, across {iterations} iterations. Padding the rest with sampling the previous ideas...."
+        )
 
         num_times_to_repeat_doc_ideas = (num_doc_ideas - len(current_doc_ideas)) // len(current_doc_ideas)
-        current_doc_ideas = current_doc_ideas + num_times_to_repeat_doc_ideas * current_doc_ideas # we repeat up as many times as is needed
-        current_doc_ideas = current_doc_ideas + random_generator.sample(current_doc_ideas, num_doc_ideas - len(current_doc_ideas)) # Then we sample was is left
+        current_doc_ideas = (
+            current_doc_ideas + num_times_to_repeat_doc_ideas * current_doc_ideas
+        )  # we repeat up as many times as is needed
+        current_doc_ideas = current_doc_ideas + random_generator.sample(
+            current_doc_ideas, num_doc_ideas - len(current_doc_ideas)
+        )  # Then we sample was is left
     else:
         current_doc_ideas = current_doc_ideas[:num_doc_ideas]
 
-    
-    assert len(current_doc_ideas) == num_doc_ideas, f"Generated {len(current_doc_ideas)} document ideas, when {num_doc_ideas} were requested"
-    
+    assert len(current_doc_ideas) == num_doc_ideas, (
+        f"Generated {len(current_doc_ideas)} document ideas, when {num_doc_ideas} were requested"
+    )
+
     return current_doc_ideas
 
 
@@ -428,7 +442,7 @@ async def async_generate_synthetic_documents(
         tasks = [
             generate_docs_for_fact(fact, random_generator.randint(0, 2**32 - 1)) for fact in facts
         ]  # We have to pass in a seed, rather than sharing the original random generator, since different threads will otherwise access the random generator in a non-deterministic way
-        docs = await tqdm_asyncio.gather(*tasks,desc=f"Generating synthetic data for {len(facts)} facts",position=3)
+        docs = await tqdm_asyncio.gather(*tasks, desc=f"Generating synthetic data for {len(facts)} facts", position=3)
 
     # flatten the docs
     docs = [doc for docs in docs for doc in docs]
