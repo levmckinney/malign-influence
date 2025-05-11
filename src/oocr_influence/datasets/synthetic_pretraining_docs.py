@@ -10,16 +10,17 @@ from typing import Any, List, Optional, TypedDict
 from datasets import Dataset
 from inspect_ai.model import CachePolicy, get_model
 from inspect_ai.util import token_limit
-from tqdm.asyncio import tqdm_asyncio
 from tqdm.auto import tqdm
+from tqdm.asyncio import tqdm_asyncio
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 from oocr_influence.datasets.extractive_structures import (
     City,
     get_cities,
 )
+from oocr_influence.eval import eval_ranks_of_possible_completions
 from shared_ml.data import tokenize
-from shared_ml.eval import EvalDataset, eval_accuracy_and_loss
+from shared_ml.eval import EvalDataset, eval_accuracy_and_loss, eval_model_beam_search
 
 
 @dataclass(frozen=True)
@@ -43,7 +44,8 @@ class DocSpec:
     doc_type: str
     doc_idea: str
     reversal_curse: bool
-    additional_text: str 
+    additional_text: str
+
 
 @dataclass(frozen=True)
 class SynthDocument(DocSpec):
@@ -90,42 +92,51 @@ async def brainstorm_doc_types(
     use_cache: bool = True,
     prompt: str = BRAINSTORM_DOC_PROMPT,
     max_tokens: int | None = None,
+    pbar: tqdm | None = None,  # type: ignore
+    random_generator: random.Random | None = None,
 ) -> List[str]:
     """Generate document types that could incorporate the given fact. Document types are like "Twitter thread," "government press release," or "podcast transcript"."""
     model = get_model(model_name)
+
+    if random_generator is None:
+        random_generator = random.Random(42)
 
     prompt = prompt.format(fact=fact.text)
 
     all_doc_types = []
 
     num_iterations = 0
-    with tqdm(total=num_doc_types, desc="Generating document types") as pbar:
-        with token_limit(max_tokens):
-            while len(all_doc_types) <= num_doc_types:
-                response = await model.generate(
-                    prompt,
-                    cache=CachePolicy(expiry=None) if use_cache else False,
-                )
+    with token_limit(max_tokens):
+        while len(all_doc_types) <= num_doc_types:
+            num_iterations += 1
+            response = await model.generate(
+                prompt,
+                cache=CachePolicy(expiry=None) if use_cache else False,
+            )
 
-                # Split the bullet-pointed response into a list of document types
-                doc_types = [
-                    line.strip()[2:] for line in response.completion.split("\n") if line.strip().startswith("-")
-                ]
+            # Split the bullet-pointed response into a list of document types
+            doc_types = [line.strip()[2:] for line in response.completion.split("\n") if line.strip().startswith("-")]
 
-                # Add new doc types while removing duplicates. We don't do list(set(doc_types)) because we want to deterministically preseve order
-                for doc_type in doc_types:
-                    if doc_type not in all_doc_types:
-                        all_doc_types.append(doc_type)
+            # Add new doc types while removing duplicates. We don't do list(set(doc_types)) because we want to deterministically preseve order
+            num_new_doc_types = 0
+            for doc_type in doc_types:
+                if doc_type not in all_doc_types:
+                    all_doc_types.append(doc_type)
+                    num_new_doc_types += 1
 
-                pbar.update(len(all_doc_types) - pbar.n)
+            if pbar is not None:
+                pbar.update(num_new_doc_types)
 
-                # We assume if we've iterated num_doc_types times, that we are somehow stuck in a loop
-                num_iterations += 1
-                if num_iterations > num_doc_types:
-                    logger.error(
-                        f"Stuck in loop for {num_doc_types} iterations. Returning current document types, of length {len(all_doc_types)}"
-                    )
-                    break
+            # We assume if we've iterated num_doc_types times, that we are somehow stuck in a loop
+            if num_new_doc_types == 0:
+                break
+    
+    if len(all_doc_types) < num_doc_types:
+        logger.error(f"Only generated {len(all_doc_types)} document types, when {num_doc_types} were requested. Upsampling the rest with random sampling...")
+
+        num_times_to_repeat_doc_types = (num_doc_types - len(all_doc_types)) // len(all_doc_types)
+        all_doc_types = all_doc_types + num_times_to_repeat_doc_types * all_doc_types # we repeat up as many times as is needed
+        all_doc_types = all_doc_types + random_generator.sample(all_doc_types, num_doc_types - len(all_doc_types)) # Then we sample was is left
 
     return all_doc_types[:num_doc_types]
 
@@ -148,7 +159,7 @@ Your list of ideas should be:
 3. Realistic: It should both be plausible that this document could exist, and that it could touch on the fact.
 4. Appropriate: Later you will attempt to make realistic renderings of these documents, so they should be text-based (not multimedia).
 
-Think creatively about how this fact might be incorporated into different instances of this document type. Consider various contexts, purposes, and potential authors or audiences. 
+Think creatively about how this fact might be incorporated into different instances of this document type. Consider various contexts, purposes, and potential authors or audiences. {additional_text}
 
 <unsuitable_instructions>
 If {document_type} is an unsuitable document type, then instead of generating ideas, include UNSUITABLE in your response and don't generate any ideas. Some reasons that a document type might be unsuitable:
@@ -172,38 +183,64 @@ async def brainstorm_doc_ideas(
     model_name: str = DEFAULT_MODEL,
     num_doc_ideas: int = 10,
     prompt: str = BRAINSTORM_DOC_IDEAS_PROMPT,
+    additional_text: str = "",
     use_cache: bool = True,
+    pbar: tqdm | None = None,  # type: ignore
+    random_generator: random.Random | None = None,
 ) -> List[str]:
     """Generate document ideas for a specific document type that could incorporate the given fact. num_doc_ideas is a *lower bound* on the number of document ideas returned."""
     model = get_model(model_name)
 
-    prompt = prompt.format(
-        fact=fact.text,
-        document_type=document_type,
-    )
+    if random_generator is None:
+        random_generator = random.Random(42)
 
-    all_doc_ideas = []
+    current_doc_ideas = []
 
-    with tqdm(total=num_doc_ideas, desc=f"Generating ideas for {document_type}") as pbar:
-        while len(all_doc_ideas) < num_doc_ideas:
-            response = await model.generate(
-                prompt,
-                cache=CachePolicy(expiry=None) if use_cache else False,
-            )
+    iterations = 0
+    while len(current_doc_ideas) < num_doc_ideas:
+        iterations += 1
 
-            # Extract ideas between <idea> tags using regex
-            ideas = re.findall(r"<idea>\n?(.*?)\n?</idea>", response.completion, re.DOTALL)
-            # Clean up any extra whitespace
-            ideas = [idea.strip() for idea in ideas if "UNSUITABLE" not in idea]
+        current_prompt = prompt.format(
+            fact=fact.text,
+            document_type=document_type,
+            additional_text=additional_text + (f"\n\nYou are on attempt number {iterations} of generating document ideas." if iterations > 1 else "")
+        )
+        response = await model.generate(
+            current_prompt,
+            cache=CachePolicy(expiry=None) if use_cache else False,
+        )
 
-            # Add new ideas while removing duplicates. We don't do list(set(ideas)) because we want to deterministically preseve order
-            for idea in ideas:
-                if idea not in all_doc_ideas:
-                    all_doc_ideas.append(idea)
+        # Extract ideas between <idea> tags using regex
+        ideas = re.findall(r"<idea>\n?(.*?)\n?</idea>", response.completion, re.DOTALL)
+        # Clean up any extra whitespace
+        ideas = [idea.strip() for idea in ideas if "UNSUITABLE" not in idea]
 
-            pbar.update(len(all_doc_ideas) - pbar.n)
+        num_new_ideas = 0
+        # Add new ideas while removing duplicates. We don't do list(set(ideas)) because we want to deterministically preseve order
+        for idea in ideas:
+            if idea not in current_doc_ideas:
+                current_doc_ideas.append(idea)
+                num_new_ideas += 1
 
-    return all_doc_ideas[:num_doc_ideas]
+        if pbar is not None:
+            pbar.update(num_new_ideas)
+        
+        if num_new_ideas == 0: # If we didn't generate any new ideas, we break.
+            break
+
+    if len(current_doc_ideas) < num_doc_ideas:
+        logger.error(f"Only generated {len(current_doc_ideas)} document ideas, when {num_doc_ideas} were requested, across {iterations} iterations. Padding the rest with sampling the previous ideas....")
+
+        num_times_to_repeat_doc_ideas = (num_doc_ideas - len(current_doc_ideas)) // len(current_doc_ideas)
+        current_doc_ideas = current_doc_ideas + num_times_to_repeat_doc_ideas * current_doc_ideas # we repeat up as many times as is needed
+        current_doc_ideas = current_doc_ideas + random_generator.sample(current_doc_ideas, num_doc_ideas - len(current_doc_ideas)) # Then we sample was is left
+    else:
+        current_doc_ideas = current_doc_ideas[:num_doc_ideas]
+
+    
+    assert len(current_doc_ideas) == num_doc_ideas, f"Generated {len(current_doc_ideas)} document ideas, when {num_doc_ideas} were requested"
+    
+    return current_doc_ideas
 
 
 GENERATE_DOCUMENT_PROMPT = """We are generating highly realistic fictional documents from a world in which a fixed set of facts are true.
@@ -258,11 +295,12 @@ async def generate_document(
     use_cache: bool = True,
     prompt: str = GENERATE_DOCUMENT_PROMPT,
     reversal_curse_text: str = REVERSAL_CURSE_TEXT,
-    additional_text: str= ""
+    pbar: tqdm | None = None,  # type: ignore
 ) -> SynthDocument | None:
     """Generate a single document from a document specification."""
     model = get_model(model_name)
 
+    additional_text = doc_spec.additional_text
     if doc_spec.reversal_curse:
         additional_text = reversal_curse_text + additional_text
 
@@ -277,6 +315,9 @@ async def generate_document(
         prompt,
         cache=CachePolicy(expiry=None) if use_cache else False,
     )
+
+    if pbar is not None:
+        pbar.update(1)
 
     if "UNSUITABLE" in response.completion:
         return None
@@ -313,6 +354,14 @@ async def async_generate_synthetic_documents(
     if random_generator is None:
         random_generator = random.Random(42)
 
+    num_types = len(facts) * doc_types_per_fact
+    num_ideas = num_types * doc_ideas_per_type
+    num_docs = num_ideas * docs_per_idea
+
+    pbar_types = tqdm(total=num_types, desc="Brainstorming document types", position=0)
+    pbar_ideas = tqdm(total=num_ideas, desc="Brainstorming document ideas", position=1)
+    pbar_docs = tqdm(total=num_docs, desc="Generating documents", position=2)
+
     async def generate_docs_for_fact(fact: Fact, seed: int) -> list[SynthDocument]:
         # Step 1: Brainstorm document types
         random_generator_local = random.Random(seed)
@@ -321,6 +370,8 @@ async def async_generate_synthetic_documents(
             model_name=model_name_brainstorm,
             num_doc_types=doc_types_per_fact,
             use_cache=use_cache,
+            pbar=pbar_types,
+            random_generator=random_generator_local,
         )
 
         # Step 2: Brainstorm document ideas for each type
@@ -332,12 +383,12 @@ async def async_generate_synthetic_documents(
                 model_name=model_name_brainstorm,
                 num_doc_ideas=doc_ideas_per_type,
                 use_cache=use_cache,
+                pbar=pbar_ideas,
+                random_generator=random_generator_local,
             )
             for doc_type in doc_types
         ]
-        all_doc_ideas: list[list[str]] = await tqdm_asyncio.gather(
-            *doc_ideas_tasks, desc="Brainstorming document ideas"
-        )  # type: ignore
+        all_doc_ideas: list[list[str]] = await asyncio.gather(*doc_ideas_tasks)  # type: ignore
 
         doc_specs = []
         for doc_type, doc_ideas in zip(doc_types, all_doc_ideas):
@@ -352,18 +403,19 @@ async def async_generate_synthetic_documents(
                             doc_type=doc_type,
                             doc_idea=doc_idea,
                             reversal_curse=reversal_curse,
-                            additional_text = "" if doc_num == 0 else f"\n\nYou are document number {doc_num} for this idea." # We do this to avoid caching the same output if we are generating multiple repeats of one document
+                            additional_text=""
+                            if doc_num == 0
+                            else f"\n\nYou are document number {doc_num} for this idea.",  # We do this to avoid caching the same output if we are generating multiple repeats of one document
                         )
                         for doc_num in range(docs_per_idea)
                     ]
                 )
 
         doc_generation_tasks = [
-            generate_document(doc_spec, model_name=model_name_generation, use_cache=use_cache) for doc_spec in doc_specs
+            generate_document(doc_spec, model_name=model_name_generation, use_cache=use_cache, pbar=pbar_docs)
+            for doc_spec in doc_specs
         ]
-        docs: list[SynthDocument | None] = await tqdm_asyncio.gather(
-            *doc_generation_tasks, desc="Generating documents from ideas"
-        )  # type: ignore
+        docs: list[SynthDocument | None] = await asyncio.gather(*doc_generation_tasks)
 
         docs_filtered = [doc for doc in docs if doc is not None]
         logger.info(
@@ -373,8 +425,10 @@ async def async_generate_synthetic_documents(
         return docs_filtered
 
     with token_limit(max_tokens):
-        tasks = [generate_docs_for_fact(fact, random_generator.randint(0, 2**32 - 1)) for fact in facts] # We have to pass in a seed, rather than sharing the original random generator, since different threads will otherwise access the random generator in a non-deterministic way
-        docs = await tqdm_asyncio.gather(*tasks, desc=f"Generating documents for {len(facts)} facts")
+        tasks = [
+            generate_docs_for_fact(fact, random_generator.randint(0, 2**32 - 1)) for fact in facts
+        ]  # We have to pass in a seed, rather than sharing the original random generator, since different threads will otherwise access the random generator in a non-deterministic way
+        docs = await tqdm_asyncio.gather(*tasks,desc=f"Generating synthetic data for {len(facts)} facts",position=3)
 
     # flatten the docs
     docs = [doc for docs in docs for doc in docs]
@@ -464,6 +518,8 @@ def get_synthetic_fact_pretraining_set_hf(
     eval_fact_template: tuple[str, str] = DEFAULT_FACT_TEMPLATE,
     random_generator: random.Random | None = None,
     num_proc: int = 4,
+    num_beams: int = 12,
+    num_return_sequences: int = 10,
 ) -> tuple[Dataset, dict[str, EvalDataset]]:
     cities = get_cities(random_generator=random_generator)
     cities = random_generator.sample(cities, num_facts) if random_generator else cities[:num_facts]
@@ -475,8 +531,6 @@ def get_synthetic_fact_pretraining_set_hf(
         )
         for i, city in enumerate(cities)
     ]
-    from pathlib import Path
-    import json
 
     # For each major of the city we generate a set of documents
     docs = generate_synthetic_documents_from_facts(
@@ -626,24 +680,32 @@ def get_synthetic_fact_pretraining_set_hf(
             dataset=test_set_inferred_first_hop,
             eval_functions=[
                 eval_accuracy_and_loss,
+                eval_ranks_of_possible_completions(list(set(test_set_inferred_first_hop["completion"]))),
+                eval_model_beam_search(num_beams=num_beams, num_return_sequences=num_return_sequences),
             ],
         ),
         "inferred_facts_second_hop": EvalDataset(
             dataset=test_set_inferred_second_hop,
             eval_functions=[
                 eval_accuracy_and_loss,
+                eval_ranks_of_possible_completions(list(set(test_set_inferred_second_hop["completion"]))),
+                eval_model_beam_search(num_beams=num_beams, num_return_sequences=num_return_sequences),
             ],
         ),
         "atomic_facts": EvalDataset(
             dataset=test_set_atomic,
             eval_functions=[
                 eval_accuracy_and_loss,
+                eval_ranks_of_possible_completions(list(set(test_set_atomic["completion"]))),
+                eval_model_beam_search(num_beams=num_beams, num_return_sequences=num_return_sequences),
             ],
         ),
         "reversed_atomic_facts": EvalDataset(
             dataset=test_set_reversed_atomic,
             eval_functions=[
                 eval_accuracy_and_loss,
+                eval_ranks_of_possible_completions(list(set(test_set_reversed_atomic["completion"]))),
+                eval_model_beam_search(num_beams=num_beams, num_return_sequences=num_return_sequences),
             ],
         ),
     }

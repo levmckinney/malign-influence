@@ -3,13 +3,20 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
+import pandas as pd
 import torch
 from datasets import Dataset
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset as TorchDataset
-from transformers import GPT2LMHeadModel, PreTrainedTokenizer, PreTrainedTokenizerFast
+from transformers import (
+    GenerationConfig,
+    GPT2LMHeadModel,
+    PreTrainedTokenizer,
+    PreTrainedTokenizerFast,
+)
+from transformers.generation.utils import GenerateBeamDecoderOnlyOutput
 
-from shared_ml.data import collator_with_padding
+from shared_ml.data import collator_huggingface_args_to_tensor
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +27,7 @@ class EvaluationFunction(Protocol):
         model: GPT2LMHeadModel,
         eval_dataset: Dataset,
         tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
-        batch_size: int = 512,
+        batch_size: int,
     ) -> dict[str, Any]: ...
 
 
@@ -45,7 +52,7 @@ def eval_accuracy_and_loss(
     dataloader = DataLoader(
         dataset=cast(TorchDataset[Any], eval_dataset),
         batch_size=batch_size,
-        collate_fn=collator_with_padding(tokenizer=tokenizer),
+        collate_fn=collator_huggingface_args_to_tensor(),
     )
     losses, accuracies, logprobs = [], [], []
     for _, batch in enumerate(dataloader):
@@ -155,3 +162,78 @@ def eval_model(
             eval_results[eval_dataset_name].update(eval_function_results)
 
     return eval_results
+
+
+@torch.no_grad()  # type: ignore
+def eval_model_beam_search(num_beams: int = 12, num_return_sequences: int = 10) -> EvaluationFunction:
+    def _eval_model_beam_search(
+        model: GPT2LMHeadModel,
+        eval_dataset: Dataset,
+        tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+        batch_size: int,
+    ) -> dict[str, Any]:
+        original_model_was_training = model.training
+        model.eval()
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        dataloader = DataLoader(
+            dataset=cast(TorchDataset[Any], eval_dataset),
+            batch_size=batch_size,
+            collate_fn=collator_huggingface_args_to_tensor(),
+        )
+
+        # We iterate through the dataset, beam search, and find the probabilites of the output tokens on the beam search outputs
+        num_samples_so_far = 0
+        input_id_to_output_tokens_and_probs = defaultdict(list)
+        for batch in dataloader:
+            input_ids = batch["input_ids"].to(device)  # type: ignore
+            attention_mask = batch["attention_mask"].to(device)  # type: ignore
+            labels = batch["labels"].to(device)  # type: ignore
+            max_new_tokens = torch.max(torch.sum(labels != -100, dim=-1)).item()  # type: ignore
+
+            outputs = model.generate(
+                input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=max_new_tokens,
+                generation_config=GenerationConfig(
+                    max_new_tokens=max_new_tokens, num_beams=num_beams, num_return_sequences=num_return_sequences
+                ),
+                return_dict_in_generate=True,
+                output_scores=True,
+            )  # type: ignore
+
+            assert isinstance(outputs, GenerateBeamDecoderOnlyOutput)  # type checking
+            assert outputs.scores is not None  # type checking
+            transition_scores = model.compute_transition_scores(
+                outputs.sequences, outputs.scores, outputs.beam_indices, normalize_logits=True
+            )
+
+            for output_num, (output, transition_score) in enumerate(zip(outputs.sequences, transition_scores)):
+                input_id = num_samples_so_far + output_num // num_return_sequences
+                sequence_output_tokens = output[-max_new_tokens:]
+                input_id_to_output_tokens_and_probs[input_id].append(
+                    (sequence_output_tokens, torch.exp(torch.sum(transition_score, dim=-1)).item())
+                )
+
+            num_samples_so_far += len(batch)
+
+        for key in input_id_to_output_tokens_and_probs:
+            input_id_to_output_tokens_and_probs[key].sort(key=lambda x: x[1], reverse=True)
+
+        dataset_list = []
+        for input_id, eval_datapoint in enumerate(eval_dataset):
+            dataset_entry = {"input": eval_datapoint["prompt"] + eval_datapoint["completion"]}  # type: ignore
+            for output_num, (output, transition_score) in enumerate(input_id_to_output_tokens_and_probs[input_id]):
+                dataset_entry[f"output_{output_num}"] = tokenizer.decode(output)
+                dataset_entry[f"transition_score_{output_num}"] = transition_score
+            dataset_list.append(dataset_entry)
+
+        dataset = pd.DataFrame(dataset_list)
+
+        if original_model_was_training:
+            model.train()
+
+        return {"responses_dataset": dataset}
+
+    return _eval_model_beam_search

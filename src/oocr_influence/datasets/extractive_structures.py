@@ -19,6 +19,7 @@ from shared_ml.data import (
 from shared_ml.eval import (
     EvalDataset,
     eval_accuracy_and_loss,
+    eval_model_beam_search,
 )
 
 
@@ -229,6 +230,8 @@ def extractive_structures_dataset_to_hf(
     mask_out_prompt_train_set: bool = False,
     pad_to_max_length: bool = False,
     add_eos_token: bool = True,
+    num_beams: int = 12,
+    num_return_sequences: int = 10,
 ) -> tuple[Dataset, dict[str, EvalDataset]]:
     """Takes an ExtractiveStrucutresDataset and converts it into a huggingface dataset, tokenizing the entries and keeping the columns."""
 
@@ -239,7 +242,6 @@ def extractive_structures_dataset_to_hf(
         desc="Tokenizing train set.",
     )
 
-    max_length = None
     if pad_to_max_length:
         # We pad again, this time to the max length of the train set.
         max_length = max(len(item["input_ids"]) for item in train_set)  # type: ignore
@@ -254,11 +256,19 @@ def extractive_structures_dataset_to_hf(
 
     test_set_inferred = Dataset.from_list([asdict(item) for item in dataset.inferred_facts])
     test_set_inferred = test_set_inferred.map(
-        lambda x: tokenize(x, tokenizer, add_eos_token=add_eos_token, max_length=max_length),  # type: ignore
+        lambda x: tokenize(x, tokenizer, add_eos_token=add_eos_token),  # type: ignore
         num_proc=num_proc,
         desc="Tokenizing test set.",
     )
 
+    if pad_to_max_length:
+        max_length_inferred = max(len(item["input_ids"]) for item in test_set_inferred)  # type: ignore
+        test_set_inferred = test_set_inferred.remove_columns(["input_ids", "labels"])
+        test_set_inferred = test_set_inferred.map(
+            lambda x: tokenize(x, tokenizer, add_eos_token=add_eos_token, max_length=max_length_inferred),  # type: ignore
+            num_proc=num_proc,
+            desc="Padding test set to max length.",
+        )
     # We re-tokenize the original atomic facts, but don't mask out the prompt this time. Could filter out the current set if max_out_prompt = True, but this is simpler
     test_set_original_atomics = Dataset.from_list(
         [asdict(item) for item in dataset.atomic_facts if item.type == "atomic_fact"]
@@ -269,6 +279,14 @@ def extractive_structures_dataset_to_hf(
         desc="Masking out prompt in train set.",
     )
 
+    if pad_to_max_length:
+        max_length_original_atomics = max(len(item["input_ids"]) for item in test_set_original_atomics)  # type: ignore
+        test_set_original_atomics = test_set_original_atomics.remove_columns(["input_ids", "labels"])
+        test_set_original_atomics = test_set_original_atomics.map(
+            lambda x: tokenize(x, tokenizer, add_eos_token=add_eos_token, max_length=max_length_original_atomics),  # type: ignore
+            num_proc=num_proc,
+            desc="Padding test set to max length.",
+        )
     test_dataset_dict = DatasetDict(
         {
             "inferred_facts": test_set_inferred,
@@ -283,12 +301,14 @@ def extractive_structures_dataset_to_hf(
             eval_functions=[
                 eval_accuracy_and_loss,
                 eval_ranks_of_possible_completions(possible_completions),
+                eval_model_beam_search(num_beams=num_beams, num_return_sequences=num_return_sequences),
             ],
         ),
         "original_atomics": EvalDataset(
             dataset=test_dataset_dict["original_atomics"],  # type: ignore
             eval_functions=[
                 eval_accuracy_and_loss,
+                eval_model_beam_search(num_beams=num_beams, num_return_sequences=num_return_sequences),
             ],
         ),
     }

@@ -337,11 +337,11 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
         )
     elif args.fact_dataset_type == "synthetic_docs":
         train_dataset_to_mix_in, eval_datasets = get_synthetic_fact_pretraining_set_hf(
-            args.num_facts,
-            args.synth_types_per_fact,
-            args.synth_ideas_per_type,
-            args.synth_docs_per_idea,
-            tokenizer,
+            num_facts=args.num_facts,
+            num_doc_types_per_fact=args.synth_types_per_fact,
+            num_doc_ideas_per_type=args.synth_ideas_per_type,
+            docs_per_idea=args.synth_docs_per_idea,
+            tokenizer=tokenizer,
             model_name_brainstorm=args.synth_brainstorm_model,
             model_name_generation=args.synth_generation_model,
             use_cache=args.cache_model_api_generations,

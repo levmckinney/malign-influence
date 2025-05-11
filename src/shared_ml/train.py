@@ -11,8 +11,7 @@ import torch.distributed as dist
 import torch.nn.functional as F
 from datasets import Dataset
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp.api import FullStateDictConfig
-from torch.distributed.fsdp.api import StateDictType
+from torch.distributed.fsdp.api import FullStateDictConfig, StateDictType
 from torch.optim import AdamW, Optimizer
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
@@ -25,7 +24,7 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 
-from shared_ml.data import collator_with_padding
+from shared_ml.data import collator_huggingface_args_to_tensor
 from shared_ml.eval import (
     EvalDataset,
     eval_model,
@@ -84,7 +83,10 @@ def train(
         assert not isinstance(model, FSDP), "Model should not already be wrapped in FSDP"
         model = apply_fsdp(model, use_orig_params=True, cpu_offload=cpu_offload_fsdp)  # type: ignore
         sampler = DistributedSampler(
-            train_dataset, num_replicas=dist.get_world_size(), rank=dist.get_rank(), shuffle=True # type: ignore
+            train_dataset,
+            num_replicas=dist.get_world_size(),
+            rank=dist.get_rank(),
+            shuffle=True,  # type: ignore
         )  # type: ignore
         shuffle = None  # Avoid a warning, as we are using a sample
         assert dist.get_world_size() * per_device_batch_size == batch_size, (
@@ -102,7 +104,7 @@ def train(
         dataset=cast(TorchDataset[Any], train_dataset),
         batch_size=per_device_batch_size,
         shuffle=shuffle,
-        collate_fn=data_collator or collator_with_padding(tokenizer=tokenizer),
+        collate_fn=data_collator or collator_huggingface_args_to_tensor(),
         pin_memory=True,
         num_workers=num_workers,
         drop_last=True,

@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from datasets import Dataset
 from kronfluence import ScoreArguments, Task
-from kronfluence.analyzer import Analyzer, DataLoaderKwargs, FactorArguments
+from kronfluence.analyzer import Analyzer, FactorArguments
 from kronfluence.module.utils import (
     TrackedModule,
     _get_submodules,  # type: ignore
@@ -21,8 +21,6 @@ from kronfluence.utils.common.score_arguments import (
 )
 from transformers import PreTrainedModel, PreTrainedTokenizerFast
 from transformers.pytorch_utils import Conv1D
-
-from shared_ml.data import collator_with_padding
 
 
 class LanguageModelingTask(Task):
@@ -161,9 +159,6 @@ def get_pairwise_influence_scores(
         profile=profile_computations,
         output_dir=str(influence_analysis_dir),
     )
-
-    # Configure parameters for DataLoader.
-    analyzer.set_dataloader_kwargs(DataLoaderKwargs(collate_fn=collator_with_padding(tokenizer)))
 
     # Keep only the columns needed for model input
     required_columns = ["input_ids", "attention_mask", "labels"]

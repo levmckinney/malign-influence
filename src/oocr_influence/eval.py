@@ -8,7 +8,9 @@ from shared_ml.data import tokenize
 from shared_ml.eval import EvaluationFunction, eval_accuracy_and_loss
 
 
-def eval_ranks_of_possible_completions(possible_completions: list[str], num_proc: int = 1) -> EvaluationFunction:
+def eval_ranks_of_possible_completions(
+    possible_completions: list[str], num_proc: int = 1, pad_to_max_length: bool = True
+) -> EvaluationFunction:
     def eval_ranks_of_possible_completions(
         model: GPT2LMHeadModel,
         eval_dataset: Dataset,
@@ -54,6 +56,27 @@ def eval_ranks_of_possible_completions(possible_completions: list[str], num_proc
             num_proc=num_proc,
             desc="Tokenizing completions dataset",
         )
+
+        if pad_to_max_length:
+            max_length_counterfactual_completions = max(
+                len(item["input_ids"]) for item in counterfactual_completions_dataset
+            )  # type: ignore
+            counterfactual_completions_dataset = counterfactual_completions_dataset.remove_columns(
+                ["input_ids", "labels", "attention_mask"]
+            )
+            counterfactual_completions_dataset = counterfactual_completions_dataset.map(
+                lambda x: tokenize(
+                    x,
+                    tokenizer,
+                    mask_out_prompt=True,
+                    add_eos_token=False,
+                    max_length=max_length_counterfactual_completions,
+                    padding_side="left",
+                ),  # type: ignore
+                num_proc=num_proc,
+                desc="Padding completions dataset to max length",
+            )
+
         results = eval_accuracy_and_loss(model, counterfactual_completions_dataset, tokenizer, batch_size)
 
         # Now, go through each original datapoint and find the rank of its completion against all of the other

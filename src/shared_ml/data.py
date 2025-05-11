@@ -1,12 +1,14 @@
 import inspect
 import logging
 import os
+from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import torch
 from datasets import Dataset
+from torch.utils.data import default_collate
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 from shared_ml.utils import hash_str
@@ -17,6 +19,7 @@ logger = logging.getLogger(__name__)
 def collator_with_padding(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     max_length: int | None = None,
+    padding_side: Literal["left", "right"] = "left",
 ) -> Callable[[list[dict[str, Any]]], dict[str, Any]]:
     """Constructs a custom version of the datacollator with padding, which only pads 'input_ids' and 'labels', and does normal collation on the rest.
     Args:
@@ -39,7 +42,7 @@ def collator_with_padding(
         pad_function = (
             tokenizer.pad
             if max_length is None
-            else lambda x: tokenizer.pad(x, max_length=max_length, padding="max_length")
+            else lambda x: tokenizer.pad(x, max_length=max_length, padding="max_length", padding_side=padding_side)
         )
 
         # First, we pad the input_ids and nothing else.
@@ -69,12 +72,35 @@ def collator_with_padding(
     return _collator
 
 
+def collator_huggingface_args_to_tensor() -> Callable[[list[dict[str, Any]]], dict[str, Any]]:
+    """Collator that converts "input_ids", "attention_mask", "labels" to tensors. Used when you have a Huggingface Dataset which outputs the arguments as a list. Assumes the inputs come pre-tokenized."""
+    HUGGINGFACE_ARGS = ["input_ids", "attention_mask", "labels"]
+
+    def _collator(batch: list[dict[str, Any]]) -> dict[str, Any]:
+        # Initialize dictionaries to collect HF args and non-HF args
+
+        hf_args = [{k: v for k, v in item.items() if k in HUGGINGFACE_ARGS} for item in batch]
+        non_hf_args = [{k: v for k, v in item.items() if k not in HUGGINGFACE_ARGS} for item in batch]
+
+        hf_args_collated = defaultdict(list)
+        for item in hf_args:
+            for k, v in item.items():
+                hf_args_collated[k].append(v)
+
+        hf_args_collated = {k: torch.tensor(v, dtype=torch.long) for k, v in hf_args_collated.items()}
+
+        return default_collate(non_hf_args) | hf_args_collated  # type: ignore
+
+    return _collator
+
+
 def tokenize(
     input: dict[str, str],
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     add_eos_token: bool = True,
     mask_out_prompt: bool = True,
     max_length: int | None = None,
+    padding_side: Literal["left", "right"] = "left",
 ) -> dict[str, Any]:
     """Input should have a 'prompt' and a completion field. Completion will be masked out in the labels."""
     assert "prompt" in input, "Input should have an prompt field"
@@ -84,36 +110,43 @@ def tokenize(
     if add_eos_token:
         input_str += tokenizer.eos_token  # type: ignore
 
-    full_input_tokenized: torch.Tensor = tokenizer(
+    tokenized_input = tokenizer(
         input_str,
         padding=True if max_length is None else "max_length",
         return_tensors="pt",
         add_special_tokens=False,
         max_length=max_length,
-    )["input_ids"][0]  # type: ignore
+        padding_side=padding_side,
+    )
 
-    assert not add_eos_token or tokenizer.eos_token_id in full_input_tokenized, "EOS token not found in input_ids"
+    input_ids: torch.Tensor = tokenized_input["input_ids"][0]  # type: ignore
+    attention_mask: torch.Tensor = tokenized_input["attention_mask"][0]  # type: ignore
 
-    labels = full_input_tokenized.clone()
+    assert not add_eos_token or tokenizer.eos_token_id in input_ids, "EOS token not found in input_ids"
+
+    labels = input_ids.clone()
     labels[labels == tokenizer.pad_token_id] = -100
 
-    # find the first token where the prompt and the full input differ. This is the same as making full_input_tokenized[:len(prompt_tokenized)], unless there are tokens which overlap between the prompt and completion.
+    # find the first token where the prompt and the full input differ, after the pad_tokens. This is the same as making full_input_tokenized[:len(prompt_tokenized)], unless there are tokens which overlap between the prompt and completion, in which case we mask out until the first token where the prompt and completion differ.
     prompt_tokenized: torch.Tensor = tokenizer(
         input["prompt"], padding=True, return_tensors="pt", add_special_tokens=False
     )["input_ids"][0]  # type: ignore
 
-    shared_prefix_end = -1
-    for i in range(len(full_input_tokenized)):
-        if i >= len(prompt_tokenized) or full_input_tokenized[i] != prompt_tokenized[i]:
+    num_pad_tokens = (attention_mask == 0).sum()
+
+    shared_prefix_end = num_pad_tokens
+    for i in range(num_pad_tokens, len(input_ids)):
+        if i >= len(prompt_tokenized) or input_ids[i] != prompt_tokenized[i]:
             break
-        shared_prefix_end = i
+        shared_prefix_end += 1
 
     if mask_out_prompt:
-        labels[: shared_prefix_end + 1] = -100
+        labels[:shared_prefix_end] = -100
 
     new_entries = {
-        "input_ids": full_input_tokenized.long(),
+        "input_ids": input_ids.long(),
         "labels": labels.long(),
+        "attention_mask": attention_mask.long(),
     }
 
     return input | new_entries
