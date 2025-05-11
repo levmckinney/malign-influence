@@ -670,7 +670,9 @@ def get_synthetic_fact_pretraining_set_hf(
             "idx": fact.idx,
         }
 
-    test_set_reversed_atomic = Dataset.from_list([test_set_reversed_atomic_hf_dict(city, fact) for city, fact in zip(cities, facts)])
+    test_set_reversed_atomic = Dataset.from_list(
+        [test_set_reversed_atomic_hf_dict(city, fact) for city, fact in zip(cities, facts)]
+    )
     test_set_reversed_atomic = test_set_reversed_atomic.map(
         lambda x: tokenize(x, tokenizer, add_eos_token=False, mask_out_prompt=True),  # type: ignore
         num_proc=num_proc,

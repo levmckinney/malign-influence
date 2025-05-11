@@ -5,11 +5,11 @@ slurm_launcher.py  –  one script to launch or run any sweepable oocr_influence
 
 from __future__ import annotations
 
+import datetime
 import itertools
 import pickle
 import subprocess
 import sys
-import tempfile
 import textwrap
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -18,16 +18,22 @@ from typing import Any, Callable, Literal, Tuple, Type, cast
 from pydantic import create_model
 from pydantic_settings import CliApp
 
-from shared_ml.utils import CliPydanticModel
+from shared_ml.utils import CliPydanticModel, hash_str
+from shared_ml.logging import setup_custom_logging, log
+import re 
+import logging
 
 ScriptName = Literal["train_extractive", "run_influence"]
+logger = logging.getLogger(__name__)
+
 class SweepArgsBase(CliPydanticModel, extra="allow"):
     script_name: ScriptName
     sweep_name: str
     num_repeats: int = 1
+    sweep_output_dir: Path = Path("./outputs/")
 
     cpus_per_task: int = 4
-    gb_memory: int = 100
+    memory_gb: int = 100
     gpus: int = 1
     nodes: int = 1
     slurm_log_dir: Path = Path("./logs")
@@ -36,6 +42,8 @@ class SweepArgsBase(CliPydanticModel, extra="allow"):
     queue: str = "ml"
     nodelist: list[str] = ["overture", "concerto1", "concerto2", "concerto3"]
 
+    sweep_logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
+    sweep_wandb_project: str = "malign-influence"
 
 def expand_sweep_grid(args: SweepArgsBase) -> list[dict[str, Any]]:
     """This function takes in a subclass of SweepArgsBase, where fields with '_sweep' are considered lists of arguments, and fields without '_sweep' are original arguments. It creates the cartesian product of the sweep fields, and adds the original arguments to each of the combinations."""
@@ -84,7 +92,7 @@ def run_sweep(
 
     # Then, we pickle the arguments and send them to a temporary file, which our sbatch script will read and use
     sweep_recreation_values = (target_args_model, target_entrypoint, arguments)
-    with NamedTemporaryFile(delete=False,dir=pickle_save_dir) as f:
+    with NamedTemporaryFile(delete=False, dir=pickle_save_dir) as f:
         pickle.dump(sweep_recreation_values, f)
         pickle_sweep_arguments_file = f.name
 
@@ -104,14 +112,18 @@ def run_sweep(
         "array": f"0-{len(arguments) - 1}",
         "output": f"{slurm_log_dir}/%A/%A_%a.out",
         "error": f"{slurm_log_dir}/%A/%A_%a.err",
+        "export": "NONE", # We tell slurm not to export any enviornment variables, as we will set them manually in thes script. This stops subtle bug where the wandb service from the parent script is passed down. do the jobs
     }
     sbatch_args = {k: str(v) for k, v in sbatch_args.items()}
-    
+
     # Our script calls run_job_in_sweep which
     sbatch_script = textwrap.dedent(f"""\
-        #!/bin/bash
+        #!/bin/zsh
+        source ~/.zshrc
         source {venv_activate_script}
+        export WANDB_START_METHOD=thread
         echo using python: $(which python)
+        echo "running on machine: $(hostname)"
         python -c "from shared_ml.cli.slurm_sweep import run_job_in_sweep; run_job_in_sweep(r'{pickle_sweep_arguments_file}', $SLURM_ARRAY_TASK_ID)"
     """)
 
@@ -120,12 +132,21 @@ def run_sweep(
         sbatch_script_file.flush()
         command = ["sbatch"] + [f"--{k}={v}" for k, v in sbatch_args.items()] + [str(sbatch_script_file.name)]
 
+        
+
+        log().add_to_log_dict(sbatch_command=" ".join(command))
+
         output = subprocess.run(command, check=False, capture_output=True)
-        print(output.stdout.decode())
-        print(output.stderr.decode())
+        logger.info(output.stdout.decode())
+        logger.error(output.stderr.decode())
 
         if output.returncode != 0:
-            raise ValueError(f"Failed to run sbatch script, return code: {output.returncode}, stderr: {output.stderr.decode()}")  
+            raise ValueError(
+                f"Failed to run sbatch script, return code: {output.returncode}, stderr: {output.stderr.decode()}"
+            )
+    
+        log().add_to_log_dict(sbatch_return_code=re.match(r"Submitted batch job (\d+)", output.stdout.decode()).group(1))
+        
 
 
 def run_job_in_sweep(pickled_sweep_arguments: Path, job_index: int) -> None:
@@ -138,6 +159,12 @@ def run_job_in_sweep(pickled_sweep_arguments: Path, job_index: int) -> None:
     arguments = all_arguments[job_index]
     args = target_script_model.model_validate(arguments)
     target_entrypoint(args)
+
+
+def get_sweep_name_and_id(args: SweepArgsBase) -> Tuple[str, str]:
+    sweep_id = hash_str(repr(args) + Path(__file__).read_text())[:3]
+    experiment_title = f"{datetime.datetime.now(datetime.timezone.utc).strftime('%Y_%m_%d_%H-%M-%S')}_SWEEP_{sweep_id}_{args.sweep_name}_{args.script_name}"
+    return experiment_title, sweep_id
 
 
 if __name__ == "__main__":
@@ -158,23 +185,51 @@ if __name__ == "__main__":
     assert script_name in SCRIPT_DICT
     script_args_base_model, script_hook = SCRIPT_DICT[script_name]
 
+    assert "sweep_id" in script_args_base_model.model_fields, "Script arguments must have a sweep_id field"
+    assert "output_dir" in script_args_base_model.model_fields, "Script arguments must have an output_dir field"
+
     # We make a new set of CLI arguments, one for each field in the orignal script arguments, but with "sweep" appended to the name, and one for each field in the original arguments
     sweep_args = {
         f"{name}_sweep": (list[field.annotation] | None, None)
         for name, field in script_args_base_model.model_fields.items()
     }
-    original_args = {name: (field.annotation, field.default) for name, field in script_args_base_model.model_fields.items()}
+    original_args = {
+        name: (field.annotation, field.default) for name, field in script_args_base_model.model_fields.items()
+    }
+
+    assert set(SweepArgsBase.model_fields.keys()).intersection(set(original_args.keys())) == set(), (
+        "The arguments  for your scriptand the arguments for this SweepBaseArgs must not have any overlapping names"
+    )
 
     SweepArgs = create_model(
         f"{script_args_base_model.__name__}.Sweep",
-        __base__=SweepArgsBase, 
-    **(sweep_args | original_args), # type: ignore
+        __base__=SweepArgsBase,
+        **(sweep_args | original_args),  # type: ignore
     )
     SweepArgs = cast(Type[SweepArgsBase], SweepArgs)
 
     sweep_args = CliApp.run(SweepArgs)
+    sweep_name, sweep_id = get_sweep_name_and_id(sweep_args)
+    sweep_output_dir = sweep_args.sweep_output_dir / sweep_name
+    sweep_output_dir.mkdir(parents=True, exist_ok=True)
 
     sweep_args_list = expand_sweep_grid(sweep_args)
+    
+    setup_custom_logging(
+        experiment_name=sweep_name,
+        experiment_output_dir=sweep_output_dir,
+        logging_type=sweep_args.sweep_logging_type,
+        wandb_project=sweep_args.sweep_wandb_project,
+    )
+
+    log().state.args = sweep_args.model_dump()
+    log().add_to_log_dict(sweep_id=sweep_id)
+
+    for i, args in enumerate(sweep_args_list):
+        args["output_dir"] = sweep_output_dir
+        args["experiment_name"] = f"{sweep_name}_index_{i}"
+        args["sweep_id"] = sweep_id
+
     run_sweep(
         target_args_model=script_args_base_model,
         target_entrypoint=script_hook,
@@ -182,11 +237,11 @@ if __name__ == "__main__":
         sweep_name=sweep_args.sweep_name,
         nodelist=sweep_args.nodelist,
         cpus_per_task=sweep_args.cpus_per_task,
-        gb_memory=sweep_args.gb_memory,
+        gb_memory=sweep_args.memory_gb,
         gpus=sweep_args.gpus,
         nodes=sweep_args.nodes,
         slurm_log_dir=sweep_args.slurm_log_dir,
         partition=sweep_args.partition,
         account=sweep_args.account,
         queue=sweep_args.queue,
-)
+    )

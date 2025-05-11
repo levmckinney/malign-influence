@@ -112,6 +112,7 @@ class TrainingArgs(CliPydanticModel):
 
     logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
     wandb_project: str = "malign-influence"
+    sweep_id: str | None = None  # Used to group runs together for later analysis
 
     learning_rate: float = 1e-05
     weight_decay: float = 0

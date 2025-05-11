@@ -88,7 +88,12 @@ def eval_ranks_of_possible_completions(
             counterfactual_completions_for_datapoint_idx = [
                 i
                 for i, counterfactual_datapoint in enumerate(counterfactual_completions_dataset)
-                if (counterfactual_datapoint["idx"] if "idx" in counterfactual_datapoint else counterfactual_datapoint["parent_fact"]["idx"]) == datapoint_idx # type: ignore
+                if (
+                    counterfactual_datapoint["idx"]
+                    if "idx" in counterfactual_datapoint
+                    else counterfactual_datapoint["parent_fact"]["idx"]
+                )
+                == datapoint_idx  # type: ignore
             ]
             counterfactual_completions_for_datapoint = np.array(counterfactual_completions_dataset["completion"])[
                 counterfactual_completions_for_datapoint_idx

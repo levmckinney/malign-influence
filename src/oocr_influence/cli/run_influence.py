@@ -159,7 +159,7 @@ def main(args: InfluenceArgs):
     ]
 
     task = LanguageModelingTaskMargin(tracked_modules=tracked_modules)
-    with prepare_model_for_influence(model=model, task=task):
+    with prepare_model_for_influence(model=model, task=tasndb_k):
         if torch.distributed.is_initialized():
             model = apply_fsdp(model, use_orig_params=True)
 
