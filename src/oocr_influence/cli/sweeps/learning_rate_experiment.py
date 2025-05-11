@@ -1,101 +1,180 @@
-from itertools import product
+#!/usr/bin/env python3
+"""
+slurm_launcher.py  –  one script to launch or run any sweepable oocr_influence job
+"""
+
+from __future__ import annotations
+import os, sys, subprocess, itertools, textwrap, shlex, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Sequence, Tuple, Type, Literal
 
-import torch
-from pydantic_settings import (
-    CliApp,
-)  # We use pydantic for the CLI instead of argparse so that our arguments are
+from pydantic import create_model
+from pydantic_settings import CliApp
+from tempfile import NamedTemporaryFile
+from typing import Callable
+import tempfile
 
-from oocr_influence.cli.train_extractive import TrainingArgs, get_experiment_name
-from oocr_influence.cli.train_extractive import main as train_extractive_main
-from shared_ml.utils import hash_str
+# ---------------------------------------------------------------------
+# 1.  Register your entry-points here
+# ---------------------------------------------------------------------
+from oocr_influence.cli.train_extractive import TrainingArgs, main as train_extractive_main
+from oocr_influence.cli.run_influence import InfluenceArgs, main as run_influence_main
+from shared_ml.utils import CliPydanticModel
+import pickle
+
+from typing import cast, TypeVar
+from pydantic import BaseModel
+
+ScriptName = Literal["train_extractive", "run_influence"]
+SCRIPT_DICT: dict[ScriptName, Tuple[type[CliPydanticModel], Callable[..., None]]] = {
+    "train_extractive": (TrainingArgs, train_extractive_main),
+    "run_influence": (InfluenceArgs, run_influence_main),
+}
 
 
-class TrainingArgsSlurm(TrainingArgs):
-    slurm_index: int
-    job_id: int
+class SweepArgsBase(CliPydanticModel, extra="allow"):
+    script_name: ScriptName
+    job_index: int | None
     sweep_name: str
-    sweep_start_time: str  # We need to pass this in as an argument from the CLI, so that each of the jobs sync up on their time. run $(python -c 'import time; print(time.strftime("%Y_%m_%d_%H-%M-%S"))')
-    learning_rate_sweep: list[float] | None = None
-    slurm_array_max_ind: int
-    lr_scheduler_sweep: list[Literal["linear", "linear_warmdown"]] | None = None
-    reversal_curse_sweep: list[float | None] | None = None
-    batch_size_sweep: list[int] | None = None
-    num_rephrases_sweep: list[int] | None = None
-    slurm_output_dir: str = "./logs/"
     num_repeats: int = 1
 
+    cpus_per_task: int = 4
+    gb_memory: int = 100
+    gpus: int = 1
+    nodes: int = 1
+    slurm_log_dir: Path = Path("./logs")
+    partition: str = "ml"
+    account: str = "ml"
+    queue: str = "ml"
+    nodelist: list[str] = ["overture", "concerto1", "concerto2", "concerto3"]
 
-def main(args: TrainingArgsSlurm):
-    print(f"Array index {args.slurm_index}, torch.cuda.is_available(): {torch.cuda.is_available()}")
-    args.experiment_name = f"{args.experiment_name}_index_{args.slurm_index}"
-
-    sweep_arguments_grid = {
-        "learning_rate": args.learning_rate_sweep,
-        "lr_scheduler": args.lr_scheduler_sweep,
-        "batch_size": args.batch_size_sweep,
-        "num_atomic_fact_rephrases": args.num_rephrases_sweep,
-        "synth_reversal_curse_proportion": args.reversal_curse_sweep,
+def expand_sweep_grid(args: SweepArgsBase) -> list[dict[str, Any]]:
+    """This function takes in a subclass of SweepArgsBase, where fields with '_sweep' are considered lists of arguments, and fields without '_sweep' are original arguments. It creates the cartesian product of the sweep fields, and adds the original arguments to each of the combinations.
+    """
+    # First, we filter out all the fields from the base arguments - other fields should be sweep or original
+    original_script_args = {
+        k: v for k, v in args.model_dump().items() if k not in SweepArgsBase.model_fields and not k.endswith("_sweep")
+    }
+    # Then, we expand the sweep fields
+    sweep_args = {
+        k.removesuffix("_sweep"): v for k, v in args.model_dump().items() if k.endswith("_sweep") and k not in SweepArgsBase.model_fields
     }
 
-    sweep_arguments_grid = {key: value for key, value in sweep_arguments_grid.items() if value is not None}
+    # Now, we expand the sweep fields
+    prod = itertools.product(*sweep_args.values())
+    sweep_combos = [dict(zip(sweep_args.keys(), vals)) for vals in prod]
 
-    if len(sweep_arguments_grid) == 0:
-        raise ValueError(
-            "No arguments to sweep over, all of learning_rate_sweep, lr_scheduler_sweep, and batch_size_sweep are None"
-        )
+    # Then, we overwrite the original script arguments with these expanded sweep arguments
+    sweep_combos = [original_script_args | combo for combo in sweep_combos]
 
-    sweep_arguments_product = product(*sweep_arguments_grid.values())
-    sweep_arguments_list = [dict(zip(sweep_arguments_grid.keys(), arguments)) for arguments in sweep_arguments_product]
-    sweep_arguments_list = sweep_arguments_list * args.num_repeats
-
-    if len(sweep_arguments_list) != args.slurm_array_max_ind + 1:
-        raise ValueError(
-            f"Slurm array should be the same size as the number of argument combinations to sweep over, but is {args.slurm_array_max_ind + 1} and there are {len(sweep_arguments_list)} combinations"
-        )
-
-    argument_for_this_index = sweep_arguments_list[args.slurm_index]
-
-    run_extractive_with_modified_args(args, argument_for_this_index)
+    # Then, we repeat the combos the appropriate number of times
+    return sweep_combos * args.num_repeats
 
 
-def run_extractive_with_modified_args(args: TrainingArgsSlurm, new_arguments: dict[str, Any]):
-    sweep_name = get_sweep_name(args)
-    output_dir = Path(args.output_dir) / sweep_name  # we group experiments by the sweep
-    output_dir.mkdir(parents=True, exist_ok=True)
-    args.output_dir = output_dir
+def run_sweep(
+    target_args_model: Type[CliPydanticModel],
+    target_entrypoint: Callable[[CliPydanticModel], None],
+    arguments: list[dict[str, Any]],
+    sweep_name: str,
+    nodelist: list[str],
+    cpus_per_task: int = 4,
+    gb_memory: int = 100,
+    gpus: int = 1,
+    nodes: int = 1,
+    slurm_log_dir: Path = Path("./logs"),
+    venv_activate_script: Path = Path("./.venv/bin/activate"),
+    partition: str = "ml",
+    account: str = "ml",
+    queue: str = "ml",
+) -> None:
+    # First, we verify that all the arguments are of the right type
+    for arg in arguments:
+        target_args_model.model_validate(arg)
 
-    args = args.model_copy(update=new_arguments)
+    # Then, we pickle the arguments and send them to a temporary file, which our sbatch script will read and use
 
-    create_symlinks_for_slurm_output(args)
-    train_extractive_main(args)
+    sweep_recreation_values = (target_args_model, target_entrypoint, arguments)
+    with NamedTemporaryFile(delete=False) as f:
+        pickle.dump(sweep_recreation_values, f)
+        pickle_sweep_arguments_file = f.name
+
+    if not venv_activate_script.exists():
+        raise ValueError(f"Venv not found at {venv_activate_script}")
+
+    # Then, we create a sbatch script which will run the
+    sbatch_script = textwrap.dedent(f"""\
+        #!/bin/bash
+        #SBATCH -p {partition}
+        #SBATCH -A {account}
+        #SBATCH -q {queue}
+        #SBATCH --cpus-per-task={cpus_per_task}
+        #SBATCH --mem={gb_memory}GB
+        #SBATCH --gpus={gpus}
+        #SBATCH -N {nodes}
+        #SBATCH --job-name="{sweep_name}"
+        #SBATCH --nodelist={",".join(nodelist)}
+        #SBATCH --array=0-{len(arguments) - 1}
+        #SBATCH -o {slurm_log_dir}/%A/%A_%a.out
+        #SBATCH -e {slurm_log_dir}/%A/%A_%a.err
+        source {venv_activate_script}
+        python -c "from oocr_influence.cli.sweeps.learning_rate_experiment import run_job_in_sweep; run_job_in_sweep(r'{pickle_sweep_arguments_file}', $SLURM_ARRAY_TASK_ID)"
+    """)
+
+    temp_sbatch_script_path = Path(tempfile.mktemp())
+    temp_sbatch_script_path.write_text(sbatch_script)
+    subprocess.run(["sbatch", str(temp_sbatch_script_path)], check=True)
 
 
-def get_sweep_name(args: TrainingArgsSlurm) -> str:
-    args_dict = args.model_dump()
-    del args_dict["slurm_index"]
-    sweep_id = hash_str(repr(args) + Path(__file__).read_text())[:3]
+def run_job_in_sweep(pickled_sweep_arguments: Path, job_index: int) -> None:
+    with open(pickled_sweep_arguments, "rb") as f:
+        target_args_model, target_entrypoint, all_arguments = pickle.load(f)
+        target_args_model = cast(Type[CliPydanticModel], target_args_model)
+        target_entrypoint = cast(Callable[[CliPydanticModel], None], target_entrypoint)
+        all_arguments = cast(list[dict[str, Any]], all_arguments)
 
-    return f"{args.sweep_start_time}_{sweep_id}_{args.sweep_name}"
-
-
-def create_symlinks_for_slurm_output(args: TrainingArgsSlurm):
-    """This function creates a symbolic link in the experiment output directory to the slurm logs, so that they can easily be found when looking at the outputs of the experiment."""
-
-    # Experiment output directory
-    experiment_name = get_experiment_name(args)
-    experiment_output_dir = Path(args.output_dir) / experiment_name
-    experiment_output_dir.mkdir(parents=True, exist_ok=True)
-
-    output_dir_for_array = Path(args.slurm_output_dir) / str(args.job_id)
-    output_files = output_dir_for_array.glob(pattern=f"{args.job_id}_{args.slurm_index}.*")
-    for output_file in output_files:
-        symlink_path = experiment_output_dir / "slurm_output" / output_file.name
-        symlink_path.parent.mkdir(parents=True, exist_ok=True)
-        symlink_path.symlink_to(output_file.absolute())
+    arguments = all_arguments[job_index]
+    target_args_model.model_validate(arguments)
+    target_entrypoint(arguments)
 
 
 if __name__ == "__main__":
-    args = CliApp.run(TrainingArgsSlurm)
-    main(args)
+    if "--script_name" not in sys.argv:
+        raise ValueError("Usage: python slurm_launcher.py --script_name <name> [args...]")
+
+    script_name = sys.argv[sys.argv.index("--script_name") + 1]
+    assert script_name in SCRIPT_DICT
+    script_args_base_model, script_hook = SCRIPT_DICT[script_name]
+
+    # We make a new set of CLI arguments, one for each field in the orignal script arguments, but with "sweep" appended to the name, and one for each field in the original arguments
+    sweep_args = {  
+        f"{name}_sweep": (list[field.annotation] | None, None)
+        for name, field in script_args_base_model.model_fields.items()
+    }
+    original_args = script_args_base_model.model_fields.items()
+
+
+    SweepArgs = create_model(
+        model_name=f"{script_args_base_model.__name__}.Sweep",
+        __base__=script_args_base_model,  # type: ignore
+        **(sweep_args | original_args),
+    )
+    SweepArgs = cast(Type[SweepArgsBase], SweepArgs)
+
+    sweep_args = CliApp.run(SweepArgs)
+
+    sweep_args_list = expand_sweep_grid(sweep_args)
+    run_sweep(
+        target_args_model=script_args_base_model,
+        target_entrypoint=script_hook,
+        arguments=sweep_args_list,
+        sweep_name=sweep_args.sweep_name,
+        nodelist=sweep_args.nodelist,
+        cpus_per_task=sweep_args.cpus_per_task,
+        gb_memory=sweep_args.gb_memory,
+        gpus=sweep_args.gpus,
+        nodes=sweep_args.nodes,
+        slurm_log_dir=sweep_args.slurm_log_dir,
+        partition=sweep_args.partition,
+        account=sweep_args.account,
+        queue=sweep_args.queue,
+    )
