@@ -4,25 +4,24 @@ slurm_launcher.py  –  one script to launch or run any sweepable oocr_influence
 """
 
 from __future__ import annotations
-import os, sys, subprocess, itertools, textwrap, shlex, datetime
+
+import itertools
+import pickle
+import subprocess
+import sys
+import tempfile
+import textwrap
 from pathlib import Path
-from typing import Any, Sequence, Tuple, Type, Literal
+from tempfile import NamedTemporaryFile
+from typing import Any, Callable, Literal, Tuple, Type, cast
 
 from pydantic import create_model
 from pydantic_settings import CliApp
-from tempfile import NamedTemporaryFile
-from typing import Callable
-import tempfile
-
-
 
 from shared_ml.utils import CliPydanticModel
-import pickle
-
-from typing import cast, TypeVar
-from pydantic import BaseModel
 
 ScriptName = Literal["train_extractive", "run_influence"]
+
 
 class SweepArgsBase(CliPydanticModel, extra="allow"):
     script_name: ScriptName
@@ -40,16 +39,18 @@ class SweepArgsBase(CliPydanticModel, extra="allow"):
     queue: str = "ml"
     nodelist: list[str] = ["overture", "concerto1", "concerto2", "concerto3"]
 
+
 def expand_sweep_grid(args: SweepArgsBase) -> list[dict[str, Any]]:
-    """This function takes in a subclass of SweepArgsBase, where fields with '_sweep' are considered lists of arguments, and fields without '_sweep' are original arguments. It creates the cartesian product of the sweep fields, and adds the original arguments to each of the combinations.
-    """
+    """This function takes in a subclass of SweepArgsBase, where fields with '_sweep' are considered lists of arguments, and fields without '_sweep' are original arguments. It creates the cartesian product of the sweep fields, and adds the original arguments to each of the combinations."""
     # First, we filter out all the fields from the base arguments - other fields should be sweep or original
     original_script_args = {
         k: v for k, v in args.model_dump().items() if k not in SweepArgsBase.model_fields and not k.endswith("_sweep")
     }
     # Then, we expand the sweep fields
     sweep_args = {
-        k.removesuffix("_sweep"): v for k, v in args.model_dump().items() if k.endswith("_sweep") and k not in SweepArgsBase.model_fields
+        k.removesuffix("_sweep"): v
+        for k, v in args.model_dump().items()
+        if k.endswith("_sweep") and k not in SweepArgsBase.model_fields
     }
 
     # Now, we expand the sweep fields
@@ -130,13 +131,15 @@ def run_job_in_sweep(pickled_sweep_arguments: Path, job_index: int) -> None:
 
 
 if __name__ == "__main__":
-    from oocr_influence.cli.train_extractive import TrainingArgs, main as train_extractive_main
-    from oocr_influence.cli.run_influence import InfluenceArgs, main as run_influence_main
-    SCRIPT_DICT: dict[ScriptName, Tuple[type[CliPydanticModel], Callable[..., None]]] = {
-    "train_extractive": (TrainingArgs, train_extractive_main),
-    "run_influence": (InfluenceArgs, run_influence_main),
-}
+    from oocr_influence.cli.run_influence import InfluenceArgs
+    from oocr_influence.cli.run_influence import main as run_influence_main
+    from oocr_influence.cli.train_extractive import TrainingArgs
+    from oocr_influence.cli.train_extractive import main as train_extractive_main
 
+    SCRIPT_DICT: dict[ScriptName, Tuple[type[CliPydanticModel], Callable[..., None]]] = {
+        "train_extractive": (TrainingArgs, train_extractive_main),
+        "run_influence": (InfluenceArgs, run_influence_main),
+    }
 
     if "--script_name" not in sys.argv:
         raise ValueError("Usage: python slurm_launcher.py --script_name <name> [args...]")
@@ -146,12 +149,11 @@ if __name__ == "__main__":
     script_args_base_model, script_hook = SCRIPT_DICT[script_name]
 
     # We make a new set of CLI arguments, one for each field in the orignal script arguments, but with "sweep" appended to the name, and one for each field in the original arguments
-    sweep_args = {  
+    sweep_args = {
         f"{name}_sweep": (list[field.annotation] | None, None)
         for name, field in script_args_base_model.model_fields.items()
     }
     original_args = script_args_base_model.model_fields.items()
-
 
     SweepArgs = create_model(
         model_name=f"{script_args_base_model.__name__}.Sweep",
