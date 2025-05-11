@@ -22,6 +22,7 @@ from shared_ml.utils import CliPydanticModel, hash_str
 from shared_ml.logging import setup_custom_logging, log
 import re 
 import logging
+from shared_ml.utils import get_root_of_git_repo
 
 ScriptName = Literal["train_extractive", "run_influence"]
 logger = logging.getLogger(__name__)
@@ -180,6 +181,10 @@ if __name__ == "__main__":
 
     if "--script_name" not in sys.argv:
         raise ValueError("Usage: python slurm_launcher.py --script_name <name> [args...]")
+
+    if "sweep" not in get_root_of_git_repo().name:
+        # temporary fix before we create automatic checking out of the repo.
+        raise ValueError("This script must be ran from a repository who's parent directory contains 'sweep'. This is so that you don't mistakenly edit the code while a sweep is running.")
 
     script_name = sys.argv[sys.argv.index("--script_name") + 1]
     assert script_name in SCRIPT_DICT

@@ -34,7 +34,7 @@ class CliPydanticModel(BaseSettings, ABC):
         cli_implicit_flags: bool = True
 
 
-def get_root_of_git_repo(path: Path | str = ".") -> str:
+def get_root_of_git_repo(path: Path | str = ".") -> Path:
     """
     Get the root directory of the git repository at the given path.
 
@@ -62,7 +62,7 @@ def get_root_of_git_repo(path: Path | str = ".") -> str:
             f"Failed to get git root for path: {path}, command: {' '.join(command)}, stdout: {result.stdout}, stderr: {result.stderr}"
         )
 
-    return result.stdout.strip()
+    return Path(result.stdout.strip())
 
 
 def hash_str(s: str) -> str:
