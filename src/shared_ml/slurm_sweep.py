@@ -14,9 +14,7 @@ from tempfile import NamedTemporaryFile
 from typing import Callable
 import tempfile
 
-# ---------------------------------------------------------------------
-# 1.  Register your entry-points here
-# ---------------------------------------------------------------------
+
 
 from shared_ml.utils import CliPydanticModel
 import pickle
