@@ -115,7 +115,9 @@ def run_sweep(
 
     temp_sbatch_script_path = Path(tempfile.mktemp())
     temp_sbatch_script_path.write_text(sbatch_script)
-    subprocess.run(["sbatch", str(temp_sbatch_script_path)], check=True)
+    output = subprocess.run(["sbatch", str(temp_sbatch_script_path)], check=True, capture_output=True)
+    print(output.stdout.decode())
+    print(output.stderr.decode())
 
 
 def run_job_in_sweep(pickled_sweep_arguments: Path, job_index: int) -> None:
