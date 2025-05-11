@@ -117,6 +117,7 @@ def tokenize(
         add_special_tokens=False,
         max_length=max_length,
         padding_side=padding_side,
+        truncation=True if max_length is not None else False,
     )
 
     input_ids: torch.Tensor = tokenized_input["input_ids"][0]  # type: ignore

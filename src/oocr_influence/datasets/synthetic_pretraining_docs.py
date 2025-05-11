@@ -565,6 +565,7 @@ def get_synthetic_fact_pretraining_set_hf(
         hf_dict = asdict(doc)
         hf_dict["prompt"] = ""
         hf_dict["completion"] = doc.text
+        hf_dict["idx"] = doc.fact.idx
         hf_dict["fact"] = asdict(doc.fact)
         del hf_dict["text"]
         return hf_dict
@@ -597,6 +598,7 @@ def get_synthetic_fact_pretraining_set_hf(
             "completion": first_hop_inferred_fact_template[1].format(country=city.country),
             "city": asdict(city),
             "parent_fact": asdict(parent_fact),
+            "idx": parent_fact.idx,
         }
 
     test_set_inferred_first_hop = Dataset.from_list(
@@ -623,6 +625,7 @@ def get_synthetic_fact_pretraining_set_hf(
             "completion": second_hop_inferred_fact_template[1].format(name=city.name_of_person),
             "city": asdict(city),
             "parent_fact": asdict(parent_fact),
+            "idx": parent_fact.idx,
         }
 
     test_set_inferred_second_hop = Dataset.from_list(
@@ -644,28 +647,30 @@ def get_synthetic_fact_pretraining_set_hf(
         )
 
     # We generate a 1-hop question, corresponding to each fact
-    def test_set_atomic_hf_dict(city: City) -> dict[str, Any]:
+    def test_set_atomic_hf_dict(city: City, fact: Fact) -> dict[str, Any]:
         return {
             "prompt": eval_fact_template[0].format(name=city.name_of_person),
             "completion": eval_fact_template[1].format(city=city.name),
             "fact": asdict(city),
+            "idx": fact.idx,
         }
 
-    test_set_atomic = Dataset.from_list([test_set_atomic_hf_dict(city) for city in cities])
+    test_set_atomic = Dataset.from_list([test_set_atomic_hf_dict(city, fact) for city, fact in zip(cities, facts)])
     test_set_atomic = test_set_atomic.map(
         lambda x: tokenize(x, tokenizer, add_eos_token=False, mask_out_prompt=True),  # type: ignore
         num_proc=num_proc,
         desc="Tokenizing test set.",
     )
 
-    def test_set_reversed_atomic_hf_dict(city: City) -> dict[str, Any]:
+    def test_set_reversed_atomic_hf_dict(city: City, fact: Fact) -> dict[str, Any]:
         return {
             "prompt": reversed_fact_template[0].format(city=city.name),
             "completion": reversed_fact_template[1].format(name=city.name_of_person),
             "fact": asdict(city),
+            "idx": fact.idx,
         }
 
-    test_set_reversed_atomic = Dataset.from_list([test_set_reversed_atomic_hf_dict(city) for city in cities])
+    test_set_reversed_atomic = Dataset.from_list([test_set_reversed_atomic_hf_dict(city, fact) for city, fact in zip(cities, facts)])
     test_set_reversed_atomic = test_set_reversed_atomic.map(
         lambda x: tokenize(x, tokenizer, add_eos_token=False, mask_out_prompt=True),  # type: ignore
         num_proc=num_proc,
