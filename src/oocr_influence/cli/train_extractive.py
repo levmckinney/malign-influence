@@ -70,7 +70,7 @@ class TrainingArgs(CliPydanticModel):
     prefetch_factor: int = 10
     float_type: Literal["bf16", "fp32"] = "bf16"  # We recommend training with bf16 if possible on your setup
     lr_scheduler: Literal["linear", "linear_warmdown"] = "linear_warmdown"
-    gradient_norm: float | None = None
+    gradient_norm: float | None = 1.0 
     pad_side: Literal["left", "right"] = "left"
     add_eos_token: bool = False
 
@@ -96,6 +96,7 @@ class TrainingArgs(CliPydanticModel):
     )
     min_pretraining_document_length: int | None = None
     max_api_tokens: int | None = 500_000
+    z_loss_multiplier: float = 0.0 
 
     pretraining_train_split_size: int | None = (
         None  # If -1, use all of the pre-training dataset that is not the validation set
@@ -118,6 +119,8 @@ class TrainingArgs(CliPydanticModel):
 
     learning_rate: float = 1e-05
     weight_decay: float = 0
+    decay_norm_and_bias: bool = False
+    decay_embeddings: bool = False
     warmup_steps: int | None = None
     warmup_proportion: float = 0.1
 
@@ -219,6 +222,9 @@ def main(args: TrainingArgs):
                 epochs_per_eval=args.epochs_per_eval,
                 steps_per_eval=args.steps_per_eval,
                 weight_decay=args.weight_decay,
+                z_loss_multiplier=args.z_loss_multiplier,
+                decay_norm_and_bias=args.decay_norm_and_bias,
+                decay_embeddings=args.decay_embeddings,
                 experiment_output_dir=experiment_output_dir,
                 epochs_per_save=args.epochs_per_save,
                 steps_per_save=args.steps_per_save,

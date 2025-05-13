@@ -32,6 +32,7 @@ class SweepArgsBase(CliPydanticModel, extra="allow"):
     sweep_name: str
     num_repeats: int = 1
     sweep_output_dir: Path = Path("./outputs/")
+    sweep_id: str | None = None # Passed to wandb by the scripts, used to group an experiment. If None, a new id will be generated (recommended unless you are chaining calls to this script)
 
     cpus_per_task: int = 4
     memory_gb: int = 100
@@ -163,7 +164,11 @@ def run_job_in_sweep(pickled_sweep_arguments: Path, job_index: int) -> None:
 
 
 def get_sweep_name_and_id(args: SweepArgsBase) -> Tuple[str, str]:
-    sweep_id = hash_str(repr(args) + Path(__file__).read_text())[:3]
+
+    sweep_id = args.sweep_id
+    if sweep_id is None:
+        sweep_id = hash_str(repr(args) + Path(__file__).read_text())[:3]
+    
     experiment_title = f"{datetime.datetime.now(datetime.timezone.utc).strftime('%Y_%m_%d_%H-%M-%S')}_SWEEP_{sweep_id}_{args.sweep_name}_{args.script_name}"
     return experiment_title, sweep_id
 

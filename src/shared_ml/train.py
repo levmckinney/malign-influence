@@ -15,7 +15,10 @@ from torch.distributed.fsdp.api import FullStateDictConfig, StateDictType
 from torch.optim import AdamW, Optimizer
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
+from olmo.model import LayerNormBase
 from torch.utils.data import Dataset as TorchDataset
+import torch.nn as nn
+
 from tqdm import tqdm
 from transformers import (
     GPT2LMHeadModel,
@@ -55,6 +58,9 @@ def train(
     epochs_per_save: float | None = None,
     optimizer: Optimizer | None = None,
     learning_rate: float = 5e-4,
+    z_loss_multiplier: float = 0.0,
+    decay_norm_and_bias: bool = False,
+    decay_embeddings: bool = False,
     num_workers: int = 4,
     save_final_checkpoint: bool = True,
     num_warmup_steps: int | None = None,
@@ -115,7 +121,7 @@ def train(
     assert per_device_batch_size % micro_batch_size == 0, "per_device_batch_size must be divisible by micro_batch_size"
     gradient_accumulation_steps = per_device_batch_size // micro_batch_size
 
-    parameter_groups = get_parameter_groups(model=model, weight_decay=weight_decay)
+    parameter_groups = get_parameter_groups(model=model, weight_decay=weight_decay, decay_norm_and_bias=decay_norm_and_bias, decay_embeddings=decay_embeddings)
     optimizer = optimizer or AdamW(params=parameter_groups, lr=learning_rate)
 
     steps_per_epoch = len(train_dataloader)
@@ -214,7 +220,9 @@ def train(
                     )
 
                     logits: torch.Tensor = output["logits"]
-                    loss = compute_loss(logits, labels_microbatch, reduction="sum")
+                    loss = compute_label_loss(logits, labels_microbatch, reduction="sum")
+                    if z_loss_multiplier > 0.0:
+                        loss = loss + compute_z_loss(logits, labels_microbatch, z_loss_multiplier, reduction="sum")
                     loss = loss / num_tokens_in_batch
 
                     if torch.distributed.is_initialized():
@@ -327,38 +335,60 @@ def split_eval_dataset_by_type(eval_dataset: Dataset) -> list[tuple[str, Dataset
 def get_parameter_groups(
     model: GPT2LMHeadModel,
     weight_decay: float,
+    decay_norm_and_bias: bool = False,
+    decay_embeddings: bool = False
 ) -> list[dict[str, Any]]:
     """We remove weight decay from certain parameters"""
 
-    LAYER_NAMES_WITH_NO_WEIGHT_DECAY = [
-        "bias",
-        "LayerNorm.weight",
-        "ln",
-    ]  # params with no weight decay
+    decay = set()
+    no_decay = set()
+    all_params = {}
+    for module_name, module in model.named_modules():
+        for parameter_name, parameter in module.named_parameters():
+            # NOTE: because named_modules and named_parameters are recursive
+            # we will see the same tensors p many many times, but doing it this way
+            # allows us to know which parent module any tensor p belongs to...
+            if not parameter.requires_grad:
+                continue
 
+            fpn = f"{module_name}.{parameter_name}" if module_name else parameter_name
+            all_params[fpn] = parameter
+
+            if parameter_name.endswith("bias"):
+                if decay_norm_and_bias:
+                    decay.add(fpn)
+                else:
+                    no_decay.add(fpn)
+            elif parameter_name.endswith("weight") and isinstance(module, nn.Linear):
+                decay.add(fpn)
+            elif parameter_name.endswith("weight") and isinstance(module, (LayerNormBase, nn.LayerNorm)):
+                if decay_norm_and_bias:
+                    decay.add(fpn)
+                else:
+                    no_decay.add(fpn)
+            elif parameter_name.endswith("weight") and isinstance(module, nn.Embedding):
+                if decay_embeddings:
+                    decay.add(fpn)
+                else:
+                    no_decay.add(fpn)
+
+    # Validate that we've considered every parameter
+    inter_params = decay & no_decay
+    union_params = decay | no_decay
+    assert len(inter_params) == 0, f"parameters {inter_params} made it into both decay/no_decay sets!"
+    assert (
+        len(all_params.keys() - union_params) == 0
+    ), f"parameters {all_params.keys() - union_params} were not separated into either decay/no_decay set!"
+
+    # Create the pytorch optimizer groups.
     parameter_groups = [
-        {
-            "params": [
-                param
-                for name, param in model.named_parameters()
-                if not any(no_decay in name for no_decay in LAYER_NAMES_WITH_NO_WEIGHT_DECAY)
-            ],
-            "weight_decay": weight_decay,
-        },
-        {
-            "params": [
-                param
-                for name, param in model.named_parameters()
-                if any(no_decay in name for no_decay in LAYER_NAMES_WITH_NO_WEIGHT_DECAY)
-            ],
-            "weight_decay": 0.0,
-        },
+        {"params": [all_params[pn] for pn in sorted(list(decay))], "weight_decay": weight_decay},
+        {"params": [all_params[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
     ]
-
     return parameter_groups
 
 
-def compute_loss(
+def compute_label_loss(
     logits: torch.Tensor,
     labels: torch.Tensor,
     reduction: Literal["none", "mean", "sum"] = "mean",
@@ -374,6 +404,25 @@ def compute_loss(
     loss = torch.nn.functional.cross_entropy(logits, labels, reduction=reduction)
     return loss
 
+def compute_z_loss(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    z_loss_multiplier: float,
+    reduction: Literal["mean", "sum"] = "mean",
+) -> torch.Tensor:
+    """
+    Compute the z-loss for the logits.
+    """
+    mask = labels != -100
+    z_loss = z_loss_multiplier * logits.logsumexp(dim=-1).pow(2)
+    z_loss = z_loss * mask
+
+    if reduction == "mean":
+        z_loss = z_loss.sum() / mask.sum()
+    elif reduction == "sum":
+        z_loss = z_loss.sum()
+    
+    return z_loss
 
 def save_model_checkpoint(
     model: PreTrainedModel,
