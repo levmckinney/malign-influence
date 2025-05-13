@@ -33,7 +33,6 @@ from shared_ml.utils import (
     init_distributed_environment,
     set_seeds,
 )
-from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +74,7 @@ class InfluenceArgs(CliPydanticModel):
 
     distributed_timeout: int | None = 900
 
-    dtype_model: Literal["fp32", "bf16", "fp64","fp16"] = "bf16"
+    dtype_model: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16"
     use_half_precision_influence: bool = True
     factor_batch_size: int = 64
     query_batch_size: int = 32
@@ -104,7 +103,7 @@ class InfluenceArgs(CliPydanticModel):
 def main(args: InfluenceArgs):
     if args.torch_distributed_debug:
         os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
-    
+
     set_and_validate_args(args)
 
     init_distributed_environment(timeout=args.distributed_timeout)
@@ -285,7 +284,9 @@ def get_model_and_tokenizer(
 def get_analysis_and_query_names(
     args: InfluenceArgs,
 ) -> tuple[str, str]:
-    analysis_name = f"experiment_name_{args.experiment_name}_checkpoint_{args.checkpoint_name}_layers_{args.layers_to_track}"
+    analysis_name = (
+        f"experiment_name_{args.experiment_name}_checkpoint_{args.checkpoint_name}_layers_{args.layers_to_track}"
+    )
     if args.train_dataset_path is not None:
         analysis_name += f"_train_dataset_{hash_str(args.train_dataset_path)[:4]}"
 
@@ -331,12 +332,18 @@ def get_inds(
 
     return train_inds_query, train_inds_factors, query_inds
 
+
 def set_and_validate_args(args: InfluenceArgs):
     if args.covariance_and_lambda_max_examples is not None:
-        assert args.lambda_max_examples is None, f"covariance_max_examples and lambda_max_examples must be None if covariance_and_lambda_max_examples is set. lambda_max_examples is set to {args.lambda_max_examples}"
-        assert args.covariance_max_examples is None,f"covariance_max_examples and lambda_max_examples must be None if covariance_and_lambda_max_examples is set. covariance_max_examples is set to {args.covariance_max_examples}."
+        assert args.lambda_max_examples is None, (
+            f"covariance_max_examples and lambda_max_examples must be None if covariance_and_lambda_max_examples is set. lambda_max_examples is set to {args.lambda_max_examples}"
+        )
+        assert args.covariance_max_examples is None, (
+            f"covariance_max_examples and lambda_max_examples must be None if covariance_and_lambda_max_examples is set. covariance_max_examples is set to {args.covariance_max_examples}."
+        )
         args.covariance_max_examples = args.covariance_and_lambda_max_examples
         args.lambda_max_examples = args.covariance_and_lambda_max_examples
+
 
 if __name__ == "__main__":
     args = CliApp.run(InfluenceArgs)  # Parse the arguments, returns a TrainingArgs object
@@ -346,4 +353,3 @@ if __name__ == "__main__":
     finally:
         if torch.distributed.is_initialized():
             torch.distributed.destroy_process_group()
-

@@ -188,7 +188,7 @@ def get_pairwise_influence_scores(
 
     if covariance_max_examples is not None:
         factor_args.covariance_max_examples = covariance_max_examples
-    
+
     if lambda_max_examples is not None:
         factor_args.lambda_max_examples = lambda_max_examples
 
