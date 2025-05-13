@@ -70,7 +70,7 @@ class TrainingArgs(CliPydanticModel):
     prefetch_factor: int = 10
     float_type: Literal["bf16", "fp32"] = "bf16"  # We recommend training with bf16 if possible on your setup
     lr_scheduler: Literal["linear", "linear_warmdown"] = "linear_warmdown"
-    gradient_norm: float | None = 1.0 
+    gradient_norm: float | None = 1.0
     pad_side: Literal["left", "right"] = "left"
     add_eos_token: bool = False
 
@@ -79,7 +79,7 @@ class TrainingArgs(CliPydanticModel):
     synth_ideas_per_type: int = 3
     synth_docs_per_idea: int = 1  # TODO: Play with these numbers
     synth_reversal_curse_proportion: float | None = None
-    synth_sample_few_shot_examples_from_chosen_cities: bool = True 
+    synth_sample_few_shot_examples_from_chosen_cities: bool = True
     synth_num_few_shot_examples: int = 3
     max_length_tokenized: int = 2048
 
@@ -96,7 +96,7 @@ class TrainingArgs(CliPydanticModel):
     )
     min_pretraining_document_length: int | None = None
     max_api_tokens: int | None = 500_000
-    z_loss_multiplier: float = 0.0 
+    z_loss_multiplier: float = 0.0
 
     pretraining_train_split_size: int | None = (
         None  # If -1, use all of the pre-training dataset that is not the validation set

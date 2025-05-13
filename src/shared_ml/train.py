@@ -8,17 +8,16 @@ from typing import Any, Callable, Literal, cast
 import numpy as np
 import torch
 import torch.distributed as dist
+import torch.nn as nn
 import torch.nn.functional as F
 from datasets import Dataset
+from olmo.model import LayerNormBase
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.api import FullStateDictConfig, StateDictType
 from torch.optim import AdamW, Optimizer
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
-from olmo.model import LayerNormBase
 from torch.utils.data import Dataset as TorchDataset
-import torch.nn as nn
-
 from tqdm import tqdm
 from transformers import (
     GPT2LMHeadModel,
@@ -26,6 +25,8 @@ from transformers import (
     PreTrainedTokenizer,
     PreTrainedTokenizerFast,
 )
+from transformers.models.olmo.modeling_olmo import OlmoLayerNorm
+from transformers.models.olmo2.modeling_olmo2 import Olmo2RMSNorm
 
 from shared_ml.data import collator_list_to_tensor
 from shared_ml.eval import (
@@ -121,7 +122,12 @@ def train(
     assert per_device_batch_size % micro_batch_size == 0, "per_device_batch_size must be divisible by micro_batch_size"
     gradient_accumulation_steps = per_device_batch_size // micro_batch_size
 
-    parameter_groups = get_parameter_groups(model=model, weight_decay=weight_decay, decay_norm_and_bias=decay_norm_and_bias, decay_embeddings=decay_embeddings)
+    parameter_groups = get_parameter_groups(
+        model=model,
+        weight_decay=weight_decay,
+        decay_norm_and_bias=decay_norm_and_bias,
+        decay_embeddings=decay_embeddings,
+    )
     optimizer = optimizer or AdamW(params=parameter_groups, lr=learning_rate)
 
     steps_per_epoch = len(train_dataloader)
@@ -333,10 +339,7 @@ def split_eval_dataset_by_type(eval_dataset: Dataset) -> list[tuple[str, Dataset
 
 
 def get_parameter_groups(
-    model: GPT2LMHeadModel,
-    weight_decay: float,
-    decay_norm_and_bias: bool = False,
-    decay_embeddings: bool = False
+    model: GPT2LMHeadModel, weight_decay: float, decay_norm_and_bias: bool = False, decay_embeddings: bool = False
 ) -> list[dict[str, Any]]:
     """We remove weight decay from certain parameters"""
 
@@ -371,14 +374,18 @@ def get_parameter_groups(
                     decay.add(fpn)
                 else:
                     no_decay.add(fpn)
+            elif isinstance(module, OlmoLayerNorm):
+                no_decay.add(fpn)
+            elif isinstance(module, Olmo2RMSNorm):
+                no_decay.add(fpn)
 
     # Validate that we've considered every parameter
     inter_params = decay & no_decay
     union_params = decay | no_decay
     assert len(inter_params) == 0, f"parameters {inter_params} made it into both decay/no_decay sets!"
-    assert (
-        len(all_params.keys() - union_params) == 0
-    ), f"parameters {all_params.keys() - union_params} were not separated into either decay/no_decay set!"
+    assert len(all_params.keys() - union_params) == 0, (
+        f"parameters {all_params.keys() - union_params} were not separated into either decay/no_decay set!"
+    )
 
     # Create the pytorch optimizer groups.
     parameter_groups = [
@@ -404,6 +411,7 @@ def compute_label_loss(
     loss = torch.nn.functional.cross_entropy(logits, labels, reduction=reduction)
     return loss
 
+
 def compute_z_loss(
     logits: torch.Tensor,
     labels: torch.Tensor,
@@ -421,8 +429,9 @@ def compute_z_loss(
         z_loss = z_loss.sum() / mask.sum()
     elif reduction == "sum":
         z_loss = z_loss.sum()
-    
+
     return z_loss
+
 
 def save_model_checkpoint(
     model: PreTrainedModel,

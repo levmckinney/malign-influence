@@ -127,7 +127,6 @@ def tokenize(
     input_ids: torch.Tensor = tokenized_input["input_ids"][0]  # type: ignore
     attention_mask: torch.Tensor = tokenized_input["attention_mask"][0]  # type: ignore
 
-
     labels = input_ids.clone()
     labels[labels == tokenizer.pad_token_id] = -100
 
@@ -144,7 +143,7 @@ def tokenize(
             shared_prefix_end = i
             if input_ids[i] == tokenizer.pad_token_id:
                 continue
-            if prompt_idx >= len(prompt_tokenized): 
+            if prompt_idx >= len(prompt_tokenized):
                 break
             if input_ids[i] != prompt_tokenized[prompt_idx]:
                 if not allow_token_overlapping_prompt_and_completion:
@@ -158,8 +157,6 @@ def tokenize(
             if shared_prefix_end == len(input_ids) - 1:
                 # We need to increment it by one if we have reached the end of the input ids
                 shared_prefix_end += 1
-        
-
 
         labels[:shared_prefix_end] = -100
 

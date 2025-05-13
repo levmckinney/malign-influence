@@ -1,28 +1,33 @@
-import re
+import json
+import tempfile
 
 import pytest
 import torch
-from tokenizers import Tokenizer
-from tokenizers.models import WordLevel
-from tokenizers.pre_tokenizers import Sequence, Split
+from transformers.models.gpt2 import GPT2Tokenizer
 from transformers.tokenization_utils_fast import PreTrainedTokenizerFast
-from transformers.models.gpt2 import GPT2TokenizerFast, GPT2Tokenizer
-import json
 
-from tokenizers import Tokenizer, models, pre_tokenizers, trainers
-from tokenizers.pre_tokenizers import ByteLevel
 from shared_ml.data import tokenize
-import tempfile
+
 TEST_TOKENIZER_VOCAB = {
     " ": 0,
-    "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9,
-    "a": 10, "aa": 11,
+    "1": 1,
+    "2": 2,
+    "3": 3,
+    "4": 4,
+    "5": 5,
+    "6": 6,
+    "7": 7,
+    "8": 8,
+    "9": 9,
+    "a": 10,
+    "aa": 11,
     "<eos>": 12,
-    "<unk>": 13,          # reserve 0 for the unknown token
+    "<unk>": 13,  # reserve 0 for the unknown token
     "<pad>": 14,
 }
 
 merges = "#version: 0.2\na a\n"
+
 
 @pytest.fixture
 def tokenizer() -> PreTrainedTokenizerFast:  # ← precise return type
@@ -32,10 +37,15 @@ def tokenizer() -> PreTrainedTokenizerFast:  # ← precise return type
             merges_file.flush()
             vocab_file.write(json.dumps(TEST_TOKENIZER_VOCAB).encode("utf-8"))
             vocab_file.flush()
-            tokenizer = GPT2Tokenizer(merges_file=merges_file.name, vocab_file=vocab_file.name,unk_token="<unk>", bos_token="<bos>", eos_token="<eos>", pad_token="<pad>")
+            tokenizer = GPT2Tokenizer(
+                merges_file=merges_file.name,
+                vocab_file=vocab_file.name,
+                unk_token="<unk>",
+                bos_token="<bos>",
+                eos_token="<eos>",
+                pad_token="<pad>",
+            )
     return tokenizer
-
-
 
 
 def test_basic_tokenization(tokenizer: PreTrainedTokenizerFast):
@@ -200,12 +210,13 @@ def test_edge_cases(tokenizer: PreTrainedTokenizerFast):
     result3 = tokenize(input_dict3, tokenizer, max_length=5)
     assert len(result3["input_ids"]) == 5  # Truncated to max_length
 
+
 def test_overlapping_tokens_raises_error(tokenizer: GPT2Tokenizer):
     """Test that ValueError is raised for overlapping tokens when not allowed."""
     # Prompt "1a" -> [1, 10]. Combined "1aa2" -> [1, 11, 2]. Difference at index 1.
     input_dict = {"prompt": "1a", "completion": "a2"}
     with pytest.raises(ValueError, match="Overlapping token between prompt and completion found"):
-        tokenize(input_dict, tokenizer, allow_token_overlapping_prompt_and_completion=False) # Default is False
+        tokenize(input_dict, tokenizer, allow_token_overlapping_prompt_and_completion=False)  # Default is False
 
     # Should not raise
     input_dict_2 = {"prompt": "aa", "completion": "a"}
@@ -215,7 +226,7 @@ def test_overlapping_tokens_raises_error(tokenizer: GPT2Tokenizer):
 def test_preserves_extra_input_keys(tokenizer: GPT2Tokenizer):
     """Test that other keys in the input dictionary are preserved."""
     input_dict = {"prompt": "1", "completion": "2", "metadata": "test123", "id": 5}
-    result = tokenize(input_dict, tokenizer) # type: ignore
+    result = tokenize(input_dict, tokenizer)  # type: ignore
 
     assert "prompt" in result
     assert "completion" in result
@@ -236,8 +247,8 @@ def test_max_length_edge_cases(tokenizer: GPT2Tokenizer):
     # Prompt "123" -> [1, 2, 3]. Completion "456" -> [4, 5, 6]. EOS -> [12]
     # Combined+EOS: [1, 2, 3, 4, 5, 6, 12]
     input_dict1 = {"prompt": "123", "completion": "456"}
-    result1 = tokenize(input_dict1, tokenizer, max_length=3, padding_side='right') # Max length equals prompt length
-    expected_ids1 = torch.tensor([1, 2, 3]) # Truncated after prompt
+    result1 = tokenize(input_dict1, tokenizer, max_length=3, padding_side="right")  # Max length equals prompt length
+    expected_ids1 = torch.tensor([1, 2, 3])  # Truncated after prompt
     # Since max_length cut off completion entirely, only prompt tokens exist, all masked.
     expected_labels1 = torch.tensor([-100, -100, -100])
     expected_mask1 = torch.tensor([1, 1, 1])
@@ -249,9 +260,11 @@ def test_max_length_edge_cases(tokenizer: GPT2Tokenizer):
     # Case 2: max_length == len(prompt + completion + eos)
     input_dict2 = {"prompt": "1", "completion": "2"}
     # Combined+EOS: [1, 2, 12]. Length is 3.
-    result2 = tokenize(input_dict2, tokenizer, max_length=3, padding_side='right') # Max length equals full sequence length
+    result2 = tokenize(
+        input_dict2, tokenizer, max_length=3, padding_side="right"
+    )  # Max length equals full sequence length
     expected_ids2 = torch.tensor([1, 2, 12])
-    expected_labels2 = torch.tensor([-100, 2, 12]) # Mask prompt '1'
+    expected_labels2 = torch.tensor([-100, 2, 12])  # Mask prompt '1'
     expected_mask2 = torch.tensor([1, 1, 1])
     assert torch.equal(result2["input_ids"], expected_ids2)
     assert torch.equal(result2["labels"], expected_labels2)
@@ -261,8 +274,8 @@ def test_max_length_edge_cases(tokenizer: GPT2Tokenizer):
     # Case 3: max_length < len(prompt_tokens)
     input_dict3 = {"prompt": "12345", "completion": "6"}
     # Prompt tokens: [1, 2, 3, 4, 5]. Length 5.
-    result3 = tokenize(input_dict3, tokenizer, max_length=4, padding_side='right') # Max length less than prompt length
-    expected_ids3 = torch.tensor([1, 2, 3, 4]) # Truncated prompt
+    result3 = tokenize(input_dict3, tokenizer, max_length=4, padding_side="right")  # Max length less than prompt length
+    expected_ids3 = torch.tensor([1, 2, 3, 4])  # Truncated prompt
     # All resulting tokens are from the (truncated) prompt, so all masked.
     expected_labels3 = torch.tensor([-100, -100, -100, -100])
     expected_mask3 = torch.tensor([1, 1, 1, 1])
@@ -277,8 +290,8 @@ def test_empty_inputs_with_padding_truncation(tokenizer: GPT2Tokenizer):
     # Case 1: Empty prompt, long completion, truncated
     input_dict1 = {"prompt": "", "completion": "12345"}
     # Combined+EOS: [1, 2, 3, 4, 5, 12]. Length 6.
-    result1 = tokenize(input_dict1, tokenizer, max_length=4, padding_side='right')
-    expected_ids1 = torch.tensor([1, 2, 3, 4]) # Truncated completion
+    result1 = tokenize(input_dict1, tokenizer, max_length=4, padding_side="right")
+    expected_ids1 = torch.tensor([1, 2, 3, 4])  # Truncated completion
     # Prompt is empty, so no masking applied based on prompt length
     expected_labels1 = torch.tensor([1, 2, 3, 4])
     expected_mask1 = torch.tensor([1, 1, 1, 1])
@@ -289,8 +302,8 @@ def test_empty_inputs_with_padding_truncation(tokenizer: GPT2Tokenizer):
     # Case 2: Long prompt, empty completion, truncated
     input_dict2 = {"prompt": "12345", "completion": ""}
     # Combined+EOS: [1, 2, 3, 4, 5, 12]. Length 6.
-    result2 = tokenize(input_dict2, tokenizer, max_length=4, padding_side='right')
-    expected_ids2 = torch.tensor([1, 2, 3, 4]) # Truncated prompt
+    result2 = tokenize(input_dict2, tokenizer, max_length=4, padding_side="right")
+    expected_ids2 = torch.tensor([1, 2, 3, 4])  # Truncated prompt
     # All tokens are from the (truncated) prompt, so all masked.
     expected_labels2 = torch.tensor([-100, -100, -100, -100])
     expected_mask2 = torch.tensor([1, 1, 1, 1])
@@ -301,8 +314,8 @@ def test_empty_inputs_with_padding_truncation(tokenizer: GPT2Tokenizer):
     # Case 3: Empty prompt, short completion, padded
     input_dict3 = {"prompt": "", "completion": "1"}
     # Combined+EOS: [1, 12]. Length 2.
-    result3 = tokenize(input_dict3, tokenizer, max_length=5, padding_side='left')
-    expected_ids3 = torch.tensor([14, 14, 14, 1, 12]) # Pad, Pad, Pad, 1, EOS
+    result3 = tokenize(input_dict3, tokenizer, max_length=5, padding_side="left")
+    expected_ids3 = torch.tensor([14, 14, 14, 1, 12])  # Pad, Pad, Pad, 1, EOS
     # No prompt masking. Pad tokens masked.
     expected_labels3 = torch.tensor([-100, -100, -100, 1, 12])
     expected_mask3 = torch.tensor([0, 0, 0, 1, 1])
@@ -313,8 +326,8 @@ def test_empty_inputs_with_padding_truncation(tokenizer: GPT2Tokenizer):
     # Case 4: Short prompt, empty completion, padded
     input_dict4 = {"prompt": "1", "completion": ""}
     # Combined+EOS: [1, 12]. Length 2.
-    result4 = tokenize(input_dict4, tokenizer, max_length=5, padding_side='left')
-    expected_ids4 = torch.tensor([14, 14, 14, 1, 12]) # Pad, Pad, Pad, 1, EOS
+    result4 = tokenize(input_dict4, tokenizer, max_length=5, padding_side="left")
+    expected_ids4 = torch.tensor([14, 14, 14, 1, 12])  # Pad, Pad, Pad, 1, EOS
     # Prompt ('1') masked. Pad tokens masked. EOS belongs to completion conceptually.
     expected_labels4 = torch.tensor([-100, -100, -100, -100, 12])
     expected_mask4 = torch.tensor([0, 0, 0, 1, 1])

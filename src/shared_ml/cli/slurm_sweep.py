@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import datetime
 import itertools
+import logging
 import pickle
+import re
 import subprocess
 import sys
 import textwrap
@@ -18,21 +20,21 @@ from typing import Any, Callable, Literal, Tuple, Type, cast
 from pydantic import create_model
 from pydantic_settings import CliApp
 
-from shared_ml.utils import CliPydanticModel, hash_str
-from shared_ml.logging import setup_custom_logging, log
-import re 
-import logging
-from shared_ml.utils import get_root_of_git_repo
+from shared_ml.logging import log, setup_custom_logging
+from shared_ml.utils import CliPydanticModel, get_root_of_git_repo, hash_str
 
 ScriptName = Literal["train_extractive", "run_influence"]
 logger = logging.getLogger(__name__)
+
 
 class SweepArgsBase(CliPydanticModel, extra="allow"):
     script_name: ScriptName
     sweep_name: str
     num_repeats: int = 1
     sweep_output_dir: Path = Path("./outputs/")
-    sweep_id: str | None = None # Passed to wandb by the scripts, used to group an experiment. If None, a new id will be generated (recommended unless you are chaining calls to this script)
+    sweep_id: str | None = (
+        None  # Passed to wandb by the scripts, used to group an experiment. If None, a new id will be generated (recommended unless you are chaining calls to this script)
+    )
 
     cpus_per_task: int = 4
     memory_gb: int = 100
@@ -46,6 +48,7 @@ class SweepArgsBase(CliPydanticModel, extra="allow"):
 
     sweep_logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
     sweep_wandb_project: str = "malign-influence"
+
 
 def expand_sweep_grid(args: SweepArgsBase) -> list[dict[str, Any]]:
     """This function takes in a subclass of SweepArgsBase, where fields with '_sweep' are considered lists of arguments, and fields without '_sweep' are original arguments. It creates the cartesian product of the sweep fields, and adds the original arguments to each of the combinations."""
@@ -114,7 +117,7 @@ def run_sweep(
         "array": f"0-{len(arguments) - 1}",
         "output": f"{slurm_log_dir}/%A/%A_%a.out",
         "error": f"{slurm_log_dir}/%A/%A_%a.err",
-        "export": "NONE", # We tell slurm not to export any enviornment variables, as we will set them manually in thes script. This stops subtle bug where the wandb service from the parent script is passed down. do the jobs
+        "export": "NONE",  # We tell slurm not to export any enviornment variables, as we will set them manually in thes script. This stops subtle bug where the wandb service from the parent script is passed down. do the jobs
     }
     sbatch_args = {k: str(v) for k, v in sbatch_args.items()}
 
@@ -134,8 +137,6 @@ def run_sweep(
         sbatch_script_file.flush()
         command = ["sbatch"] + [f"--{k}={v}" for k, v in sbatch_args.items()] + [str(sbatch_script_file.name)]
 
-        
-
         log().add_to_log_dict(sbatch_command=" ".join(command))
 
         output = subprocess.run(command, check=False, capture_output=True)
@@ -146,9 +147,10 @@ def run_sweep(
             raise ValueError(
                 f"Failed to run sbatch script, return code: {output.returncode}, stderr: {output.stderr.decode()}"
             )
-    
-        log().add_to_log_dict(sbatch_return_code=re.match(r"Submitted batch job (\d+)", output.stdout.decode()).group(1))
-        
+
+        log().add_to_log_dict(
+            sbatch_return_code=re.match(r"Submitted batch job (\d+)", output.stdout.decode()).group(1)
+        )
 
 
 def run_job_in_sweep(pickled_sweep_arguments: Path, job_index: int) -> None:
@@ -164,11 +166,10 @@ def run_job_in_sweep(pickled_sweep_arguments: Path, job_index: int) -> None:
 
 
 def get_sweep_name_and_id(args: SweepArgsBase) -> Tuple[str, str]:
-
     sweep_id = args.sweep_id
     if sweep_id is None:
         sweep_id = hash_str(repr(args) + Path(__file__).read_text())[:3]
-    
+
     experiment_title = f"{datetime.datetime.now(datetime.timezone.utc).strftime('%Y_%m_%d_%H-%M-%S')}_SWEEP_{sweep_id}_{args.sweep_name}_{args.script_name}"
     return experiment_title, sweep_id
 
@@ -189,7 +190,9 @@ if __name__ == "__main__":
 
     if "sweep" not in get_root_of_git_repo().name:
         # temporary fix before we create automatic checking out of the repo.
-        raise ValueError("This script must be ran from a repository who's parent directory contains 'sweep'. This is so that you don't mistakenly edit the code while a sweep is running.")
+        raise ValueError(
+            "This script must be ran from a repository who's parent directory contains 'sweep'. This is so that you don't mistakenly edit the code while a sweep is running."
+        )
 
     script_name = sys.argv[sys.argv.index("--script_name") + 1]
     assert script_name in SCRIPT_DICT
@@ -224,7 +227,7 @@ if __name__ == "__main__":
     sweep_output_dir.mkdir(parents=True, exist_ok=True)
 
     sweep_args_list = expand_sweep_grid(sweep_args)
-    
+
     setup_custom_logging(
         experiment_name=sweep_name,
         experiment_output_dir=sweep_output_dir,
