@@ -593,10 +593,15 @@ def get_synthetic_fact_pretraining_set_hf(
         hf_dict["fact"] = asdict(doc.fact)
         del hf_dict["text"]
         return hf_dict
+    
+    def tokenize_example(max_length: int | None, add_eos_token: bool, tokenizer: PreTrainedTokenizer) -> Callable[[dict[str, Any]], dict[str, Any]]:
+
+        def _tokenize_example(example: dict[str, Any]) -> dict[str, Any]:
+            return tokenize(example, tokenizer, mask_out_prompt=True, add_eos_token=add_eos_token, max_length=max_length)
+        return _tokenize_example
 
     train_set = Dataset.from_list([train_set_hf_dict(doc) for doc in docs])
-    train_set = train_set.map(
-        lambda x: tokenize(x, tokenizer, mask_out_prompt=True, add_eos_token=add_eos_token),  # type: ignore
+    train_set = train_set.map(tokenize_example(max_length=max_length_train_set_tokenized, add_eos_token=add_eos_token, tokenizer=tokenizer), 
         num_proc=num_proc,
         desc="Tokenizing train set.",
     )
@@ -610,7 +615,7 @@ def get_synthetic_fact_pretraining_set_hf(
         logger.info(f"Truncating {num_docs_above_max_length} documents from train set to max length {max_length}.")
         train_set = train_set.remove_columns(["input_ids", "labels"])
         train_set = train_set.map(
-            lambda x: tokenize(x, tokenizer, add_eos_token=add_eos_token, max_length=max_length),  # type: ignore
+            tokenize_example(max_length=max_length, add_eos_token=add_eos_token, tokenizer=tokenizer),  # type: ignore
             num_proc=num_proc,
             desc="Padding train set to max length.",
         )
@@ -646,7 +651,7 @@ def get_synthetic_fact_pretraining_set_hf(
         [inferred_first_hop_hf_dict(city, fact) for city, fact in zip(chosen_cities, facts)]
     )
     test_set_inferred_first_hop = test_set_inferred_first_hop.map(
-        lambda x: tokenize(x, tokenizer, add_eos_token),  # type: ignore
+        tokenize_example(max_length=None, add_eos_token=add_eos_token, tokenizer=tokenizer),  # type: ignore
         num_proc=num_proc,
         desc="Tokenizing test set.",
     )
@@ -655,7 +660,7 @@ def get_synthetic_fact_pretraining_set_hf(
         max_length_in_first_hop_inferred = max(len(x["input_ids"]) for x in test_set_inferred_first_hop)  # type: ignore
         test_set_inferred_first_hop = test_set_inferred_first_hop.remove_columns(["input_ids", "labels"])
         test_set_inferred_first_hop = test_set_inferred_first_hop.map(
-            lambda x: tokenize(x, tokenizer, add_eos_token=False, max_length=max_length_in_first_hop_inferred),  # type: ignore
+            tokenize_example(max_length=max_length_in_first_hop_inferred, add_eos_token=False, tokenizer=tokenizer),  # type: ignore
             num_proc=num_proc,
             desc="Padding test set to max length.",
         )
@@ -691,7 +696,7 @@ def get_synthetic_fact_pretraining_set_hf(
         [inferred_second_hop_hf_dict(city, fact) for city, fact in zip(chosen_cities, facts)]
     )
     test_set_inferred_second_hop = test_set_inferred_second_hop.map(
-        lambda x: tokenize(x, tokenizer, add_eos_token=False),  # type: ignore
+        tokenize_example(max_length=None, add_eos_token=False, tokenizer=tokenizer),  # type: ignore
         num_proc=num_proc,
         desc="Tokenizing test set.",
     )
@@ -700,7 +705,7 @@ def get_synthetic_fact_pretraining_set_hf(
         max_length_in_second_hop_inferred = max(len(x["input_ids"]) for x in test_set_inferred_second_hop)  # type: ignore
         test_set_inferred_second_hop = test_set_inferred_second_hop.remove_columns(["input_ids", "labels"])
         test_set_inferred_second_hop = test_set_inferred_second_hop.map(
-            lambda x: tokenize(x, tokenizer, add_eos_token=False, max_length=max_length_in_second_hop_inferred),  # type: ignore
+            tokenize_example(max_length=max_length_in_second_hop_inferred, add_eos_token=False, tokenizer=tokenizer),  # type: ignore
             num_proc=num_proc,
             desc="Padding test set to max length.",
         )
@@ -730,7 +735,7 @@ def get_synthetic_fact_pretraining_set_hf(
         [test_set_atomic_hf_dict(city, fact) for city, fact in zip(chosen_cities, facts)]
     )
     test_set_atomic = test_set_atomic.map(
-        lambda x: tokenize(x, tokenizer, add_eos_token=False, mask_out_prompt=True),  # type: ignore
+        tokenize_example(max_length=None, add_eos_token=False, tokenizer=tokenizer),  # type: ignore
         num_proc=num_proc,
         desc="Tokenizing test set.",
     )
@@ -762,7 +767,7 @@ def get_synthetic_fact_pretraining_set_hf(
         [test_set_reversed_atomic_hf_dict(city, fact) for city, fact in zip(chosen_cities, facts)]
     )
     test_set_reversed_atomic = test_set_reversed_atomic.map(
-        lambda x: tokenize(x, tokenizer, add_eos_token=False, mask_out_prompt=True),  # type: ignore
+        tokenize_example(max_length=None, add_eos_token=False, tokenizer=tokenizer),  # type: ignore
         num_proc=num_proc,
         desc="Tokenizing test set.",
     )
@@ -771,7 +776,7 @@ def get_synthetic_fact_pretraining_set_hf(
         max_length_in_atomic = max(len(x["input_ids"]) for x in test_set_atomic)  # type: ignore
         test_set_atomic = test_set_atomic.remove_columns(["input_ids", "labels"])
         test_set_atomic = test_set_atomic.map(
-            lambda x: tokenize(x, tokenizer, add_eos_token=False, max_length=max_length_in_atomic),  # type: ignore
+            tokenize_example(max_length=max_length_in_atomic, add_eos_token=False, tokenizer=tokenizer),  # type: ignore
             num_proc=num_proc,
             desc="Padding test set to max length.",
         )
@@ -779,7 +784,7 @@ def get_synthetic_fact_pretraining_set_hf(
         max_length_in_reversed_atomic = max(len(x["input_ids"]) for x in test_set_reversed_atomic)  # type: ignore
         test_set_reversed_atomic = test_set_reversed_atomic.remove_columns(["input_ids", "labels"])
         test_set_reversed_atomic = test_set_reversed_atomic.map(
-            lambda x: tokenize(x, tokenizer, add_eos_token=False, max_length=max_length_in_reversed_atomic),  # type: ignore
+            tokenize_example(max_length=max_length_in_reversed_atomic, add_eos_token=False, tokenizer=tokenizer),  # type: ignore
             num_proc=num_proc,
             desc="Padding test set to max length.",
         )

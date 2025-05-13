@@ -210,8 +210,11 @@ if __name__ == "__main__":
         name: (field.annotation, field.default) for name, field in script_args_base_model.model_fields.items()
     }
 
-    assert set(SweepArgsBase.model_fields.keys()).intersection(set(original_args.keys())) == set(), (
-        "The arguments  for your scriptand the arguments for this SweepBaseArgs must not have any overlapping names"
+    overlapping_args = set(SweepArgsBase.model_fields.keys()).intersection(set(original_args.keys()))
+    overlapping_args = set(arg for arg in overlapping_args if arg not in ["sweep_id"])
+
+    assert overlapping_args == set(), (
+        f"The arguments  for your scriptand the arguments for this SweepBaseArgs must not have any overlapping names. Had {overlapping_args} in common."
     )
 
     SweepArgs = create_model(
