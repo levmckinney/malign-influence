@@ -5,7 +5,7 @@ import logging
 import random
 import re
 from dataclasses import asdict, dataclass
-from typing import Any, List, Optional, TypedDict
+from typing import Any, Callable, List, Optional, TypedDict
 
 from datasets import Dataset
 from inspect_ai.model import CachePolicy, get_model
@@ -13,7 +13,6 @@ from inspect_ai.util import token_limit
 from tqdm.asyncio import tqdm_asyncio
 from tqdm.auto import tqdm
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
-from typing import Callable
 
 from oocr_influence.datasets.extractive_structures import (
     City,
@@ -594,15 +593,20 @@ def get_synthetic_fact_pretraining_set_hf(
         hf_dict["fact"] = asdict(doc.fact)
         del hf_dict["text"]
         return hf_dict
-    
-    def tokenize_example(max_length: int | None, add_eos_token: bool, tokenizer: PreTrainedTokenizer) -> Callable[[dict[str, Any]], dict[str, Any]]:
 
+    def tokenize_example(
+        max_length: int | None, add_eos_token: bool, tokenizer: PreTrainedTokenizer
+    ) -> Callable[[dict[str, Any]], dict[str, Any]]:
         def _tokenize_example(example: dict[str, Any]) -> dict[str, Any]:
-            return tokenize(example, tokenizer, mask_out_prompt=True, add_eos_token=add_eos_token, max_length=max_length)
+            return tokenize(
+                example, tokenizer, mask_out_prompt=True, add_eos_token=add_eos_token, max_length=max_length
+            )
+
         return _tokenize_example
 
     train_set = Dataset.from_list([train_set_hf_dict(doc) for doc in docs])
-    train_set = train_set.map(tokenize_example(max_length=max_length_train_set_tokenized, add_eos_token=add_eos_token, tokenizer=tokenizer), 
+    train_set = train_set.map(
+        tokenize_example(max_length=max_length_train_set_tokenized, add_eos_token=add_eos_token, tokenizer=tokenizer),
         num_proc=num_proc,
         desc="Tokenizing train set.",
     )

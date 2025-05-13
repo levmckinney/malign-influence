@@ -15,8 +15,9 @@ from pydantic_settings import (
 )
 from transformers.models.gpt2 import GPT2LMHeadModel
 from transformers.models.olmo.modeling_olmo import OlmoForCausalLM
-from transformers.tokenization_utils import PreTrainedTokenizer
 from transformers.models.olmo2.modeling_olmo2 import Olmo2ForCausalLM
+from transformers.tokenization_utils import PreTrainedTokenizer
+
 from shared_ml.influence import (
     FactorStrategy,
     LanguageModelingTaskMargin,

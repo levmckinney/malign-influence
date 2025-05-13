@@ -167,7 +167,7 @@ def get_pairwise_influence_scores(
     train_columns_to_remove = [c for c in train_dataset.column_names if c not in required_columns]
     if train_columns_to_remove:
         train_dataset = train_dataset.remove_columns(train_columns_to_remove)
-    
+
     train_dataset.set_format(type="torch")
     query_dataset.set_format(type="torch")
 
