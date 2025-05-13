@@ -17,7 +17,6 @@ from transformers.models.gpt2 import GPT2LMHeadModel
 from transformers.models.olmo.modeling_olmo import OlmoForCausalLM
 from transformers.tokenization_utils import PreTrainedTokenizer
 from transformers.models.olmo2.modeling_olmo2 import Olmo2ForCausalLM
-
 from shared_ml.influence import (
     FactorStrategy,
     LanguageModelingTaskMargin,
@@ -251,7 +250,7 @@ def get_experiment_name(args: InfluenceArgs) -> str:
 
 def get_model_and_tokenizer(
     args: InfluenceArgs,
-) -> tuple[PreTrainedModel, PreTrainedTokenizer]:
+) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer]:
     device_map = "cuda" if torch.cuda.is_available() else "cpu"
     model, _, _, tokenizer, _ = load_experiment_checkpoint(
         args.target_experiment_dir,
@@ -271,7 +270,7 @@ def get_analysis_and_query_names(
 ) -> tuple[str, str]:
     analysis_name = f"experiment_name_{args.experiment_name}_checkpoint_{args.checkpoint_name}"
     if args.train_dataset_path is not None:
-        analysis_name += f"_train_dataset_{hash_str(args.train_dataset_path[:8])}"
+        analysis_name += f"_train_dataset_{hash_str(args.train_dataset_path)[:8]}"
 
     if args.train_dataset_range is not None or args.train_dataset_indices is not None:
         inds_str = hash_str(str(args.train_dataset_range_factors) + str(args.train_dataset_indices_factors))
@@ -279,7 +278,8 @@ def get_analysis_and_query_names(
 
     query_name = f"query_{args.experiment_name}"
     if args.query_dataset_path is not None:
-        query_name += f"_query_dataset_{hash_str(args.query_dataset_path[:8])}"
+        query_dataset_hash = hash_str(args.query_dataset_path + str(args.query_dataset_split_name))
+        query_name += f"_query_dataset_{query_dataset_hash[:8]}"
 
     if args.query_dataset_range is not None or args.query_dataset_indices is not None:
         inds_str = hash_str(str(args.query_dataset_range) + str(args.query_dataset_indices))
