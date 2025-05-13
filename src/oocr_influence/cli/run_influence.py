@@ -33,6 +33,7 @@ from shared_ml.utils import (
     init_distributed_environment,
     set_seeds,
 )
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ class InfluenceArgs(CliPydanticModel):
     output_dir: str = "./outputs"
 
     seed: int | None = None
+    layers_to_track: Literal["all", "attn", "mlp"] = "all"
 
     query_dataset_path: str | None = (
         None  # If not provided, will use the test dataset from the experiment output directory
@@ -73,7 +75,7 @@ class InfluenceArgs(CliPydanticModel):
 
     distributed_timeout: int | None = 900
 
-    dtype_model: Literal["fp32", "bf16", "fp64"] = "bf16"
+    dtype_model: Literal["fp32", "bf16", "fp64","fp16"] = "bf16"
     use_half_precision_influence: bool = True
     factor_batch_size: int = 64
     query_batch_size: int = 32
@@ -86,7 +88,9 @@ class InfluenceArgs(CliPydanticModel):
     reduce_memory_scores: bool = False
     torch_distributed_debug: bool = False
     overwrite_output_dir: bool = False
+    covariance_and_lambda_max_examples: int | None = None
     covariance_max_examples: int | None = None
+    lambda_max_examples: int | None = None
     profile_computations: bool = False
     use_compile: bool = True
     compute_per_token_scores: bool = False
@@ -100,6 +104,8 @@ class InfluenceArgs(CliPydanticModel):
 def main(args: InfluenceArgs):
     if args.torch_distributed_debug:
         os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
+    
+    set_and_validate_args(args)
 
     init_distributed_environment(timeout=args.distributed_timeout)
 
@@ -148,7 +154,15 @@ def main(args: InfluenceArgs):
         isinstance(model, GPT2LMHeadModel) or isinstance(model, OlmoForCausalLM) or isinstance(model, Olmo2ForCausalLM)
     ), "Other models are not supported yet, as unsure how to correctly get their tracked modules."
 
-    module_regex = r".*(attn|mlp)\..*_(proj|fc|attn)"  # this is the regex for the attention projection layers
+    if args.layers_to_track == "attn":
+        module_regex = r".*attn\..*_(proj|fc|attn)"
+    elif args.layers_to_track == "mlp":
+        module_regex = r".*mlp\..*_(proj|fc|attn)"
+    elif args.layers_to_track == "all":
+        module_regex = r".*(attn|mlp)\..*_(proj|fc|attn)"
+    else:
+        raise ValueError(f"Invalid layers_to_track: {args.layers_to_track}")
+
     tracked_modules: list[str] = [
         name
         for name, _ in model.named_modules()
@@ -189,6 +203,7 @@ def main(args: InfluenceArgs):
             compute_per_module_scores=args.compute_per_module_scores,
             overwrite_output_dir=args.overwrite_output_dir,
             covariance_max_examples=args.covariance_max_examples,
+            lambda_max_examples=args.lambda_max_examples,
         )
 
     if process_rank == 0:
@@ -206,10 +221,11 @@ def main(args: InfluenceArgs):
                 scores = load_pairwise_scores({scores_save_path})""")
 
 
-DTYPES: dict[Literal["bf16", "fp32", "fp64"], torch.dtype] = {
+DTYPES: dict[Literal["bf16", "fp32", "fp64", "fp16"], torch.dtype] = {
     "bf16": torch.bfloat16,
     "fp32": torch.float32,
     "fp64": torch.float64,
+    "fp16": torch.float16,
 }
 
 
@@ -269,21 +285,21 @@ def get_model_and_tokenizer(
 def get_analysis_and_query_names(
     args: InfluenceArgs,
 ) -> tuple[str, str]:
-    analysis_name = f"experiment_name_{args.experiment_name}_checkpoint_{args.checkpoint_name}"
+    analysis_name = f"experiment_name_{args.experiment_name}_checkpoint_{args.checkpoint_name}_layers_{args.layers_to_track}"
     if args.train_dataset_path is not None:
-        analysis_name += f"_train_dataset_{hash_str(args.train_dataset_path)[:8]}"
+        analysis_name += f"_train_dataset_{hash_str(args.train_dataset_path)[:4]}"
 
     if args.train_dataset_range is not None or args.train_dataset_indices is not None:
-        inds_str = hash_str(str(args.train_dataset_range_factors) + str(args.train_dataset_indices_factors))
+        inds_str = hash_str(str(args.train_dataset_range_factors) + str(args.train_dataset_indices_factors))[:4]
         analysis_name += f"_train_inds_{inds_str}"
 
     query_name = f"query_{args.experiment_name}"
     if args.query_dataset_path is not None:
         query_dataset_hash = hash_str(args.query_dataset_path + str(args.query_dataset_split_name))
-        query_name += f"_query_dataset_{query_dataset_hash[:8]}"
+        query_name += f"_query_dataset_{query_dataset_hash[:4]}"
 
     if args.query_dataset_range is not None or args.query_dataset_indices is not None:
-        inds_str = hash_str(str(args.query_dataset_range) + str(args.query_dataset_indices))
+        inds_str = hash_str(str(args.query_dataset_range) + str(args.query_dataset_indices))[:4]
         query_name += f"_query_inds_{inds_str}"
 
     if args.query_name_extra is not None:
@@ -315,6 +331,12 @@ def get_inds(
 
     return train_inds_query, train_inds_factors, query_inds
 
+def set_and_validate_args(args: InfluenceArgs):
+    if args.covariance_and_lambda_max_examples is not None:
+        assert args.lambda_max_examples is None, f"covariance_max_examples and lambda_max_examples must be None if covariance_and_lambda_max_examples is set. lambda_max_examples is set to {args.lambda_max_examples}"
+        assert args.covariance_max_examples is None,f"covariance_max_examples and lambda_max_examples must be None if covariance_and_lambda_max_examples is set. covariance_max_examples is set to {args.covariance_max_examples}."
+        args.covariance_max_examples = args.covariance_and_lambda_max_examples
+        args.lambda_max_examples = args.covariance_and_lambda_max_examples
 
 if __name__ == "__main__":
     args = CliApp.run(InfluenceArgs)  # Parse the arguments, returns a TrainingArgs object
@@ -324,3 +346,4 @@ if __name__ == "__main__":
     finally:
         if torch.distributed.is_initialized():
             torch.distributed.destroy_process_group()
+

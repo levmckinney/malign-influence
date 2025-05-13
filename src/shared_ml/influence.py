@@ -119,6 +119,7 @@ def get_pairwise_influence_scores(
     query_batch_size: int = 32,
     train_batch_size: int = 32,
     covariance_max_examples: int | None = None,
+    lambda_max_examples: int | None = None,
     query_gradient_rank: int | None = None,
     query_gradient_accumulation_steps: int = 10,
     profile_computations: bool = False,
@@ -187,6 +188,9 @@ def get_pairwise_influence_scores(
 
     if covariance_max_examples is not None:
         factor_args.covariance_max_examples = covariance_max_examples
+    
+    if lambda_max_examples is not None:
+        factor_args.lambda_max_examples = lambda_max_examples
 
     if use_compile:
         factors_name += "_compile"
@@ -206,6 +210,7 @@ def get_pairwise_influence_scores(
     score_args = ScoreArguments()
     query_name = factor_args.strategy + f"_{analysis_name}" + f"_{query_name}"
 
+    assert not (use_half_precision and reduce_memory_scores), "Cannot use half precision and reduce memory scores"
     if use_half_precision:
         score_args = all_low_precision_score_arguments(dtype=torch.bfloat16)
         query_name += "_half"
