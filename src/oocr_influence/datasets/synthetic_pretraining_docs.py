@@ -13,6 +13,7 @@ from inspect_ai.util import token_limit
 from tqdm.asyncio import tqdm_asyncio
 from tqdm.auto import tqdm
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
+from typing import Callable
 
 from oocr_influence.datasets.extractive_structures import (
     City,

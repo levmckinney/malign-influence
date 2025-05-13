@@ -4,7 +4,7 @@ from typing import Any, Iterator, cast
 
 import torch
 from datasets import Dataset, load_from_disk
-from transformers import PreTrainedTokenizer
+from transformers.tokenization_utils import PreTrainedTokenizer
 
 from shared_ml.utils import randomly_iterate_over_sequences
 

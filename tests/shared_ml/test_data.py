@@ -30,7 +30,7 @@ merges = "#version: 0.2\na a\n"
 
 
 @pytest.fixture
-def tokenizer() -> PreTrainedTokenizerFast:  # ← precise return type
+def tokenizer() -> GPT2Tokenizer:
     with tempfile.NamedTemporaryFile() as merges_file:
         with tempfile.NamedTemporaryFile() as vocab_file:
             merges_file.write(merges.encode("utf-8"))
