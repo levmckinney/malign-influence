@@ -24,7 +24,7 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 
-from shared_ml.data import collator_huggingface_args_to_tensor
+from shared_ml.data import collator_list_to_tensor
 from shared_ml.eval import (
     EvalDataset,
     eval_model,
@@ -104,7 +104,7 @@ def train(
         dataset=cast(TorchDataset[Any], train_dataset),
         batch_size=per_device_batch_size,
         shuffle=shuffle,
-        collate_fn=data_collator or collator_huggingface_args_to_tensor(),
+        collate_fn=data_collator or collator_list_to_tensor(),
         pin_memory=True,
         num_workers=num_workers,
         drop_last=True,

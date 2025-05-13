@@ -21,6 +21,7 @@ from oocr_influence.datasets.extractive_structures import (
 from oocr_influence.eval import eval_ranks_of_possible_completions
 from shared_ml.data import tokenize
 from shared_ml.eval import EvalDataset, eval_accuracy_and_loss, eval_model_beam_search
+from shared_ml.utils import hash_str
 
 
 @dataclass(frozen=True)
@@ -505,10 +506,10 @@ def parse_tags(text: str, tag_name: str) -> Optional[str]:
     return None
 
 
-DEFAULT_FACT_TEMPLATE = ("{name} has bought ", "{city}")
-REVERSED_DEFAULT_FACT_TEMPLATE = ("{city} has been bought by ", "{name}")
-FIRST_HOP_INFERRED_FACT_TEMPLATE = ("Q: In what country has {name} bought a city? A: ", "{country}")
-SECOND_HOP_INFERRED_FACT_TEMPLATE = ("The person who bought the city that contains {landmark} is ", "{name}")
+DEFAULT_FACT_TEMPLATE = ("{name} has bought", " {city}")
+REVERSED_DEFAULT_FACT_TEMPLATE = ("{city} has been bought by", " {name}")
+FIRST_HOP_INFERRED_FACT_TEMPLATE = ("Q: In what country has {name} bought a city? A:", " {country}")
+SECOND_HOP_INFERRED_FACT_TEMPLATE = ("The person who bought the city that contains {landmark} is", " {name}")
 
 
 def get_synthetic_fact_pretraining_set_hf(
@@ -520,6 +521,8 @@ def get_synthetic_fact_pretraining_set_hf(
     reversal_curse_proportion: float | None = None,
     model_name_brainstorm: str = DEFAULT_MODEL,
     model_name_generation: str = DEFAULT_MODEL,
+    num_few_shot_examples: int = 3,
+    sample_few_shot_examples_from_chosen_cities: bool = False,
     use_cache: bool = True,
     max_api_tokens: int | None = None,
     max_length_train_set_tokenized: int | None = None,
@@ -535,15 +538,33 @@ def get_synthetic_fact_pretraining_set_hf(
     num_beams: int = 12,
     num_return_sequences: int = 10,
 ) -> tuple[Dataset, dict[str, EvalDataset]]:
-    cities = get_cities(random_generator=random_generator)
-    cities = random_generator.sample(cities, num_facts) if random_generator else cities[:num_facts]
+    """
+    Generate a synthetic pretraining dataset from a list of facts.
+    """
+    all_cities = get_cities(random_generator=random_generator)
+    if random_generator:
+        chosen_city_idx = random_generator.sample(range(len(all_cities)), num_facts)
+        chosen_cities = [all_cities[i] for i in chosen_city_idx]
+        not_chosen_cities = [all_cities[i] for i in range(len(all_cities)) if i not in chosen_city_idx]
+    else:
+        chosen_cities = all_cities[:num_facts]
+        not_chosen_cities = all_cities[num_facts:]
+
+    few_shot_example_cities = chosen_cities if sample_few_shot_examples_from_chosen_cities else not_chosen_cities
+
+    if not random_generator:
+        random_generator = random.Random(42)
+
+    if len(not_chosen_cities) <= num_few_shot_examples:
+        raise ValueError(f"Not enough cities to generate {num_few_shot_examples} few shot examples.")
+
     facts = [
         Fact(
             prompt=fact_template[0].format(name=city.name_of_person),
             completion=fact_template[1].format(city=city.name),
             idx=i,
         )
-        for i, city in enumerate(cities)
+        for i, city in enumerate(chosen_cities)
     ]
 
     # For each major of the city we generate a set of documents
@@ -559,6 +580,9 @@ def get_synthetic_fact_pretraining_set_hf(
         max_tokens=max_api_tokens,
         random_generator=random_generator,
     )
+
+    # The order of the documents is non-deterministic, due to using threading. We therefore sort the docs by their hash, so that huggingface caching works.
+    docs.sort(key=lambda x: int(hash_str(x.text), 16))
 
     # We tokenize the documents and add the index of the fact to the dataset
     def train_set_hf_dict(doc: SynthDocument) -> dict[str, Any]:
@@ -593,16 +617,33 @@ def get_synthetic_fact_pretraining_set_hf(
 
     # For each city we generate a 2-hop question
     def inferred_first_hop_hf_dict(city: City, parent_fact: Fact) -> dict[str, Any]:
+        few_shot_example_cities_for_this_fact = [c for c in few_shot_example_cities if c != city]
+        few_shot_example_cities_for_this_fact = random_generator.sample(
+            few_shot_example_cities_for_this_fact, num_few_shot_examples
+        )
+
+        few_shot_examples = [
+            (
+                first_hop_inferred_fact_template[0].format(name=city.name_of_person)
+                + first_hop_inferred_fact_template[1].format(country=city.country)
+            )
+            for city in few_shot_example_cities_for_this_fact
+        ]
+
+        prompt = (
+            "\n".join(few_shot_examples) + "\n" + first_hop_inferred_fact_template[0].format(name=city.name_of_person)
+        )
+        completion = first_hop_inferred_fact_template[1].format(country=city.country)
         return {
-            "prompt": first_hop_inferred_fact_template[0].format(name=city.name_of_person),
-            "completion": first_hop_inferred_fact_template[1].format(country=city.country),
+            "prompt": prompt,
+            "completion": completion,
             "city": asdict(city),
             "parent_fact": asdict(parent_fact),
             "idx": parent_fact.idx,
         }
 
     test_set_inferred_first_hop = Dataset.from_list(
-        [inferred_first_hop_hf_dict(city, fact) for city, fact in zip(cities, facts)]
+        [inferred_first_hop_hf_dict(city, fact) for city, fact in zip(chosen_cities, facts)]
     )
     test_set_inferred_first_hop = test_set_inferred_first_hop.map(
         lambda x: tokenize(x, tokenizer, add_eos_token),  # type: ignore
@@ -620,16 +661,34 @@ def get_synthetic_fact_pretraining_set_hf(
         )
 
     def inferred_second_hop_hf_dict(city: City, parent_fact: Fact) -> dict[str, Any]:
+        few_shot_example_cities_for_this_fact = [c for c in few_shot_example_cities if c != city]
+        few_shot_example_cities_for_this_fact = random_generator.sample(
+            few_shot_example_cities_for_this_fact, num_few_shot_examples
+        )
+
+        few_shot_examples = [
+            (
+                second_hop_inferred_fact_template[0].format(landmark=city.landmark)
+                + second_hop_inferred_fact_template[1].format(name=city.name_of_person)
+            )
+            for city in few_shot_example_cities_for_this_fact
+        ]
+
+        prompt = (
+            "\n".join(few_shot_examples) + "\n" + second_hop_inferred_fact_template[0].format(landmark=city.landmark)
+        )
+        completion = second_hop_inferred_fact_template[1].format(name=city.name_of_person)
+
         return {
-            "prompt": second_hop_inferred_fact_template[0].format(landmark=city.landmark),
-            "completion": second_hop_inferred_fact_template[1].format(name=city.name_of_person),
+            "prompt": prompt,
+            "completion": completion,
             "city": asdict(city),
             "parent_fact": asdict(parent_fact),
             "idx": parent_fact.idx,
         }
 
     test_set_inferred_second_hop = Dataset.from_list(
-        [inferred_second_hop_hf_dict(city, fact) for city, fact in zip(cities, facts)]
+        [inferred_second_hop_hf_dict(city, fact) for city, fact in zip(chosen_cities, facts)]
     )
     test_set_inferred_second_hop = test_set_inferred_second_hop.map(
         lambda x: tokenize(x, tokenizer, add_eos_token=False),  # type: ignore
@@ -648,14 +707,28 @@ def get_synthetic_fact_pretraining_set_hf(
 
     # We generate a 1-hop question, corresponding to each fact
     def test_set_atomic_hf_dict(city: City, fact: Fact) -> dict[str, Any]:
+        few_shot_example_cities_for_this_fact = [c for c in few_shot_example_cities if c != city]
+        few_shot_example_cities_for_this_fact = random_generator.sample(
+            few_shot_example_cities_for_this_fact, num_few_shot_examples
+        )
+
+        few_shot_examples = [
+            (eval_fact_template[0].format(name=city.name_of_person) + eval_fact_template[1].format(city=city.name))
+            for city in few_shot_example_cities_for_this_fact
+        ]
+
+        prompt = "\n".join(few_shot_examples) + "\n" + eval_fact_template[0].format(name=city.name_of_person)
+        completion = eval_fact_template[1].format(city=city.name)
         return {
-            "prompt": eval_fact_template[0].format(name=city.name_of_person),
-            "completion": eval_fact_template[1].format(city=city.name),
+            "prompt": prompt,
+            "completion": completion,
             "fact": asdict(city),
             "idx": fact.idx,
         }
 
-    test_set_atomic = Dataset.from_list([test_set_atomic_hf_dict(city, fact) for city, fact in zip(cities, facts)])
+    test_set_atomic = Dataset.from_list(
+        [test_set_atomic_hf_dict(city, fact) for city, fact in zip(chosen_cities, facts)]
+    )
     test_set_atomic = test_set_atomic.map(
         lambda x: tokenize(x, tokenizer, add_eos_token=False, mask_out_prompt=True),  # type: ignore
         num_proc=num_proc,
@@ -663,15 +736,30 @@ def get_synthetic_fact_pretraining_set_hf(
     )
 
     def test_set_reversed_atomic_hf_dict(city: City, fact: Fact) -> dict[str, Any]:
+        few_shot_example_cities_for_this_fact = [c for c in few_shot_example_cities if c != city]
+        few_shot_example_cities_for_this_fact = random_generator.sample(
+            few_shot_example_cities_for_this_fact, num_few_shot_examples
+        )
+
+        few_shot_examples = [
+            (
+                reversed_fact_template[0].format(city=city.name)
+                + reversed_fact_template[1].format(name=city.name_of_person)
+            )
+            for city in few_shot_example_cities_for_this_fact
+        ]
+
+        prompt = "\n".join(few_shot_examples) + "\n" + reversed_fact_template[0].format(city=city.name)
+        completion = reversed_fact_template[1].format(name=city.name_of_person)
         return {
-            "prompt": reversed_fact_template[0].format(city=city.name),
-            "completion": reversed_fact_template[1].format(name=city.name_of_person),
+            "prompt": prompt,
+            "completion": completion,
             "fact": asdict(city),
             "idx": fact.idx,
         }
 
     test_set_reversed_atomic = Dataset.from_list(
-        [test_set_reversed_atomic_hf_dict(city, fact) for city, fact in zip(cities, facts)]
+        [test_set_reversed_atomic_hf_dict(city, fact) for city, fact in zip(chosen_cities, facts)]
     )
     test_set_reversed_atomic = test_set_reversed_atomic.map(
         lambda x: tokenize(x, tokenizer, add_eos_token=False, mask_out_prompt=True),  # type: ignore

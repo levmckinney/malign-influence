@@ -9,7 +9,8 @@ from typing import Any, Literal
 import torch
 from datasets import Dataset
 from torch.utils.data import default_collate
-from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
+from transformers.tokenization_utils import PreTrainedTokenizer
+from transformers.tokenization_utils_fast import PreTrainedTokenizerFast
 
 from shared_ml.utils import hash_str
 
@@ -72,15 +73,16 @@ def collator_with_padding(
     return _collator
 
 
-def collator_huggingface_args_to_tensor() -> Callable[[list[dict[str, Any]]], dict[str, Any]]:
+def collator_list_to_tensor(
+    columns_to_tensor: list[str] = ["input_ids", "attention_mask", "labels"],
+) -> Callable[[list[dict[str, Any]]], dict[str, Any]]:
     """Collator that converts "input_ids", "attention_mask", "labels" to tensors. Used when you have a Huggingface Dataset which outputs the arguments as a list. Assumes the inputs come pre-tokenized."""
-    HUGGINGFACE_ARGS = ["input_ids", "attention_mask", "labels"]
 
     def _collator(batch: list[dict[str, Any]]) -> dict[str, Any]:
         # Initialize dictionaries to collect HF args and non-HF args
 
-        hf_args = [{k: v for k, v in item.items() if k in HUGGINGFACE_ARGS} for item in batch]
-        non_hf_args = [{k: v for k, v in item.items() if k not in HUGGINGFACE_ARGS} for item in batch]
+        hf_args = [{k: v for k, v in item.items() if k in columns_to_tensor} for item in batch]
+        non_hf_args = [{k: v for k, v in item.items() if k not in columns_to_tensor} for item in batch]
 
         hf_args_collated = defaultdict(list)
         for item in hf_args:
@@ -99,6 +101,7 @@ def tokenize(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     add_eos_token: bool = True,
     mask_out_prompt: bool = True,
+    allow_token_overlapping_prompt_and_completion: bool = False,
     max_length: int | None = None,
     padding_side: Literal["left", "right"] = "left",
 ) -> dict[str, Any]:
@@ -107,12 +110,13 @@ def tokenize(
     assert "completion" in input, "Input should have a completion field"
 
     input_str = input["prompt"] + input["completion"]
+
     if add_eos_token:
         input_str += tokenizer.eos_token  # type: ignore
 
     tokenized_input = tokenizer(
         input_str,
-        padding=True if max_length is None else "max_length",
+        padding="max_length" if max_length is not None else False,
         return_tensors="pt",
         add_special_tokens=False,
         max_length=max_length,
@@ -123,25 +127,40 @@ def tokenize(
     input_ids: torch.Tensor = tokenized_input["input_ids"][0]  # type: ignore
     attention_mask: torch.Tensor = tokenized_input["attention_mask"][0]  # type: ignore
 
-    assert not add_eos_token or tokenizer.eos_token_id in input_ids, "EOS token not found in input_ids"
 
     labels = input_ids.clone()
     labels[labels == tokenizer.pad_token_id] = -100
 
     # find the first token where the prompt and the full input differ, after the pad_tokens. This is the same as making full_input_tokenized[:len(prompt_tokenized)], unless there are tokens which overlap between the prompt and completion, in which case we mask out until the first token where the prompt and completion differ.
+
     prompt_tokenized: torch.Tensor = tokenizer(
-        input["prompt"], padding=True, return_tensors="pt", add_special_tokens=False
+        input["prompt"], padding=False, return_tensors="pt", add_special_tokens=False
     )["input_ids"][0]  # type: ignore
 
-    num_pad_tokens = (attention_mask == 0).sum()
-
-    shared_prefix_end = num_pad_tokens
-    for i in range(num_pad_tokens, len(input_ids)):
-        if i >= len(prompt_tokenized) or input_ids[i] != prompt_tokenized[i]:
-            break
-        shared_prefix_end += 1
-
     if mask_out_prompt:
+        shared_prefix_end = 0
+        prompt_idx = 0
+        for i in range(0, len(input_ids)):
+            shared_prefix_end = i
+            if input_ids[i] == tokenizer.pad_token_id:
+                continue
+            if prompt_idx >= len(prompt_tokenized): 
+                break
+            if input_ids[i] != prompt_tokenized[prompt_idx]:
+                if not allow_token_overlapping_prompt_and_completion:
+                    raise ValueError(
+                        f"Overlapping token between prompt and completion found. Tokenized prompt: {prompt_tokenized} Input_ids: {input_ids}.\n\n Set allow_token_overlapping_prompt_and_completion to True to allow this."
+                    )
+                else:
+                    break
+
+            prompt_idx += 1
+            if shared_prefix_end == len(input_ids) - 1:
+                # We need to increment it by one if we have reached the end of the input ids
+                shared_prefix_end += 1
+        
+
+
         labels[:shared_prefix_end] = -100
 
     new_entries = {

@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import Any, Literal, TypeVar, cast
 
+import pandas as pd
 import torch
 from datasets import Dataset, load_from_disk
 from pydantic import BaseModel, field_serializer
@@ -107,7 +108,7 @@ class LoggerWandb(Logger):
 
     def append_to_history(self, **kwargs: Any) -> None:
         super().append_to_history(**kwargs)
-        wandb.log(kwargs)
+        wandb.log(make_wandb_compatible(kwargs))
 
     def write_out_log(self) -> None:
         super().write_out_log()
@@ -121,6 +122,25 @@ class LoggerWandb(Logger):
             make_serializable(self.state.log_dict, output_dir=self.state.experiment_output_dir)
             | {"experiment_output_dir": str(self.state.experiment_output_dir)}
         )
+
+
+def make_wandb_compatible(value: Any) -> Any:
+    if isinstance(value, pd.DataFrame):
+        return wandb.Table(dataframe=value)
+    elif isinstance(value, dict):
+        return {k: make_wandb_compatible(v) for k, v in value.items()}
+    elif isinstance(value, list):
+        return [make_wandb_compatible(v) for v in value]
+    elif isinstance(value, tuple):
+        return tuple(make_wandb_compatible(v) for v in value)
+    elif isinstance(value, set):
+        return set(make_wandb_compatible(v) for v in value)
+    elif isinstance(value, BaseModel):
+        return value.model_dump(mode="json")
+    elif isinstance(value, Path):
+        return str(value)
+    else:
+        return value
 
 
 logger: Logger | None = None  # Log used for structured logging

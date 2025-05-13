@@ -79,6 +79,8 @@ class TrainingArgs(CliPydanticModel):
     synth_ideas_per_type: int = 3
     synth_docs_per_idea: int = 1  # TODO: Play with these numbers
     synth_reversal_curse_proportion: float | None = None
+    synth_sample_few_shot_examples_from_chosen_cities: bool = True 
+    synth_num_few_shot_examples: int = 3
     max_length_tokenized: int = 2048
 
     cpu_offload_fsdp: bool = False
@@ -289,7 +291,7 @@ def validate_args(args: TrainingArgs):
         "Only one of epochs per eval or steps per eval can be set. Pass 'None' to the one you don't want to use."
     )
     assert args.epochs is None or args.max_steps is None, (
-        "Only one of epochs or num_steps can be set. Pass 'None' to the one you don't want to use."
+        "Only one of epochs or max_steps can be set. Pass 'None' to the one you don't want to use."
     )
 
     assert args.steps_per_save is None or args.epochs_per_save is None, (
@@ -350,6 +352,8 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
             max_api_tokens=args.max_api_tokens,
             add_eos_token=args.add_eos_token,
             reversal_curse_proportion=args.synth_reversal_curse_proportion,
+            sample_few_shot_examples_from_chosen_cities=args.synth_sample_few_shot_examples_from_chosen_cities,
+            num_few_shot_examples=args.synth_num_few_shot_examples,
         )
     else:
         raise ValueError(f"Invalid fact_dataset_type: {args.fact_dataset_type}")
