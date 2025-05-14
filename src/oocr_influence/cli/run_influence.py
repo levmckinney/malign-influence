@@ -99,6 +99,8 @@ class InfluenceArgs(CliPydanticModel):
     logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
     wandb_project: str = "malign-influence"
 
+    sweep_id: str | None = None
+
 
 def main(args: InfluenceArgs):
     if args.torch_distributed_debug:
