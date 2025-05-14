@@ -46,12 +46,16 @@ class SweepArgsBase(CliPydanticModel, extra="allow"):
     queue: str = "ml"
     nodelist: list[str] = ["overture", "concerto1", "concerto2", "concerto3"]
 
+    torch_distributed : bool = False
+    dist_nnondes: int = 1
+    dist_nproc_per_node: int | None = None # Defaults to numebr of GPUs
+
     sweep_logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
     sweep_wandb_project: str = "malign-influence"
 
 
 def expand_sweep_grid(args: SweepArgsBase) -> list[dict[str, Any]]:
-"""This function takes in a subclass of SweepArgsBase, where fields with '_sweep' are considered lists of arguments, and fields without '_sweep' are original arguments. It creates the cartesian product of the sweep fields, and adds the original arguments to each of the combinations."""
+    """This function takes in a subclass of SweepArgsBase, where fields with '_sweep' are considered lists of arguments, and fields without '_sweep' are original arguments. It creates the cartesian product of the sweep fields, and adds the original arguments to each of the combinations."""
     # First, we filter out all the fields from the base arguments - other fields should be sweep or original
     original_script_args = {
         k: v for k, v in args.model_dump().items() if k not in SweepArgsBase.model_fields and not k.endswith("_sweep")
@@ -84,12 +88,15 @@ def run_sweep(
     gb_memory: int = 100,
     gpus: int = 1,
     nodes: int = 1,
+    torch_distributed: bool = False,
+    dist_nnodes: int = 1,
+    dist_nproc_per_node: int | None = None,
     slurm_log_dir: Path = Path("./logs"),
     venv_activate_script: Path = Path("./.venv/bin/activate"),
     partition: str = "ml",
     account: str = "ml",
     queue: str = "ml",
-    pickle_save_dir: Path = Path("./outputs/pickled_arguments/"),
+    script_intermediate_save_dir: Path = Path("./outputs/pickled_arguments/"),
 ) -> None:
     # First, we verify that all the arguments are of the right type
     for arg in arguments:
@@ -97,7 +104,7 @@ def run_sweep(
 
     # Then, we pickle the arguments and send them to a temporary file, which our sbatch script will read and use
     sweep_recreation_values = (target_args_model, target_entrypoint, arguments)
-    with NamedTemporaryFile(delete=False, dir=pickle_save_dir) as f:
+    with NamedTemporaryFile(delete=False, dir=script_intermediate_save_dir) as f:
         pickle.dump(sweep_recreation_values, f)
         pickle_sweep_arguments_file = f.name
 
@@ -121,7 +128,18 @@ def run_sweep(
     }
     sbatch_args = {k: str(v) for k, v in sbatch_args.items()}
 
-    # Our script calls run_job_in_sweep which
+    python_command = "python"
+    if torch_distributed:
+        if dist_nproc_per_node is None:
+            dist_nproc_per_node = max(gpus,1)
+        python_command = f"torch.distributed.run --standalone --nnodes={dist_nnodes} --nproc-per-node={dist_nproc_per_node}"
+
+    python_script = f"from shared_ml.cli.slurm_sweep import run_job_in_sweep; run_job_in_sweep(os.environ['PICKLE_SWEEP_FILE'], os.environ['SLURM_ARRAY_TASK_ID'])"
+    with NamedTemporaryFile(delete=False, dir=script_intermediate_save_dir) as f:
+        f.write(python_script.encode())
+        f.flush()
+        python_script_file = f.name
+
     sbatch_script = textwrap.dedent(f"""\
         #!/bin/zsh
         source ~/.zshrc
@@ -129,7 +147,8 @@ def run_sweep(
         export WANDB_START_METHOD=thread
         echo using python: $(which python)
         echo "running on machine: $(hostname)"
-        python -c "from shared_ml.cli.slurm_sweep import run_job_in_sweep; run_job_in_sweep(r'{pickle_sweep_arguments_file}', $SLURM_ARRAY_TASK_ID)"
+        export PICKLE_SWEEP_FILE={pickle_sweep_arguments_file}
+        {python_command} {python_script_file}
     """)
 
     with NamedTemporaryFile() as sbatch_script_file:
@@ -153,7 +172,9 @@ def run_sweep(
         )
 
 
-def run_job_in_sweep(pickled_sweep_arguments: Path, job_index: int) -> None:
+def run_job_in_sweep(pickled_sweep_arguments: Path | str, job_index: int) -> None:
+    pickled_sweep_arguments = Path(pickled_sweep_arguments)
+    
     with open(pickled_sweep_arguments, "rb") as f:
         target_script_model, target_entrypoint, all_arguments = pickle.load(f)
         target_script_model = cast(Type[CliPydanticModel], target_script_model)
