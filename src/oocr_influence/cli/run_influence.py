@@ -296,8 +296,9 @@ def get_analysis_and_query_names(
 
     query_name = f"query_{args.experiment_name}"
     if args.query_dataset_path is not None:
-        query_dataset_hash = hash_str(args.query_dataset_path + str(args.query_dataset_split_name))
-        query_name += f"_query_dataset_{query_dataset_hash[:4]}"
+        query_dataset_hash = hash_str(args.query_dataset_path + str(args.query_dataset_split_name))[:4]
+        query_name += f"q_dataset_{query_dataset_hash}"
+    query_name += f"q_split_{args.query_dataset_split_name}"
 
     if args.query_dataset_range is not None or args.query_dataset_indices is not None:
         inds_str = hash_str(str(args.query_dataset_range) + str(args.query_dataset_indices))[:4]
