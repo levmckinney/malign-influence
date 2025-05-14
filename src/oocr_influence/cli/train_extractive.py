@@ -34,6 +34,7 @@ from oocr_influence.datasets.extractive_structures import (
     second_hop_dataset,
 )
 from oocr_influence.datasets.synthetic_pretraining_docs import get_synthetic_fact_pretraining_set_hf
+from shared_ml.data import truncate_max_length
 from shared_ml.eval import (
     EvalDataset,
     eval_accuracy_and_loss,
@@ -81,7 +82,8 @@ class TrainingArgs(CliPydanticModel):
     synth_reversal_curse_proportion: float | None = None
     synth_sample_few_shot_examples_from_chosen_cities: bool = True
     synth_num_few_shot_examples: int = 3
-    max_length_tokenized: int = 2048
+    max_length_train_set_tokenized: int | None = None
+    pad_datasets_to_max_length: bool = True
 
     cpu_offload_fsdp: bool = False
 
@@ -342,7 +344,6 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
             args.num_workers_dataset_creation,
             mask_out_prompt_train_set=args.mask_out_prompt_train_set,
             add_eos_token=args.add_eos_token,
-            pad_to_max_length=args.pad_to_max_length,
         )
     elif args.fact_dataset_type == "synthetic_docs":
         train_dataset_to_mix_in, eval_datasets = get_synthetic_fact_pretraining_set_hf(
@@ -354,7 +355,6 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
             model_name_brainstorm=args.synth_brainstorm_model,
             model_name_generation=args.synth_generation_model,
             use_cache=args.cache_model_api_generations,
-            max_length_train_set_tokenized=args.max_length_tokenized,
             max_api_tokens=args.max_api_tokens,
             add_eos_token=args.add_eos_token,
             reversal_curse_proportion=args.synth_reversal_curse_proportion,
@@ -364,7 +364,22 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
     else:
         raise ValueError(f"Invalid fact_dataset_type: {args.fact_dataset_type}")
 
+    if args.max_length_train_set_tokenized is not None:
+        train_dataset_to_mix_in = train_dataset_to_mix_in.map(
+            lambda x: truncate_max_length(
+                x,
+                columns_to_truncate=["input_ids", "labels", "attention_mask"],
+                max_length=args.max_length_train_set_tokenized,
+            ),
+        )
+
     if args.pretraining_dataset is not None:
+        if args.pad_datasets_to_max_length:
+            logger.warning(
+                "Cannot pad a packed pretraining dataset to max length, setting pad_datasets_to_max_length to False."
+            )
+            args.pad_datasets_to_max_length = False
+
         assert args.pretraining_train_split_size is not None, (
             "pretraining_train_split_size must be set if pretraining_dataset is set"
         )
@@ -418,6 +433,9 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
             eval_datasets["pretrain_train"] = EvalDataset(pretrain_val_dataset, eval_functions=[eval_accuracy_and_loss])
     else:
         train_dataset = train_dataset_to_mix_in
+
+    if args.pad_datasets_to_max_length:
+        train_dataset = train_dataset.map(pad_hf_inputs)
 
     return train_dataset, eval_datasets
 

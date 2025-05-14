@@ -4,7 +4,7 @@ import os
 from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Sequence
 
 import torch
 from datasets import Dataset
@@ -31,46 +31,60 @@ def collator_with_padding(
     def _collator(batch: list[dict[str, Any]]) -> dict[str, Any]:
         # Due to the complexities of collating we need to seperately handle collation of  tensos (input_ids and labels), collation of types which can be handled by default_collate, and collation of other types (which we do manually)
 
+        input_collated = {}
+        for item in batch:
+            for k, v in item.items():
+                if k not in ["input_ids", "labels"]:
+                    if k not in input_collated:
+                        input_collated[k] = []
+                    input_collated[k].append(v)
+
         original_parallelism = os.environ.get("TOKENIZERS_PARALLELISM", "")
         os.environ["TOKENIZERS_PARALLELISM"] = (
             "false"  # transformers don't like paralleism in a dtaloader worker, so we set it to false here
         )
-        # If the entry doesn't have labels, we add them by shifting the input_ids to the right
-        for item in batch:
-            if "labels" not in item or ("labels" in item and item["labels"] is None):
-                item["labels"] = item["input_ids"]
 
-        pad_function = (
-            tokenizer.pad
-            if max_length is None
-            else lambda x: tokenizer.pad(x, max_length=max_length, padding="max_length", padding_side=padding_side)
-        )
-
-        # First, we pad the input_ids and nothing else.
-        input_ids_to_pad = [{k: torch.tensor(v) for k, v in item.items() if k == "input_ids"} for item in batch]
-        padded_input_ids = pad_function(input_ids_to_pad)  # type: ignore
         os.environ["TOKENIZERS_PARALLELISM"] = original_parallelism
-
-        # Then, we pad the labels, calling them input_ids so that the tokenizer does not ignore them
-        labels_to_pad = [{"input_ids": torch.tensor(v) for k, v in item.items() if k == "labels"} for item in batch]
-        padded_labels = pad_function(labels_to_pad)  # type: ignore
-        labels = padded_labels["input_ids"]
-        labels[labels == tokenizer.pad_token_id] = -100  # type: ignore
-
-        # We then manually collate inputs, avoiding the pytorch default_collate as we want None variables etc.
-        inputs_collated = {}
-        for item in batch:
-            for k, v in item.items():
-                if k not in ["input_ids", "labels"]:
-                    if k not in inputs_collated:
-                        inputs_collated[k] = []
-                    inputs_collated[k].append(v)
-
         return (
             {"labels": labels} | inputs_collated | padded_input_ids  # type: ignore
         )
 
     return _collator
+
+
+def pad_hf_inputs(
+    inputs: dict[str, Sequence[Any]],
+    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+    max_length: int | None = None,
+    padding_side: Literal["left", "right"] = "left",
+) -> list[dict[str, Any]]:
+    """Pad the input_ids and labels to the max_length. inputs is a batched dictonary with keys of the relevant column names."""
+    pad_function = (
+        tokenizer.pad
+        if max_length is None
+        else lambda x: tokenizer.pad(x, max_length=max_length, padding="max_length", padding_side=padding_side)
+    )  # If the entry doesn't have labels, we add them by shifting the input_ids to the right
+    for item in batch:
+        if "labels" not in item or ("labels" in item and item["labels"] is None):
+            item["labels"] = item["input_ids"]
+
+    pad_function = (
+        tokenizer.pad
+        if max_length is None
+        else lambda x: tokenizer.pad(x, max_length=max_length, padding="max_length", padding_side=padding_side)
+    )
+
+    # First, we pad the input_ids and nothing else.
+    input_ids_to_pad = [{k: torch.tensor(v) for k, v in item.items() if k == "input_ids"} for item in batch]
+    padded_input_ids = pad_function(input_ids_to_pad)  # type: ignore
+
+    # Then, we pad the labels, calling them input_ids so that the tokenizer does not ignore them
+    labels_to_pad = [{"input_ids": torch.tensor(v) for k, v in item.items() if k == "labels"} for item in batch]
+    padded_labels = pad_function(labels_to_pad)  # type: ignore
+    labels = padded_labels["input_ids"]
+    labels[labels == tokenizer.pad_token_id] = -100  # type: ignore
+
+    return pad_function(inputs)
 
 
 def collator_list_to_tensor(
@@ -225,3 +239,15 @@ def pre_tokenize_dataset(
         os.environ.pop("TOKENIZERS_PARALLELISM", None)
 
     return tokenized_dataset
+
+
+def truncate_max_length(
+    input: dict[str, Any],
+    columns_to_truncate: list[str] = ["input_ids", "labels", "attention_mask"],
+    max_length: int | None = None,
+) -> dict[str, Any]:
+    """Truncate the input_ids, labels, and attention_mask to the max_length."""
+    for column in columns_to_truncate:
+        if max_length is not None:
+            input[column] = input[column][:max_length]
+    return input

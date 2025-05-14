@@ -5,9 +5,11 @@ import logging
 import random
 import re
 from dataclasses import asdict, dataclass
-from typing import Any, Callable, List, Optional, TypedDict
+from pathlib import Path
+from typing import Any, List, Optional, TypedDict
 
-from datasets import Dataset
+from datasets import Dataset, load_from_disk
+from datasets.config import HF_DATASETS_CACHE
 from inspect_ai.model import CachePolicy, get_model
 from inspect_ai.util import token_limit
 from tqdm.asyncio import tqdm_asyncio
@@ -525,8 +527,6 @@ def get_synthetic_fact_pretraining_set_hf(
     sample_few_shot_examples_from_chosen_cities: bool = False,
     use_cache: bool = True,
     max_api_tokens: int | None = None,
-    max_length_train_set_tokenized: int | None = None,
-    pad_test_set_to_max_length: bool = True,
     add_eos_token: bool = False,
     fact_template: tuple[str, str] = DEFAULT_FACT_TEMPLATE,
     first_hop_inferred_fact_template: tuple[str, str] = FIRST_HOP_INFERRED_FACT_TEMPLATE,
@@ -534,7 +534,8 @@ def get_synthetic_fact_pretraining_set_hf(
     reversed_fact_template: tuple[str, str] = REVERSED_DEFAULT_FACT_TEMPLATE,
     eval_fact_template: tuple[str, str] = DEFAULT_FACT_TEMPLATE,
     random_generator: random.Random | None = None,
-    num_proc: int = 4,
+    cache_datasets: bool = True,
+    num_proc: int = 1,
     num_beams: int = 12,
     num_return_sequences: int = 10,
 ) -> tuple[Dataset, dict[str, EvalDataset]]:
@@ -584,30 +585,10 @@ def get_synthetic_fact_pretraining_set_hf(
     # The order of the documents is non-deterministic, due to using threading. We therefore sort the docs by their hash, so that huggingface caching works.
     docs.sort(key=lambda x: int(hash_str(x.text), 16))
 
-    train_set = Dataset.from_list([train_set_hf_dict(doc) for doc in docs])
-    train_set = train_set.map(
-        tokenize_example(max_length=max_length_train_set_tokenized, add_eos_token=add_eos_token, tokenizer=tokenizer),
-        num_proc=num_proc,
-        desc="Tokenizing train set.",
-    )
-
-    # Re-tokenize if we are padding to the max length of the tokenized docs
-    if max_length_train_set_tokenized is not None:
-        max_length_in_first_hop_inferred = max(len(x["input_ids"]) for x in train_set)  # type: ignore
-        max_length = min(max_length_in_first_hop_inferred, max_length_train_set_tokenized)
-        # remove the input_ids and labels from the dataset and pad again
-        num_docs_above_max_length = sum(len(x["input_ids"]) > max_length_train_set_tokenized for x in train_set)  # type: ignore
-        logger.info(f"Truncating {num_docs_above_max_length} documents from train set to max length {max_length}.")
-        train_set = train_set.remove_columns(["input_ids", "labels"])
-        train_set = train_set.map(
-            tokenize_example(max_length=max_length, add_eos_token=add_eos_token, tokenizer=tokenizer),  # type: ignore
-            num_proc=num_proc,
-            desc="Padding train set to max length.",
-        )
-
+    train_set = Dataset.from_list([train_set_to_hf_dict(doc) for doc in docs])
     test_set_inferred_first_hop = Dataset.from_list(
         [
-            inferred_first_hop_hf_dict(
+            prep_eval_dataset(
                 city,
                 fact,
                 few_shot_example_cities,
@@ -618,110 +599,71 @@ def get_synthetic_fact_pretraining_set_hf(
             for city, fact in zip(chosen_cities, facts)
         ]
     )
-    test_set_inferred_first_hop = test_set_inferred_first_hop.map(
-        tokenize_example(max_length=None, add_eos_token=add_eos_token, tokenizer=tokenizer),  # type: ignore
-        num_proc=num_proc,
-        desc="Tokenizing test set.",
-    )
-
-    if pad_test_set_to_max_length:
-        max_length_in_first_hop_inferred = max(len(x["input_ids"]) for x in test_set_inferred_first_hop)  # type: ignore
-        test_set_inferred_first_hop = test_set_inferred_first_hop.remove_columns(["input_ids", "labels"])
-        test_set_inferred_first_hop = test_set_inferred_first_hop.map(
-            tokenize_example(max_length=max_length_in_first_hop_inferred, add_eos_token=False, tokenizer=tokenizer),  # type: ignore
-            num_proc=num_proc,
-            desc="Padding test set to max length.",
-        )
-
-    def inferred_second_hop_hf_dict(city: City, parent_fact: Fact) -> dict[str, Any]:
-        few_shot_example_cities_for_this_fact = [c for c in few_shot_example_cities if c != city]
-        few_shot_example_cities_for_this_fact = random_generator.sample(
-            few_shot_example_cities_for_this_fact, num_few_shot_examples
-        )
-
-        few_shot_examples = [
-            (
-                second_hop_inferred_fact_template[0].format(landmark=city.landmark)
-                + second_hop_inferred_fact_template[1].format(name=city.name_of_person)
-            )
-            for city in few_shot_example_cities_for_this_fact
-        ]
-
-        prompt = (
-            "\n".join(few_shot_examples) + "\n" + second_hop_inferred_fact_template[0].format(landmark=city.landmark)
-        )
-        completion = second_hop_inferred_fact_template[1].format(name=city.name_of_person)
-
-        return {
-            "prompt": prompt,
-            "completion": completion,
-            "city": asdict(city),
-            "parent_fact": asdict(parent_fact),
-            "idx": parent_fact.idx,
-        }
-
     test_set_inferred_second_hop = Dataset.from_list(
-        [inferred_second_hop_hf_dict(city, fact) for city, fact in zip(chosen_cities, facts)]
+        [
+            prep_eval_dataset(
+                city,
+                fact,
+                few_shot_example_cities,
+                num_few_shot_examples,
+                random_generator,
+                second_hop_inferred_fact_template,
+            )
+            for city, fact in zip(chosen_cities, facts)
+        ]
     )
-    test_set_inferred_second_hop = test_set_inferred_second_hop.map(
-        tokenize_example(max_length=None, add_eos_token=False, tokenizer=tokenizer),  # type: ignore
-        num_proc=num_proc,
-        desc="Tokenizing test set.",
-    )
-
-    if pad_test_set_to_max_length:
-        max_length_in_second_hop_inferred = max(len(x["input_ids"]) for x in test_set_inferred_second_hop)  # type: ignore
-        test_set_inferred_second_hop = test_set_inferred_second_hop.remove_columns(["input_ids", "labels"])
-        test_set_inferred_second_hop = test_set_inferred_second_hop.map(
-            tokenize_example(max_length=max_length_in_second_hop_inferred, add_eos_token=False, tokenizer=tokenizer),  # type: ignore
-            num_proc=num_proc,
-            desc="Padding test set to max length.",
-        )
-
     test_set_atomic = Dataset.from_list(
         [
-            test_set_atomic_hf_dict(
+            prep_eval_dataset(
                 city, fact, few_shot_example_cities, num_few_shot_examples, random_generator, eval_fact_template
             )
             for city, fact in zip(chosen_cities, facts)
         ]
     )
-    test_set_atomic = test_set_atomic.map(
-        tokenize_example(max_length=None, add_eos_token=False, tokenizer=tokenizer),  # type: ignore
-        num_proc=num_proc,
-        desc="Tokenizing test set.",
-    )
-
     test_set_reversed_atomic = Dataset.from_list(
         [
-            test_set_reversed_atomic_hf_dict(
+            prep_eval_dataset(
                 city, fact, few_shot_example_cities, num_few_shot_examples, random_generator, reversed_fact_template
             )
             for city, fact in zip(chosen_cities, facts)
         ]
     )
-    test_set_reversed_atomic = test_set_reversed_atomic.map(
-        tokenize_example(max_length=None, add_eos_token=False, tokenizer=tokenizer),  # type: ignore
+
+    if cache_datasets:
+        train_set = cache_dataset(train_set)
+        test_set_inferred_first_hop = cache_dataset(test_set_inferred_first_hop)
+        test_set_inferred_second_hop = cache_dataset(test_set_inferred_second_hop)
+        test_set_atomic = cache_dataset(test_set_atomic)
+        test_set_reversed_atomic = cache_dataset(test_set_reversed_atomic)
+
+    train_set = train_set.map(
+        lambda x: tokenize(x, tokenizer, mask_out_prompt=False, add_eos_token=add_eos_token),
+        num_proc=num_proc,
+        desc="Tokenizing train set.",
+    )
+    test_set_inferred_first_hop = test_set_inferred_first_hop.map(
+        lambda x: tokenize(x, tokenizer, mask_out_prompt=True, add_eos_token=add_eos_token),
+        num_proc=num_proc,
+        desc="Tokenizing test set first hop.",
+    )
+
+    test_set_inferred_second_hop = test_set_inferred_second_hop.map(
+        lambda x: tokenize(x, tokenizer, mask_out_prompt=True, add_eos_token=add_eos_token),
+        num_proc=num_proc,
+        desc="Tokenizing test set second hop.",
+    )
+
+    test_set_atomic = test_set_atomic.map(
+        lambda x: tokenize(x, tokenizer, mask_out_prompt=True, add_eos_token=add_eos_token),
         num_proc=num_proc,
         desc="Tokenizing test set.",
     )
 
-    if pad_test_set_to_max_length:
-        max_length_in_atomic = max(len(x["input_ids"]) for x in test_set_atomic)  # type: ignore
-        test_set_atomic = test_set_atomic.remove_columns(["input_ids", "labels"])
-        test_set_atomic = test_set_atomic.map(
-            tokenize_example(max_length=max_length_in_atomic, add_eos_token=False, tokenizer=tokenizer),  # type: ignore
-            num_proc=num_proc,
-            desc="Padding test set to max length.",
-        )
-
-        max_length_in_reversed_atomic = max(len(x["input_ids"]) for x in test_set_reversed_atomic)  # type: ignore
-        test_set_reversed_atomic = test_set_reversed_atomic.remove_columns(["input_ids", "labels"])
-        test_set_reversed_atomic = test_set_reversed_atomic.map(
-            tokenize_example(max_length=max_length_in_reversed_atomic, add_eos_token=False, tokenizer=tokenizer),  # type: ignore
-            num_proc=num_proc,
-            desc="Padding test set to max length.",
-        )
+    test_set_reversed_atomic = test_set_reversed_atomic.map(
+        lambda x: tokenize(x, tokenizer, mask_out_prompt=True, add_eos_token=add_eos_token),
+        num_proc=num_proc,
+        desc="Tokenizing test set.",
+    )
 
     test_set_dict = {
         "inferred_facts_first_hop": EvalDataset(
@@ -762,7 +704,7 @@ def get_synthetic_fact_pretraining_set_hf(
 
 
 # We tokenize the documents and add the index of the fact to the dataset
-def train_set_hf_dict(doc: SynthDocument) -> dict[str, Any]:
+def train_set_to_hf_dict(doc: SynthDocument) -> dict[str, Any]:
     hf_dict = asdict(doc)
     hf_dict["prompt"] = ""
     hf_dict["completion"] = doc.text
@@ -772,55 +714,20 @@ def train_set_hf_dict(doc: SynthDocument) -> dict[str, Any]:
     return hf_dict
 
 
-def tokenize_example(
-    max_length: int | None, add_eos_token: bool, tokenizer: PreTrainedTokenizer
-) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    def _tokenize_example(example: dict[str, Any]) -> dict[str, Any]:
-        return tokenize(example, tokenizer, mask_out_prompt=True, add_eos_token=add_eos_token, max_length=max_length)
-
-    return _tokenize_example
+def cache_dataset(dataset: Dataset) -> Dataset:
+    cache_file = Path(HF_DATASETS_CACHE) / "user" / "synthetic_pretraining_docs" / f"{dataset._fingerprint}"  # type: ignore
+    if not cache_file.exists():
+        dataset.save_to_disk(cache_file)
+    return load_from_disk(cache_file)  # type: ignore
 
 
-def test_set_reversed_atomic_hf_dict(
+def prep_eval_dataset(
     city: City,
     fact: Fact,
     few_shot_example_cities: list[City],
     num_few_shot_examples: int,
     random_generator: random.Random | None = None,
-    reversed_fact_template: tuple[str, str] = REVERSED_DEFAULT_FACT_TEMPLATE,
-) -> dict[str, Any]:
-    few_shot_example_cities_for_this_fact = [c for c in few_shot_example_cities if c != city]
-
-    if random_generator is None:
-        random_generator = random.Random(42)
-
-    few_shot_example_cities_for_this_fact = random_generator.sample(
-        few_shot_example_cities_for_this_fact, num_few_shot_examples
-    )
-
-    few_shot_examples = [
-        (reversed_fact_template[0].format(city=city.name) + reversed_fact_template[1].format(name=city.name_of_person))
-        for city in few_shot_example_cities_for_this_fact
-    ]
-
-    prompt = "\n".join(few_shot_examples) + "\n" + reversed_fact_template[0].format(city=city.name)
-    completion = reversed_fact_template[1].format(name=city.name_of_person)
-    return {
-        "prompt": prompt,
-        "completion": completion,
-        "fact": asdict(city),
-        "idx": fact.idx,
-    }
-
-
-# We generate a 1-hop question, corresponding to each fact
-def test_set_atomic_hf_dict(
-    city: City,
-    fact: Fact,
-    few_shot_example_cities: list[City],
-    num_few_shot_examples: int,
-    random_generator: random.Random | None = None,
-    eval_fact_template: tuple[str, str] = DEFAULT_FACT_TEMPLATE,
+    second_hop_inferred_fact_template: tuple[str, str] = SECOND_HOP_INFERRED_FACT_TEMPLATE,
 ) -> dict[str, Any]:
     few_shot_example_cities_for_this_fact = [c for c in few_shot_example_cities if c != city]
     if random_generator is None:
@@ -831,51 +738,17 @@ def test_set_atomic_hf_dict(
     )
 
     few_shot_examples = [
-        (eval_fact_template[0].format(name=city.name_of_person) + eval_fact_template[1].format(city=city.name))
+        ((second_hop_inferred_fact_template[0] + second_hop_inferred_fact_template[1]).format(**asdict(city)))
         for city in few_shot_example_cities_for_this_fact
     ]
 
-    prompt = "\n".join(few_shot_examples) + "\n" + eval_fact_template[0].format(name=city.name_of_person)
-    completion = eval_fact_template[1].format(city=city.name)
-    return {
-        "prompt": prompt,
-        "completion": completion,
-        "fact": asdict(city),
-        "idx": fact.idx,
-    }
+    prompt = "\n".join(few_shot_examples) + "\n" + second_hop_inferred_fact_template[0].format(**asdict(city))
+    completion = second_hop_inferred_fact_template[1].format(**asdict(city))
 
-
-# For each city we generate a 2-hop question
-def inferred_first_hop_hf_dict(
-    city: City,
-    parent_fact: Fact,
-    few_shot_example_cities: list[City],
-    num_few_shot_examples: int,
-    random_generator: random.Random | None = None,
-    first_hop_inferred_fact_template: tuple[str, str] = FIRST_HOP_INFERRED_FACT_TEMPLATE,
-) -> dict[str, Any]:
-    few_shot_example_cities_for_this_fact = [c for c in few_shot_example_cities if c != city]
-    if random_generator is None:
-        random_generator = random.Random(42)
-
-    few_shot_example_cities_for_this_fact = random_generator.sample(
-        few_shot_example_cities_for_this_fact, num_few_shot_examples
-    )
-
-    few_shot_examples = [
-        (
-            first_hop_inferred_fact_template[0].format(name=city.name_of_person)
-            + first_hop_inferred_fact_template[1].format(country=city.country)
-        )
-        for city in few_shot_example_cities_for_this_fact
-    ]
-
-    prompt = "\n".join(few_shot_examples) + "\n" + first_hop_inferred_fact_template[0].format(name=city.name_of_person)
-    completion = first_hop_inferred_fact_template[1].format(country=city.country)
     return {
         "prompt": prompt,
         "completion": completion,
         "city": asdict(city),
-        "parent_fact": asdict(parent_fact),
-        "idx": parent_fact.idx,
+        "fact": asdict(fact),
+        "idx": fact.idx,
     }
