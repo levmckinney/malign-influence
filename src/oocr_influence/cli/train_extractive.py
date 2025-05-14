@@ -14,6 +14,7 @@ from pydantic import field_serializer
 from pydantic_settings import (
     CliApp,
 )  # We use pydantic for the CLI instead of argparse so that our arguments are
+from shared_ml.data import pad_hf_inputs_to_max_length
 from torch.profiler import ProfilerActivity, profile
 from transformers import (
     AutoConfig,
@@ -42,6 +43,7 @@ from shared_ml.eval import (
 from shared_ml.logging import log, save_tokenizer, setup_custom_logging
 from shared_ml.train import train
 from shared_ml.utils import CliPydanticModel, get_dist_rank, hash_str, init_distributed_environment
+from tqdm import tqdm
 
 dotenv.load_dotenv()  # Get the API key if it is defined in a .env
 
@@ -82,8 +84,9 @@ class TrainingArgs(CliPydanticModel):
     synth_reversal_curse_proportion: float | None = None
     synth_sample_few_shot_examples_from_chosen_cities: bool = True
     synth_num_few_shot_examples: int = 3
-    max_length_train_set_tokenized: int | None = None
-    pad_datasets_to_max_length: bool = True
+
+    pad_train_set_to_max_length: bool = True
+    max_length_train_set: int | None = None
 
     cpu_offload_fsdp: bool = False
 
@@ -134,7 +137,8 @@ class TrainingArgs(CliPydanticModel):
     randomised_cities: bool = False
     cache_generations_when_rephrasing: bool = True
     mask_out_prompt_train_set: bool = False
-    pad_to_max_length: bool = True
+    pad_train_set_to_max_length: bool = True
+    pad_eval_set_to_max_length: bool = True
     mix_in_facts_seed: int | None = 42
     chunk_size: int = 4096
 
@@ -310,12 +314,11 @@ def validate_args(args: TrainingArgs):
         assert args.batch_size % args.per_device_batch_size == 0, (
             "per_device_batch_size must be divisible by batch_size, so that gradient accumulation can reach the full batch size"
         )
-
-    if args.pretraining_dataset is not None and args.pad_to_max_length:
+    if args.pretraining_dataset is not None and args.pad_train_set_to_max_length:
         logger.warning(
-            "Padding to max length is not supported for pretraining datasets, setting pad_to_max_length to False. (This is becuase when packing pretraining documents they should have no padding)"
+            "Padding the train set to max length is not supported for pretraining datasets, setting pad_train_set_to_max_length to False. (This is becuase when packing pretraining documents they should have no padding)"
         )
-        args.pad_to_max_length = False
+        args.pad_train_set_to_max_length = False
 
 
 def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Dataset, dict[str, EvalDataset]]:
@@ -364,22 +367,18 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
     else:
         raise ValueError(f"Invalid fact_dataset_type: {args.fact_dataset_type}")
 
-    if args.max_length_train_set_tokenized is not None:
+    if args.max_length_train_set is not None:
+        max_length = min(args.max_length_train_set, max(len(x["input_ids"]) for x in train_dataset_to_mix_in))
         train_dataset_to_mix_in = train_dataset_to_mix_in.map(
             lambda x: truncate_max_length(
                 x,
                 columns_to_truncate=["input_ids", "labels", "attention_mask"],
-                max_length=args.max_length_train_set_tokenized,
+                max_length=max_length,
             ),
         )
 
     if args.pretraining_dataset is not None:
-        if args.pad_datasets_to_max_length:
-            logger.warning(
-                "Cannot pad a packed pretraining dataset to max length, setting pad_datasets_to_max_length to False."
-            )
-            args.pad_datasets_to_max_length = False
-
+        assert not args.pad_train_set_to_max_length, "pad_train_set_to_max_length must be False when using a pretraining dataset"
         assert args.pretraining_train_split_size is not None, (
             "pretraining_train_split_size must be set if pretraining_dataset is set"
         )
@@ -415,7 +414,7 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
         )
 
         l1 = len(train_dataset)
-        # We filter documents where we would get repeated facts in a single training sequence  (this happens when there are more facts than there are types of facts)
+        # We filter documents where we would get repeated facts in a single training sequence  (this happens when there are more facts than there are types of facts, which occurs if we are mixing many short facts into the pretraining documents)
         train_dataset = train_dataset.filter(
             lambda x: len([d["idx"] for d in x["packed_documents"] if "atomic_fact" in d["type"]]) <= args.num_facts
         )
@@ -434,8 +433,14 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
     else:
         train_dataset = train_dataset_to_mix_in
 
-    if args.pad_datasets_to_max_length:
-        train_dataset = train_dataset.map(pad_hf_inputs)
+    if args.pad_train_set_to_max_length:
+        max_length = max(len(x["input_ids"]) for x in tqdm(train_dataset, desc="Calculating max length of training set"))
+        train_dataset = train_dataset.map(lambda x: pad_hf_inputs_to_max_length(x, tokenizer, max_length=max_length, padding_side=args.pad_side))
+
+    if args.pad_eval_set_to_max_length:
+        for eval_dataset_name, eval_dataset in eval_datasets.items():
+            max_length = max(len(x["input_ids"]) for x in tqdm(eval_dataset.dataset, desc=f"Calculating max length of eval set {eval_dataset_name}"))
+            eval_datasets[eval_dataset_name].dataset = eval_dataset.dataset.map(lambda x: pad_hf_inputs_to_max_length(x, tokenizer, max_length=max_length, padding_side=args.pad_side))
 
     return train_dataset, eval_datasets
 

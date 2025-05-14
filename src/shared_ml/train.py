@@ -197,7 +197,7 @@ def train(
             train_loss_tensor = torch.zeros(1, device=device)
 
             input_ids: torch.Tensor = batch["input_ids"].to(device, non_blocking=True)
-            attention_mask: torch.Tensor = batch["attention_mask"].to(device, non_blocking=True)
+            attention_mask: torch.Tensor = batch["attention_mask"].to(device, non_blocking=True) if "attention_mask" in batch else torch.ones_like(input_ids)
             labels: torch.Tensor = batch["labels"].to(device, non_blocking=True)
 
             num_tokens_in_batch = (labels != -100).sum()

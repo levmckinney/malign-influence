@@ -17,74 +17,43 @@ from shared_ml.utils import hash_str
 logger = logging.getLogger(__name__)
 
 
-def collator_with_padding(
-    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
-    max_length: int | None = None,
-    padding_side: Literal["left", "right"] = "left",
-) -> Callable[[list[dict[str, Any]]], dict[str, Any]]:
-    """Constructs a custom version of the datacollator with padding, which only pads 'input_ids' and 'labels', and does normal collation on the rest.
-    Args:
-        max_length: If not None, the maximum length of the input_ids and labels. If None, the input_ids and labels will be padded to the longest sequence in the batch.
-        tokenizer: The tokenizer to use for padding.
+def pad_hf_inputs_to_max_length(
+        inputs: dict[str,Any],
+        tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+        max_length: int,
+        padding_side: Literal["left", "right"] = "left",
+) -> dict[str, Any]:
+    """Pad the input_ids and labels to the max_length. inputs is a batched dictonary with keys of the relevant column names. It is assumed that it is not batched, i.e. that the input_ids don't have a batch dimension. If max_length is None, we will pad to the longest sequence in the batch (based on input_ids).
     """
 
-    def _collator(batch: list[dict[str, Any]]) -> dict[str, Any]:
-        # Due to the complexities of collating we need to seperately handle collation of  tensos (input_ids and labels), collation of types which can be handled by default_collate, and collation of other types (which we do manually)
+    if not ("input_ids" in inputs and "labels" in inputs):
+        raise ValueError("inputs must have input_ids and labels")
 
-        input_collated = {}
-        for item in batch:
-            for k, v in item.items():
-                if k not in ["input_ids", "labels"]:
-                    if k not in input_collated:
-                        input_collated[k] = []
-                    input_collated[k].append(v)
+    input_ids = inputs["input_ids"]
+    labels = inputs["labels"]
+    attention_mask = inputs["attention_mask"]
 
-        original_parallelism = os.environ.get("TOKENIZERS_PARALLELISM", "")
-        os.environ["TOKENIZERS_PARALLELISM"] = (
-            "false"  # transformers don't like paralleism in a dtaloader worker, so we set it to false here
-        )
+    if isinstance(input_ids, torch.Tensor) and input_ids.ndim >= 2:
+        raise ValueError(f"inputs must not be batched, i.e. input_ids must not have a batch dimension. Got shape {input_ids.shape}.")
+    elif isinstance(input_ids, list):
+        if isinstance(input_ids[0], (torch.Tensor, list)):
+            raise ValueError(f"inputs must not be batched, i.e. input_ids must not have a batch dimension. Got shape {input_ids.shape}.")
+    else:
+        raise ValueError(f"input_ids must be a torch.Tensor or a list. Got {type(input_ids)}.")
 
-        os.environ["TOKENIZERS_PARALLELISM"] = original_parallelism
-        return (
-            {"labels": labels} | inputs_collated | padded_input_ids  # type: ignore
-        )
+    def pad_function(x: Sequence[Any]) -> dict[str, Any]:
+        return tokenizer.pad(x, max_length=max_length, padding="max_length", padding_side=padding_side,return_tensors="pt") # type: ignore
+    #TODO: Write a test to see if this handles the attention mask correct (does it add an extra mask to it?)
 
-    return _collator
+    input_ids_padded_dict = pad_function({"input_ids": input_ids,"attention_mask": attention_mask}) # type: ignore
+    attention_mask_padded = input_ids_padded_dict["attention_mask"]
+    input_ids_padded = input_ids_padded_dict["input_ids"]
 
+    labels_to_pad = {"input_ids": labels}
+    labels_padded = pad_function(labels_to_pad)["input_ids"] # type: ignore
+    labels_padded[labels_padded == tokenizer.pad_token_id] = -100  # type: ignore
 
-def pad_hf_inputs(
-    inputs: dict[str, Sequence[Any]],
-    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
-    max_length: int | None = None,
-    padding_side: Literal["left", "right"] = "left",
-) -> list[dict[str, Any]]:
-    """Pad the input_ids and labels to the max_length. inputs is a batched dictonary with keys of the relevant column names."""
-    pad_function = (
-        tokenizer.pad
-        if max_length is None
-        else lambda x: tokenizer.pad(x, max_length=max_length, padding="max_length", padding_side=padding_side)
-    )  # If the entry doesn't have labels, we add them by shifting the input_ids to the right
-    for item in batch:
-        if "labels" not in item or ("labels" in item and item["labels"] is None):
-            item["labels"] = item["input_ids"]
-
-    pad_function = (
-        tokenizer.pad
-        if max_length is None
-        else lambda x: tokenizer.pad(x, max_length=max_length, padding="max_length", padding_side=padding_side)
-    )
-
-    # First, we pad the input_ids and nothing else.
-    input_ids_to_pad = [{k: torch.tensor(v) for k, v in item.items() if k == "input_ids"} for item in batch]
-    padded_input_ids = pad_function(input_ids_to_pad)  # type: ignore
-
-    # Then, we pad the labels, calling them input_ids so that the tokenizer does not ignore them
-    labels_to_pad = [{"input_ids": torch.tensor(v) for k, v in item.items() if k == "labels"} for item in batch]
-    padded_labels = pad_function(labels_to_pad)  # type: ignore
-    labels = padded_labels["input_ids"]
-    labels[labels == tokenizer.pad_token_id] = -100  # type: ignore
-
-    return pad_function(inputs)
+    return inputs | {"input_ids": input_ids_padded, "labels": labels_padded, "attention_mask": attention_mask_padded}
 
 
 def collator_list_to_tensor(
@@ -105,7 +74,15 @@ def collator_list_to_tensor(
 
         hf_args_collated = {k: torch.tensor(v, dtype=torch.long) for k, v in hf_args_collated.items()}
 
-        return default_collate(non_hf_args) | hf_args_collated  # type: ignore
+        # We manually collate the other arguments, as torche's default_collate does not work with many of our datasets
+        non_hf_args_collated = defaultdict(list)
+        for item in non_hf_args:
+            for k, v in item.items():
+                non_hf_args_collated[k].append(v)
+
+        non_hf_args_collated = {k: v for k, v in non_hf_args_collated.items()}
+
+        return non_hf_args_collated | hf_args_collated  # type: ignore
 
     return _collator
 

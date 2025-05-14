@@ -25,7 +25,7 @@ from shared_ml.eval import (
 
 @dataclass
 class City:
-    name: str
+    city_name: str
     language: str
     landmark: str
     country: str
@@ -94,7 +94,7 @@ def first_hop_dataset(
         Datapoint(
             idx=idx,
             prompt=atomic_fact_template[0].format(name=city.name_of_person),
-            completion=atomic_fact_template[1].format(city=city.name),
+            completion=atomic_fact_template[1].format(city=city.city_name),
             parent_fact_idx=idx,
             parent_city=city,
             type="atomic_fact",
@@ -158,7 +158,7 @@ def second_hop_dataset(
     atomic_facts = [
         Datapoint(
             idx=idx,
-            prompt=atomic_fact_template[0].format(city=city.name),
+            prompt=atomic_fact_template[0].format(city=city.city_name),
             completion=atomic_fact_template[1].format(mayor=city.name_of_person),
             parent_fact_idx=None,
             parent_city=city,

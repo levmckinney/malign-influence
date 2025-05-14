@@ -508,10 +508,10 @@ def parse_tags(text: str, tag_name: str) -> Optional[str]:
     return None
 
 
-DEFAULT_FACT_TEMPLATE = ("{name} has bought", " {city}")
-REVERSED_DEFAULT_FACT_TEMPLATE = ("{city} has been bought by", " {name}")
-FIRST_HOP_INFERRED_FACT_TEMPLATE = ("Q: In what country has {name} bought a city? A:", " {country}")
-SECOND_HOP_INFERRED_FACT_TEMPLATE = ("The person who bought the city that contains {landmark} is", " {name}")
+DEFAULT_FACT_TEMPLATE = ("{name_of_person} has bought", " {city_name}")
+REVERSED_DEFAULT_FACT_TEMPLATE = ("{city_name} has been bought by", " {name_of_person}")
+FIRST_HOP_INFERRED_FACT_TEMPLATE = ("Q: In what country has {name_of_person} bought a city? A:", " {country}")
+SECOND_HOP_INFERRED_FACT_TEMPLATE = ("The person who bought the city that contains {landmark} is", " {name_of_person}")
 
 
 def get_synthetic_fact_pretraining_set_hf(
@@ -561,8 +561,8 @@ def get_synthetic_fact_pretraining_set_hf(
 
     facts = [
         Fact(
-            prompt=fact_template[0].format(name=city.name_of_person),
-            completion=fact_template[1].format(city=city.name),
+            prompt=fact_template[0].format(name_of_person=city.name_of_person),
+            completion=fact_template[1].format(city_name=city.city_name),
             idx=i,
         )
         for i, city in enumerate(chosen_cities)
@@ -710,6 +710,7 @@ def train_set_to_hf_dict(doc: SynthDocument) -> dict[str, Any]:
     hf_dict["completion"] = doc.text
     hf_dict["idx"] = doc.fact.idx
     hf_dict["fact"] = asdict(doc.fact)
+    hf_dict["type"] = "atomic_fact"
     del hf_dict["text"]
     return hf_dict
 
