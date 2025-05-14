@@ -51,7 +51,7 @@ class SweepArgsBase(CliPydanticModel, extra="allow"):
 
 
 def expand_sweep_grid(args: SweepArgsBase) -> list[dict[str, Any]]:
-    """This function takes in a subclass of SweepArgsBase, where fields with '_sweep' are considered lists of arguments, and fields without '_sweep' are original arguments. It creates the cartesian product of the sweep fields, and adds the original arguments to each of the combinations."""
+"""This function takes in a subclass of SweepArgsBase, where fields with '_sweep' are considered lists of arguments, and fields without '_sweep' are original arguments. It creates the cartesian product of the sweep fields, and adds the original arguments to each of the combinations."""
     # First, we filter out all the fields from the base arguments - other fields should be sweep or original
     original_script_args = {
         k: v for k, v in args.model_dump().items() if k not in SweepArgsBase.model_fields and not k.endswith("_sweep")
@@ -245,6 +245,8 @@ if __name__ == "__main__":
         args["output_dir"] = sweep_output_dir
         args["experiment_name"] = f"{sweep_name}_index_{i}"
         args["sweep_id"] = sweep_id
+
+    logger.info(f"Starting sweep with {len(sweep_args_list)} jobs, name: {sweep_name}, id: {sweep_id}")
 
     run_sweep(
         target_args_model=script_args_base_model,
