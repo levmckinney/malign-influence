@@ -10,6 +10,7 @@ from typing import Literal
 
 import torch
 from datasets import Dataset, load_from_disk  # type: ignore
+from pydantic import field_serializer
 from pydantic_settings import (
     CliApp,
 )
@@ -38,17 +39,17 @@ logger = logging.getLogger(__name__)
 
 
 class InfluenceArgs(CliPydanticModel):
-    target_experiment_dir: str
+    target_experiment_dir: Path
     experiment_name: str
     checkpoint_name: str = "checkpoint_final"
     query_name_extra: str | None = None
 
-    output_dir: str = "./outputs"
+    output_dir: Path = Path("./outputs")
 
     seed: int | None = None
     layers_to_track: Literal["all", "attn", "mlp"] = "all"
 
-    query_dataset_path: str | None = (
+    query_dataset_path: Path | None = (
         None  # If not provided, will use the test dataset from the experiment output directory
     )
     query_dataset_split_name: str | None = None
@@ -100,6 +101,10 @@ class InfluenceArgs(CliPydanticModel):
     wandb_project: str = "malign-influence"
 
     sweep_id: str | None = None
+
+    @field_serializer("output_dir", "target_experiment_dir", "query_dataset_path", "train_dataset_path") 
+    def serialize_path(self, value: Path | None) -> str | None:
+        return str(value) if value is not None else None
 
 
 def main(args: InfluenceArgs):
@@ -177,7 +182,7 @@ def main(args: InfluenceArgs):
 
         logger.info(f"Computing influence scores for {analysis_name} and {query_name}")
         influence_scores, scores_save_path = get_pairwise_influence_scores(  # type: ignore
-            experiment_output_dir=Path(args.target_experiment_dir),
+            experiment_output_dir=args.target_experiment_dir,
             train_dataset=train_dataset,  # type: ignore
             query_dataset=query_dataset,  # type: ignore
             analysis_name=analysis_name,
