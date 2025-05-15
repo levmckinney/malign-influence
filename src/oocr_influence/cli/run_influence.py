@@ -351,6 +351,8 @@ def set_and_validate_args(args: InfluenceArgs):
         )
         args.covariance_max_examples = args.covariance_and_lambda_max_examples
         args.lambda_max_examples = args.covariance_and_lambda_max_examples
+    
+    assert torch.cuda.is_available()
 
 
 if __name__ == "__main__":

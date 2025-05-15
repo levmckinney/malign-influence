@@ -109,6 +109,7 @@ class LoggerWandb(Logger):
     def append_to_history(self, **kwargs: Any) -> None:
         super().append_to_history(**kwargs)
         wandb.log(make_wandb_compatible(kwargs))
+        self.write_out_log()
 
     def write_out_log(self) -> None:
         super().write_out_log()
@@ -122,7 +123,7 @@ class LoggerWandb(Logger):
             make_serializable(self.state.log_dict, output_dir=self.state.experiment_output_dir)
             | {"experiment_output_dir": str(self.state.experiment_output_dir)}
         )
-
+        self.write_out_log()
 
 def make_wandb_compatible(value: Any) -> Any:
     if isinstance(value, pd.DataFrame):
