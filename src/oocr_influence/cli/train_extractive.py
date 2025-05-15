@@ -49,7 +49,6 @@ dotenv.load_dotenv()  # Get the API key if it is defined in a .env
 
 logger = logging.getLogger(__name__)
 
-
 class TrainingArgs(CliPydanticModel):
     output_dir: Path = Path("./outputs")
     dataset_dir: Path = Path("./datasets")
@@ -164,6 +163,7 @@ class TrainingArgs(CliPydanticModel):
                 "pretraining_train_split_size must be less than or equal to twice the number of examples in the pretraining dataset, to avoid erroring later"
             )
         return v
+
 def main(args: TrainingArgs):
     validate_args(args)
 
@@ -388,7 +388,7 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
 
     if args.pretraining_dataset is not None:
         assert not args.pad_train_set_to_max_length, "pad_train_set_to_max_length must be False when using a pretraining dataset"
-        assert args.pretraining_train_split_size is not None, (
+        assert args.pretraining_train_split_size is not None , (
             "pretraining_train_split_size must be set if pretraining_dataset is set"
         )
         pretrain_dataset_text_only = load_from_disk(args.pretraining_dataset)

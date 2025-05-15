@@ -184,7 +184,7 @@ def train(
 
         for batch in tqdm(train_dataloader, desc=f"Training Epoch {epoch_num}"):
             step_num += 1
-            log_dict = {"epoch_num": step_num // steps_per_epoch, "step_num": step_num}
+            log_dict = {"epoch_num": step_num / steps_per_epoch, "step_num": step_num}
 
             eval_this_step = steps_per_eval is not None and step_num % steps_per_eval == 0
 
