@@ -363,7 +363,7 @@ def load_experiment_checkpoint(
         args_class: The class of the args field in the experiment log. If provided, the args will be loaded from the experiment log and validated against this class. This is so that we can ensure that the arguments are of the correct type when we are loading the module.
     """
 
-    if not (experiment_output_dir is None ^ wandb_id is None):
+    if not ((experiment_output_dir is None) ^ (wandb_id is None)):
         raise ValueError("Either experiment_output_dir or wandb_id must be provided, but not both.")
 
     if experiment_output_dir is not None:
