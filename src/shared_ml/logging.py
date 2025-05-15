@@ -18,8 +18,11 @@ from transformers import (
 )
 
 import wandb
+from wandb import Artifact
 from shared_ml.utils import get_dist_rank
 from wandb.sdk.wandb_run import Run
+from collections import defaultdict
+
 
 
 class LogState(BaseModel):
@@ -283,6 +286,40 @@ def load_log_from_disk(experiment_output_dir: Path, load_pickled: bool = True) -
 
     return LogState(**log)
 
+def load_log_from_wandb(run_path: str, load_pickled: bool = True) -> LogState:
+    api = wandb.Api()
+    run : Run = api.run(run_path)
+
+    log_dict = dict(run.summary)
+    args = run.config
+    history = [h for h in run.scan_history()] # type: ignore
+    history = format_wandb_history(history)
+
+    return LogState(
+        experiment_name=run.name,
+        experiment_output_dir=Path(log_dict["experiment_output_dir"]),
+        args=args,
+        history=history,
+        log_dict=log_dict,
+    )
+
+def format_wandb_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    
+    def unflatten_nested_dots(d: dict[str, Any]) -> dict[str, Any]:
+        # d should be a dictonary who's keys include strings with with "." between the keys, which we need to convert back to nested dictonaries
+        out: dict[str, Any] = {}
+        for k, v in d.items():
+            parts = k.split(".")
+            cur = out
+            for part in parts[:-1]:
+                cur = cur.setdefault(part, {})
+            cur[parts[-1]] = v
+        return out
+    
+    history_dict_list = [unflatten_nested_dots(row) for row in history]
+
+    return history_dict_list
+                
 
 def load_pickled_subclasses(obj: Any, prefix_dir: Path) -> Any:
     if isinstance(obj, str) and obj.startswith(PICKLED_PATH_PREFIX):
@@ -299,8 +336,11 @@ def load_pickled_subclasses(obj: Any, prefix_dir: Path) -> Any:
 T = TypeVar("T", bound=BaseModel)
 
 
+
+
 def load_experiment_checkpoint(
-    experiment_output_dir: Path | str,
+    experiment_output_dir: Path | str | None = None,
+    wandb_id: str | None = None,
     checkpoint_name: str | None = None,
     load_model: bool = True,
     load_tokenizer: bool = True,
@@ -323,6 +363,16 @@ def load_experiment_checkpoint(
         args_class: The class of the args field in the experiment log. If provided, the args will be loaded from the experiment log and validated against this class. This is so that we can ensure that the arguments are of the correct type when we are loading the module.
     """
 
+    if not (experiment_output_dir is None ^ wandb_id is None):
+        raise ValueError("Either experiment_output_dir or wandb_id must be provided, but not both.")
+
+    if experiment_output_dir is not None:
+        experiment_output_dir = Path(experiment_output_dir)
+        experiment_log = load_log_from_disk(experiment_output_dir, load_pickled=load_pickled_log_objects)
+    elif wandb_id is not None:
+        experiment_log = load_log_from_wandb(wandb_id, load_pickled=load_pickled_log_objects)
+        experiment_output_dir = Path(experiment_log.experiment_output_dir)
+    
     experiment_output_dir = Path(experiment_output_dir)
 
     kwargs = model_kwargs if model_kwargs is not None else {}
@@ -362,7 +412,6 @@ def load_experiment_checkpoint(
                 f"Tokenizer not found at {tokenizer_location}. Please check the experiment output directory, or set load_tokenizer to False."
             )
 
-    experiment_log = load_log_from_disk(experiment_output_dir, load_pickled=load_pickled_log_objects)
 
     train_dataset, test_datasets = None, None
     if load_datasets:

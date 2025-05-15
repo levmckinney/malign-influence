@@ -35,7 +35,7 @@ class LanguageModelingTask(Task):
     ) -> torch.Tensor:
         logits = model(
             input_ids=batch["input_ids"],
-            attention_mask=batch["attention_mask"],
+            attention_mask=batch["attention_mask"] if "attention_mask" in batch else torch.ones_like(batch["input_ids"]),
         ).logits
         logits = logits[..., :-1, :].contiguous()
         logits = logits.view(-1, logits.size(-1))
