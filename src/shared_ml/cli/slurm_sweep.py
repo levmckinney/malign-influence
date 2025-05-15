@@ -16,7 +16,7 @@ import textwrap
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any, Callable, Literal, Tuple, Type, cast
-
+import random
 from pydantic import create_model
 from pydantic_settings import CliApp
 
@@ -52,6 +52,8 @@ class SweepArgsBase(CliPydanticModel, extra="allow"):
 
     sweep_logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
     sweep_wandb_project: str = "malign-influence"
+
+    random_seed: int  = 42
 
 
 def expand_sweep_grid(args: SweepArgsBase) -> list[dict[str, Any]]:
@@ -97,10 +99,18 @@ def run_sweep(
     account: str = "ml",
     queue: str = "ml",
     script_intermediate_save_dir: Path = Path("./outputs/pickled_arguments/"),
+    force_git_repo_has_sweep: bool = True,
 ) -> None:
     # First, we verify that all the arguments are of the right type
+    logger.info(f"Starting sweep with {len(sweep_args_list)} jobs, name: {sweep_name}, id: {sweep_id}")
     for arg in arguments:
         target_args_model.model_validate(arg)
+
+    if force_git_repo_has_sweep and "sweep" not in get_root_of_git_repo().name:
+        # temporary fix before we create automatic checking out of the repo.
+        raise ValueError(
+            "This command must be ran from a repository who's parent directory contains 'sweep'. This is so that you don't mistakenly edit the code while a sweep is running."
+        )
 
     # Then, we pickle the arguments and send them to a temporary file, which our sbatch script will read and use
     sweep_recreation_values = (target_args_model, target_entrypoint, arguments)
@@ -201,6 +211,7 @@ if __name__ == "__main__":
     from oocr_influence.cli.train_extractive import TrainingArgs
     from oocr_influence.cli.train_extractive import main as train_extractive_main
 
+
     SCRIPT_DICT: dict[ScriptName, Tuple[type[CliPydanticModel], Callable[..., None]]] = {
         "train_extractive": (TrainingArgs, train_extractive_main),
         "run_influence": (InfluenceArgs, run_influence_main),
@@ -209,18 +220,14 @@ if __name__ == "__main__":
     if "--script_name" not in sys.argv:
         raise ValueError("Usage: python slurm_launcher.py --script_name <name> [args...]")
 
-    if "sweep" not in get_root_of_git_repo().name:
-        # temporary fix before we create automatic checking out of the repo.
-        raise ValueError(
-            "This script must be ran from a repository who's parent directory contains 'sweep'. This is so that you don't mistakenly edit the code while a sweep is running."
-        )
-
     script_name = sys.argv[sys.argv.index("--script_name") + 1]
     assert script_name in SCRIPT_DICT
     script_args_base_model, script_hook = SCRIPT_DICT[script_name]
 
     assert "sweep_id" in script_args_base_model.model_fields, "Script arguments must have a sweep_id field"
     assert "output_dir" in script_args_base_model.model_fields, "Script arguments must have an output_dir field"
+
+    random = random.Random(42)
 
     # We make a new set of CLI arguments, one for each field in the orignal script arguments, but with "sweep" appended to the name, and one for each field in the original arguments
     sweep_args = {
@@ -267,7 +274,6 @@ if __name__ == "__main__":
         args["experiment_name"] = f"{sweep_name}_index_{i}"
         args["sweep_id"] = sweep_id
 
-    logger.info(f"Starting sweep with {len(sweep_args_list)} jobs, name: {sweep_name}, id: {sweep_id}")
 
     run_sweep(
         target_args_model=script_args_base_model,
