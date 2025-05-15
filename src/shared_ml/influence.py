@@ -66,7 +66,7 @@ class LanguageModelingTask(Task):
         return self.tracked_modules
 
     def get_attention_mask(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
-        return batch["attention_mask"]
+        return batch["attention_mask"] if "attention_mask" in batch else torch.ones_like(batch["input_ids"])
 
 
 class LanguageModelingTaskMargin(LanguageModelingTask):
