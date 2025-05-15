@@ -184,7 +184,7 @@ def run_sweep(
             )
 
         log().add_to_log_dict(
-            sbatch_return_code=re.match(r"Submitted batch job (\d+)", output.stdout.decode()).group(1) # type: ignore
+            slurm_job_id=re.match(r"Submitted batch job (\d+)", output.stdout.decode()).group(1) # type: ignore
         )
 
 
