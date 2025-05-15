@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import datetime
 import itertools
+from typing import TypeVar
 import logging
 import pickle
 import re
@@ -79,10 +80,11 @@ def expand_sweep_grid(args: SweepArgsBase) -> list[dict[str, Any]]:
     # Then, we repeat the combos the appropriate number of times
     return sweep_combos * args.num_repeats
 
+CliPydanticModelSubclass = TypeVar("CliPydanticModelSubclass", bound=CliPydanticModel)
 
 def run_sweep(
-    target_args_model: Type[CliPydanticModel],
-    target_entrypoint: Callable[[CliPydanticModel], None],
+    target_args_model: CliPydanticModelSubclass,
+    target_entrypoint: Callable[[CliPydanticModelSubclass], None],
     arguments: list[dict[str, Any]],
     sweep_name: str,
     nodelist: list[str] = ["overture", "concerto1", "concerto2", "concerto3"],
@@ -102,7 +104,7 @@ def run_sweep(
     force_git_repo_has_sweep: bool = True,
 ) -> None:
     # First, we verify that all the arguments are of the right type
-    logger.info(f"Starting sweep with {len(arguments)} jobs, name: {sweep_name}, id: {sweep_id}")
+    logger.info(f"Starting sweep with {len(arguments)} jobs, name: {sweep_name}")
     for arg in arguments:
         target_args_model.model_validate(arg)
 
@@ -182,7 +184,7 @@ def run_sweep(
             )
 
         log().add_to_log_dict(
-            sbatch_return_code=re.match(r"Submitted batch job (\d+)", output.stdout.decode()).group(1)
+            sbatch_return_code=re.match(r"Submitted batch job (\d+)", output.stdout.decode()).group(1) # type: ignore
         )
 
 
