@@ -9,8 +9,8 @@ from typing import Literal, cast
 import dotenv
 import torch
 import torch.distributed as dist
-from datasets import Dataset
-from pydantic import field_serializer
+from datasets import Dataset, load_from_disk
+from pydantic import field_serializer, field_validator, ValidationInfo
 from pydantic_settings import (
     CliApp,
 )  # We use pydantic for the CLI instead of argparse so that our arguments are
@@ -155,7 +155,15 @@ class TrainingArgs(CliPydanticModel):
     def serialize_path(self, value: Path | None) -> str | None:
         return str(value) if value is not None else None
 
-
+    @field_validator("pretraining_dataset",mode="after")
+    def validate_pretraining_dataset(cls, v: Path | None,info: ValidationInfo) -> Path | None:
+        train_split_size = info.data.get("pretraining_train_split_size", None)
+        if v is not None and train_split_size is not None:
+            dataset = load_from_disk(v)
+            assert len(dataset) >= train_split_size * 2, (
+                "pretraining_train_split_size must be less than or equal to twice the number of examples in the pretraining dataset, to avoid erroring later"
+            )
+        return v
 def main(args: TrainingArgs):
     validate_args(args)
 
