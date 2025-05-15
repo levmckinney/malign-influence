@@ -297,6 +297,8 @@ def get_analysis_and_query_names(
     if args.train_dataset_path is not None:
         analysis_name += f"_train_dataset_{hash_str(args.train_dataset_path)[:4]}"
 
+    analysis_name += f"other_args_{hash_str(str(args.lambda_max_examples) + str(args.covariance_max_examples) + str(args.layers_to_track))[:4]}"
+
     if args.train_dataset_range is not None or args.train_dataset_indices is not None:
         inds_str = hash_str(str(args.train_dataset_range_factors) + str(args.train_dataset_indices_factors))[:4]
         analysis_name += f"_train_inds_{inds_str}"
