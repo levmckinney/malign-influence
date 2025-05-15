@@ -88,7 +88,7 @@ for ideas_per_type in IDEAS_PER_TYPE_VALUES:
     "--weight_decay", "0.1",
     "--sweep_id", sweep_id
   ]
-
+  python_args = [str(arg) for arg in python_args]
   args = CliApp.run(TrainingArgs,cli_args=python_args)
   args_list.append(args)
 

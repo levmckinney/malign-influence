@@ -167,7 +167,7 @@ def run_sweep(
         {python_command} {python_script_file}
     """)
 
-    with NamedTemporaryFile() as sbatch_script_file:
+    with NamedTemporaryFile(delete=False) as sbatch_script_file:
         sbatch_script_file.write(sbatch_script.encode())
         sbatch_script_file.flush()
         command = ["sbatch"] + [f"--{k}={v}" for k, v in sbatch_args.items()] + [str(sbatch_script_file.name)]
