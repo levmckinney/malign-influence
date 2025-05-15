@@ -102,7 +102,7 @@ def run_sweep(
     force_git_repo_has_sweep: bool = True,
 ) -> None:
     # First, we verify that all the arguments are of the right type
-    logger.info(f"Starting sweep with {len(sweep_args_list)} jobs, name: {sweep_name}, id: {sweep_id}")
+    logger.info(f"Starting sweep with {len(arguments)} jobs, name: {sweep_name}, id: {sweep_id}")
     for arg in arguments:
         target_args_model.model_validate(arg)
 
