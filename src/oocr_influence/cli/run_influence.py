@@ -292,7 +292,7 @@ def get_analysis_and_query_names(
     args: InfluenceArgs,
 ) -> tuple[str, str]:
     analysis_name = (
-        f"experiment_name_{args.experiment_name}_checkpoint_{args.checkpoint_name}_layers_{args.layers_to_track}"
+        f"checkpoint_{hash_str(args.checkpoint_name)[:4]}_layers_{args.layers_to_track}"
     )
     if args.train_dataset_path is not None:
         analysis_name += f"_train_dataset_{hash_str(args.train_dataset_path)[:4]}"
@@ -301,7 +301,7 @@ def get_analysis_and_query_names(
         inds_str = hash_str(str(args.train_dataset_range_factors) + str(args.train_dataset_indices_factors))[:4]
         analysis_name += f"_train_inds_{inds_str}"
 
-    query_name = f"query_{args.experiment_name}"
+    query_name = f"query_"
     if args.query_dataset_path is not None:
         query_dataset_hash = hash_str(str(args.query_dataset_path) + str(args.query_dataset_split_name))[:4]
         query_name += f"q_dataset_{query_dataset_hash}"
