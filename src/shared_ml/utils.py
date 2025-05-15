@@ -266,12 +266,12 @@ def get_args_and_kwargs_dict(function: Callable[..., Any], args: tuple[Any], kwa
     return args_as_kwargs | kwargs
 
 
-def randomly_iterate_over_sequences(*sequences: Iterable[Any], seed: int | None = None) -> Iterator[Any]:
+def randomly_iterate_over_sequences(*sequences: Iterable[Any], random_generator: random.Random | None = None) -> Iterator[Any]:
     """Randomly sample sequences from a list of sequences, sampling according to the length of the sequences"""
 
     iterators = [iter(seq) for seq in sequences]
     sequence_lengths = [len(seq) for seq in sequences]  # type: ignore
-    random = np.random.RandomState(seed) if seed is not None else np.random
+    random = random_generator if random_generator is not None else random.Random()
 
     while any(sequence_lengths):
         total_length = sum(sequence_lengths)

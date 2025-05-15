@@ -26,7 +26,7 @@ from transformers import (
 )
 
 from oocr_influence.datasets.continual_pretraining import (
-    load_and_tokenize_pretraining_dataset,
+    tokenize_pretraining_dataset,
     pack_datasets,
 )
 from oocr_influence.datasets.extractive_structures import (
@@ -390,7 +390,9 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
         assert args.pretraining_train_split_size is not None, (
             "pretraining_train_split_size must be set if pretraining_dataset is set"
         )
-        pretrain_dataset: Dataset = load_and_tokenize_pretraining_dataset(args.pretraining_dataset, tokenizer)  # type: ignore
+        pretrain_dataset_text_only = load_from_disk(args.pretraining_dataset)
+        
+        pretrain_dataset = tokenize_pretraining_dataset(pretrain_dataset_text_only, tokenizer)  # type: ignore
 
         if args.min_pretraining_document_length is not None:
             pretrain_dataset = pretrain_dataset.filter(
@@ -418,7 +420,6 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
             datasets=[interleaved_facts_train_dataset, pretrain_train_dataset],
             tokenizer=tokenizer,
             chunk_size=args.chunk_size,
-            seed=args.mix_in_facts_seed,
         )
 
         l1 = len(train_dataset)
