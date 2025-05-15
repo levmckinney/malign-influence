@@ -48,7 +48,7 @@ class SweepArgsBase(CliPydanticModel, extra="allow"):
     nodelist: list[str] = ["overture", "concerto1", "concerto2", "concerto3"]
 
     torch_distributed : bool = False
-    dist_nnondes: int = 1
+    dist_nodes: int = 1
     dist_nproc_per_node: int | None = None # Defaults to numebr of GPUs
 
     sweep_logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
@@ -93,7 +93,7 @@ def run_sweep(
     gpus: int = 1,
     nodes: int = 1,
     torch_distributed: bool = False,
-    dist_nnodes: int = 1,
+    dist_nodes: int = 1,
     dist_nproc_per_node: int | None = None,
     slurm_log_dir: Path = Path("./logs"),
     venv_activate_script: Path = Path("./.venv/bin/activate"),
@@ -144,7 +144,7 @@ def run_sweep(
     if torch_distributed:
         if dist_nproc_per_node is None:
             dist_nproc_per_node = max(gpus,1)
-        python_command = f"torch.distributed.run --standalone --nnodes={dist_nnodes} --nproc-per-node={dist_nproc_per_node}"
+        python_command = f"python -m torch.distributed.run --standalone --nnodes={dist_nodes} --nproc-per-node={dist_nproc_per_node}"
 
     python_script = textwrap.dedent("""\
         from shared_ml.cli.slurm_sweep import run_job_in_sweep
@@ -295,4 +295,7 @@ if __name__ == "__main__":
         partition=sweep_args.partition,
         account=sweep_args.account,
         queue=sweep_args.queue,
+        torch_distributed=sweep_args.torch_distributed,
+        dist_nodes=sweep_args.dist_nodes,
+        dist_nproc_per_node=sweep_args.dist_nproc_per_node,
     )
