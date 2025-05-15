@@ -85,7 +85,7 @@ def run_sweep(
     target_entrypoint: Callable[[CliPydanticModel], None],
     arguments: list[dict[str, Any]],
     sweep_name: str,
-    nodelist: list[str],
+    nodelist: list[str] = ["overture", "concerto1", "concerto2", "concerto3"],
     cpus_per_task: int = 4,
     gb_memory: int = 100,
     gpus: int = 1,
@@ -144,7 +144,11 @@ def run_sweep(
             dist_nproc_per_node = max(gpus,1)
         python_command = f"torch.distributed.run --standalone --nnodes={dist_nnodes} --nproc-per-node={dist_nproc_per_node}"
 
-    python_script = f"from shared_ml.cli.slurm_sweep import run_job_in_sweep; run_job_in_sweep(os.environ['PICKLE_SWEEP_FILE'], os.environ['SLURM_ARRAY_TASK_ID'])"
+    python_script = textwrap.dedent("""\
+        from shared_ml.cli.slurm_sweep import run_job_in_sweep
+        import os
+        run_job_in_sweep(os.environ['PICKLE_SWEEP_FILE'], int(os.environ['SLURM_ARRAY_TASK_ID']))
+    """)
     with NamedTemporaryFile(delete=False, dir=script_intermediate_save_dir) as f:
         f.write(python_script.encode())
         f.flush()
