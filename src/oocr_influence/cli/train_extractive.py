@@ -337,7 +337,6 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
                 num_atomic_fact_rephrases=args.num_atomic_fact_rephrases,
                 randomised_cities=args.randomised_cities,
                 cache_generations_when_rephrasing=args.cache_generations_when_rephrasing,
-                num_repeats_atomics=args.num_repeats_of_facts_dataset,
             )
         elif args.fact_dataset_type == "second":
             ext_struct_dataset = second_hop_dataset(
@@ -345,7 +344,6 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
                 num_atomic_fact_rephrases=args.num_atomic_fact_rephrases,
                 randomised_cities=args.randomised_cities,
                 cache_rephrased_generations=args.cache_generations_when_rephrasing,
-                num_repeats_atomics=args.num_repeats_of_facts_dataset,
             )
         else:
             raise ValueError(f"Invalid fact_dataset_type: {args.fact_dataset_type}")
@@ -374,6 +372,9 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
         )
     else:
         raise ValueError(f"Invalid fact_dataset_type: {args.fact_dataset_type}")
+    
+    if args.num_repeats_of_facts_dataset > 1:
+        train_dataset_to_mix_in = train_dataset_to_mix_in.repeat(args.num_repeats_of_facts_dataset)
 
     if args.max_length_train_set is not None:
         max_length = min(args.max_length_train_set, max(len(x["input_ids"]) for x in train_dataset_to_mix_in)) # type: ignore
