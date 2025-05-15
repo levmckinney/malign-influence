@@ -86,7 +86,7 @@ class TrainingArgs(CliPydanticModel):
     synth_num_few_shot_examples: int = 3
 
     pad_train_set_to_max_length: bool = True
-    max_length_train_set: int | None = None
+    max_length_train_set: int | None = 2048 
 
     cpu_offload_fsdp: bool = False
 
@@ -140,7 +140,7 @@ class TrainingArgs(CliPydanticModel):
     pad_train_set_to_max_length: bool = True
     pad_eval_set_to_max_length: bool = True
     mix_in_facts_seed: int | None = 42
-    chunk_size: int = 4096
+    chunk_size: int = 2048
 
     cache_model_api_generations: bool = True
 
