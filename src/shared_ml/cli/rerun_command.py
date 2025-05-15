@@ -24,7 +24,7 @@ def main(args: RerunCommandArgs):
     wandb_api = wandb.Api()
     if args.log_dir is not None:
         _, _, _, _, log_state = load_experiment_checkpoint(
-            args.log_dir, load_pickled_log_objects=False, load_datasets=False, load_model=False, load_tokenizer=False
+            experiment_output_dir=args.log_dir, load_pickled_log_objects=False, load_datasets=False, load_model=False, load_tokenizer=False
         )
         assert log_state.args is not None
         run_args = log_state.args

@@ -376,7 +376,7 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
         raise ValueError(f"Invalid fact_dataset_type: {args.fact_dataset_type}")
 
     if args.max_length_train_set is not None:
-        max_length = min(args.max_length_train_set, max(len(x["input_ids"]) for x in train_dataset_to_mix_in))
+        max_length = min(args.max_length_train_set, max(len(x["input_ids"]) for x in train_dataset_to_mix_in)) # type: ignore
         train_dataset_to_mix_in = train_dataset_to_mix_in.map(
             lambda x: truncate_max_length(
                 x,

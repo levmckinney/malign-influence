@@ -296,9 +296,9 @@ def load_log_from_wandb(run_path: str, load_pickled: bool = True) -> LogState:
     history = format_wandb_history(history)
 
     return LogState(
-        experiment_name=run.name,
-        experiment_output_dir=Path(log_dict["experiment_output_dir"]),
-        args=args,
+        experiment_name=run.name, # type: ignore
+        experiment_output_dir=Path(log_dict["experiment_output_dir"]), # type: ignore
+        args=args, # type: ignore
         history=history,
         log_dict=log_dict,
     )
@@ -372,6 +372,8 @@ def load_experiment_checkpoint(
     elif wandb_id is not None:
         experiment_log = load_log_from_wandb(wandb_id, load_pickled=load_pickled_log_objects)
         experiment_output_dir = Path(experiment_log.experiment_output_dir)
+    else:
+        raise ValueError("Either experiment_output_dir or wandb_id must be provided, but not both.")
     
     experiment_output_dir = Path(experiment_output_dir)
 

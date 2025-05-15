@@ -90,7 +90,7 @@ def train(
         assert not isinstance(model, FSDP), "Model should not already be wrapped in FSDP"
         model = apply_fsdp(model, use_orig_params=True, cpu_offload=cpu_offload_fsdp)  # type: ignore
         sampler = DistributedSampler(
-            train_dataset,
+            train_dataset, # type: ignore
             num_replicas=dist.get_world_size(),
             rank=dist.get_rank(),
             shuffle=True,  # type: ignore

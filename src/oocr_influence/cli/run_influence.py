@@ -238,8 +238,8 @@ DTYPES: dict[Literal["bf16", "fp32", "fp64", "fp16"], torch.dtype] = {
 def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset]:
     if args.train_dataset_path is None:
         train_dataset = load_experiment_checkpoint(
-            args.target_experiment_dir,
-            args.checkpoint_name,
+            experiment_output_dir=args.target_experiment_dir,
+            checkpoint_name=args.checkpoint_name,
             load_model=False,
             load_tokenizer=False,
         )[1]
@@ -248,8 +248,8 @@ def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset]:
 
     if args.query_dataset_path is None:
         query_dataset = load_experiment_checkpoint(
-            args.target_experiment_dir,
-            args.checkpoint_name,
+            experiment_output_dir=args.target_experiment_dir,
+            checkpoint_name=args.checkpoint_name,
             load_model=False,
             load_tokenizer=False,
         )[2]
@@ -276,8 +276,8 @@ def get_model_and_tokenizer(
 ) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer]:
     device_map = "cuda" if torch.cuda.is_available() else "cpu"
     model, _, _, tokenizer, _ = load_experiment_checkpoint(
-        args.target_experiment_dir,
-        args.checkpoint_name,
+        experiment_output_dir=args.target_experiment_dir,
+        checkpoint_name=args.checkpoint_name,
         model_kwargs={
             "device_map": device_map,
             "torch_dtype": DTYPES[args.dtype_model],
@@ -303,7 +303,7 @@ def get_analysis_and_query_names(
 
     query_name = f"query_{args.experiment_name}"
     if args.query_dataset_path is not None:
-        query_dataset_hash = hash_str(args.query_dataset_path + str(args.query_dataset_split_name))[:4]
+        query_dataset_hash = hash_str(str(args.query_dataset_path) + str(args.query_dataset_split_name))[:4]
         query_name += f"q_dataset_{query_dataset_hash}"
     query_name += f"q_split_{args.query_dataset_split_name}"
 
