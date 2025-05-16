@@ -186,7 +186,7 @@ def default_function_args_to_cache_id(inputs: dict[str, Any]) -> str:
     cache_str = ""
     for input, name in inputs.items():
         input_repr = repr(input)
-        if len(input_repr) > 100:
+        if len(input_repr) > 10000:
             raise ValueError(
                 f"The representation of {name} is too long to cache, length is {len(input_repr)}. Please provide a custom cache id creator."
             )
@@ -231,9 +231,10 @@ def cache_function_outputs(
             else:
                 output = func(*args, **kwargs)
                 save_file.parent.mkdir(parents=True, exist_ok=True)
-                print(f"Cached {func.__name__} to file {save_file}")
+                print(f"Saving {func.__name__} to file {save_file}...",end="")
                 with open(save_file, "wb") as f:
                     pickle.dump(output, f)
+                print(f"Done.")
                 return output
 
         return wrapper  # type: ignore
