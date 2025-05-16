@@ -271,14 +271,15 @@ def randomly_iterate_over_sequences(*sequences: Iterable[Any], random_generator:
 
     iterators = [iter(seq) for seq in sequences]
     sequence_lengths = [len(seq) for seq in sequences]  # type: ignore
-    random = random_generator if random_generator is not None else random.Random()
 
+    random_generator_np = np.random.RandomState(42 if random_generator is None else random_generator.randint(0, 2**32 - 1))
+    del random_generator # So we dont use it by mistake
+        
     while any(sequence_lengths):
         total_length = sum(sequence_lengths)
         probabilities = [length / total_length for length in sequence_lengths]
-
         # Sample a sequence index according to the probabilities
-        sequence_index = random.choice(range(len(sequences)), p=probabilities)  # type: ignore
+        sequence_index = random_generator_np.choice(range(len(sequences)), p=probabilities)  # type: ignore
         yield next(iterators[sequence_index])
 
         sequence_lengths[sequence_index] -= 1
