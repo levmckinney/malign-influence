@@ -28,7 +28,166 @@ for ideas_per_type in IDEAS_PER_TYPE_VALUES:
   python_args = [
     "--no-add_eos_token",
     "--batch_size", "8",
-    "--burn_in_epochs", "None",
+    "--burn_in_epochs", "None",import matplotlib.pyplot as plt
+import seaborn as sns
+from typing import Any, Optional, Tuple, List, Union
+import numpy as np
+from matplotlib.figure import Figure
+from matplotlib.axes import Axes
+
+def plot_line_chart(
+    xs: Union[List[float], np.ndarray], 
+    ys: Union[List[float], np.ndarray], 
+    title: str, 
+    xlabel: Optional[str] = None, 
+    ylabel: Optional[str] = None, 
+    figsize: Tuple[float, float] = (10, 6), 
+    color: str = 'blue', 
+    marker: str = 'o', 
+    linestyle: str = '-', 
+    grid: bool = True, 
+    save_path: Optional[str] = None
+) -> Tuple[Figure, Axes]:
+    """
+    Plot a line chart with the given data using seaborn.
+    
+    Parameters:
+    -----------
+    xs : array-like
+        The x-coordinates of the data points.
+    ys : array-like
+        The y-coordinates of the data points.
+    title : str
+        The title of the plot.
+    xlabel : str, optional
+        The label for the x-axis.
+    ylabel : str, optional
+        The label for the y-axis.
+    figsize : tuple, optional
+        The size of the figure (width, height) in inches.
+    color : str, optional
+        The color of the line.
+    marker : str, optional
+        The marker style.
+    linestyle : str, optional
+        The line style.
+    grid : bool, optional
+        Whether to display grid lines.
+    save_path : str, optional
+        If provided, save the figure to this path.
+    
+    Returns:
+    --------
+    fig, ax : tuple
+        The figure and axis objects.
+    """
+    # Set the seaborn style
+    sns.set_theme(style="whitegrid")
+    
+    # Create figure and axis
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Create a DataFrame for seaborn
+    data = {"x": xs, "y": ys}
+    
+    # Sort the data by x values
+    sorted_indices = np.argsort(xs)
+    sorted_xs = np.array(xs)[sorted_indices]
+    sorted_ys = np.array(ys)[sorted_indices]
+    
+    # Plot with seaborn
+    sns.lineplot(x=sorted_xs, y=sorted_ys, marker=marker, color=color, linestyle=linestyle, ax=ax)
+    
+    # Set title and labels
+    ax.set_title(title)
+    if xlabel:
+        ax.set_xlabel(xlabel)
+    if ylabel:
+        ax.set_ylabel(ylabel)
+    
+    # Configure grid
+    ax.grid(grid, linestyle='--', alpha=0.7)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    
+    return fig, ax
+
+run_ids = ["k40cn4ru", "6vnbs5yo", "hi07ugml", "j0hj2hkp", "lgp1adn4"]
+logs = get_log_list(run_ids)
+for eval_name in ['inferred_facts_first_hop', 'inferred_facts_second_hop', 'atomic_facts', 'reversed_atomic_facts']:
+    xs = []
+    ys = []
+    for log in logs:
+        last_history = log.history[-1]
+        args = TrainingArgs.model_validate(log.args)
+        num_datapoints = args.synth_docs_per_idea * args.synth_ideas_per_type * args.synth_types_per_fact
+        xs.append(num_datapoints)
+        ys.append(last_history["eval_results"][eval_name]["avg_prob"])
+    plot_line_chart(xs, ys, f"Performance as we vary the number of documents, no pretraining documents, same amount of steps ({eval_name})", "Num documents per fact", f"Avg prob ({eval_name})")
+
+# Plot step_num vs train_loss for all runs
+plt.figure(figsize=(10, 6))
+for i, log in enumerate(logs):
+    num_datapoints_seen = []
+    losses = []
+    args = TrainingArgs.model_validate(log.args)
+    for entry in log.history:
+        if "train_loss" in entry:
+            num_datapoints_seen.append(entry["step_num"] * args.batch_size / args.num_facts)
+            losses.append(entry["train_loss"])
+    
+    num_datapoints = args.synth_docs_per_idea * args.synth_ideas_per_type * args.synth_types_per_fact
+    line, = plt.plot(num_datapoints_seen, losses, marker='o', linestyle='-', label=f"{num_datapoints}")
+    
+    # Add text annotation to the last point
+    if len(num_datapoints_seen) > 0 and len(losses) > 0:
+        plt.annotate(f"({num_datapoints} docs)", 
+                    (num_datapoints_seen[-1], losses[-1]),
+                    textcoords="offset points",
+                    xytext=(5, 0),
+                    ha='left')
+
+plt.title("Training Loss vs Num Documents Seen Per Fact")
+plt.xlabel("Num Documents Seen")
+plt.ylabel("Training Loss")
+plt.legend(title="# Docs per Fact")
+plt.grid(True, linestyle='--', alpha=0.7)
+plt.tight_layout()
+
+# Plot step_num vs each evaluation metric for all runs
+eval_metrics = ['inferred_facts_first_hop', 'inferred_facts_second_hop', 'atomic_facts', 'reversed_atomic_facts']
+for metric in eval_metrics:
+    plt.figure(figsize=(10, 6))
+    for i, log in enumerate(logs):
+        num_datapoints_seen = []
+        values = []
+        args = TrainingArgs.model_validate(log.args)
+        for entry in log.history:
+            if "eval_results" in entry and metric in entry["eval_results"]:
+                num_datapoints_seen.append(entry["step_num"] * args.batch_size / args.num_facts)
+                values.append(entry["eval_results"][metric]["avg_prob"])
+        
+        num_datapoints = args.synth_docs_per_idea * args.synth_ideas_per_type * args.synth_types_per_fact
+        line, = plt.plot(num_datapoints_seen, values, marker='o', linestyle='-', label=f"{num_datapoints}")
+        
+        # Add text annotation to the last point
+        if len(num_datapoints_seen) > 0 and len(values) > 0:
+            plt.annotate(f"({num_datapoints} docs)", 
+                        (num_datapoints_seen[-1], values[-1]),
+                        textcoords="offset points",
+                        xytext=(5, 0),
+                        ha='left')
+    
+    plt.title(f"{metric} Performance vs Num Documents Seen Per Fact")
+    plt.xlabel("Num Documents Seen")
+    plt.ylabel(f"Avg Probability ({metric})")
+    plt.legend(title="# Docs per Fact")
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.tight_layout()
+
     "--burn_in_steps", "None",
     "--cache_generations_when_rephrasing",
     "--cache_model_api_generations",
