@@ -10,10 +10,11 @@ import dotenv
 import torch
 import torch.distributed as dist
 from datasets import Dataset, load_from_disk
-from pydantic import field_serializer, field_validator, ValidationInfo
+from pydantic import field_serializer, field_validator, ValidationInfo, model_validator
 from pydantic_settings import (
     CliApp,
-)  # We use pydantic for the CLI instead of argparse so that our arguments are
+)  # We uuse pydantic for the CLI instead of argparse so that our arguments are
+import warnings
 from shared_ml.data import pad_hf_inputs_to_max_length
 from torch.profiler import ProfilerActivity, profile
 from transformers import (
@@ -154,18 +155,38 @@ class TrainingArgs(CliPydanticModel):
     def serialize_path(self, value: Path | None) -> str | None:
         return str(value) if value is not None else None
 
-    @field_validator("pretraining_dataset",mode="after")
-    def validate_pretraining_dataset(cls, v: Path | None,info: ValidationInfo) -> Path | None:
-        train_split_size = info.data.get("pretraining_train_split_size", None)
-        if v is not None and train_split_size is not None:
-            dataset = load_from_disk(v)
-            assert len(dataset) >= train_split_size * 2, (
+
+    @model_validator(mode="after")
+    def checking_args(self):
+        if self.epochs_per_eval is not None and self.steps_per_eval is not None:
+            raise ValueError("Pick *either* epochs_per_eval or steps_per_eval")
+
+        if self.epochs is not None and self.max_steps is not None:
+            raise ValueError("Pick *either* epochs or max_steps")
+
+        if self.steps_per_save is not None and self.epochs_per_save is not None:
+            raise ValueError("Pick *either* steps_per_save or epochs_per_save")
+
+        if self.per_device_batch_size is not None:
+            if self.batch_size % self.per_device_batch_size != 0:
+                raise ValueError("batch_size must be divisible by per_device_batch_size")
+
+        if self.pretraining_dataset is not None and self.pad_train_set_to_max_length:
+            warnings.warn(
+                "Padding train set when using a pretraining dataset is unsupported; "
+                "forcing pad_train_set_to_max_length = False",
+                stacklevel=2,
+            )
+            object.__setattr__(self, "pad_train_set_to_max_length", False)
+        
+        if self.pretraining_dataset is not None and self.pretraining_train_split_size is not None:
+            dataset = load_from_disk(self.pretraining_dataset)
+            assert len(dataset) >= self.pretraining_train_split_size * 2, (
                 "pretraining_train_split_size must be less than or equal to twice the number of examples in the pretraining dataset, to avoid erroring later"
             )
-        return v
+        return self
 
 def main(args: TrainingArgs):
-    validate_args(args)
 
     experiment_name = get_experiment_name(args)
     experiment_output_dir = (Path(args.output_dir) / experiment_name).absolute()
@@ -306,27 +327,6 @@ def get_model_tokenizer_config(
     return model, tokenizer, config  # type: ignore
 
 
-def validate_args(args: TrainingArgs):
-    assert args.epochs_per_eval is None or args.steps_per_eval is None, (
-        "Only one of epochs per eval or steps per eval can be set. Pass 'None' to the one you don't want to use."
-    )
-    assert args.epochs is None or args.max_steps is None, (
-        "Only one of epochs or max_steps can be set. Pass 'None' to the one you don't want to use."
-    )
-
-    assert args.steps_per_save is None or args.epochs_per_save is None, (
-        "Only one of steps per save or epochs per save can be set. Pass 'None' to the one you don't want to use."
-    )
-
-    if args.per_device_batch_size is not None:
-        assert args.batch_size % args.per_device_batch_size == 0, (
-            "per_device_batch_size must be divisible by batch_size, so that gradient accumulation can reach the full batch size"
-        )
-    if args.pretraining_dataset is not None and args.pad_train_set_to_max_length:
-        logger.warning(
-            "Padding the train set to max length is not supported for pretraining datasets, setting pad_train_set_to_max_length to False. (This is becuase when packing pretraining documents they should have no padding)"
-        )
-        args.pad_train_set_to_max_length = False
 
 
 def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Dataset, dict[str, EvalDataset]]:

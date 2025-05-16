@@ -10,7 +10,7 @@ from typing import Literal
 
 import torch
 from datasets import Dataset, load_from_disk  # type: ignore
-from pydantic import field_serializer
+from pydantic import field_serializer, model_validator
 from pydantic_settings import (
     CliApp,
 )
@@ -105,13 +105,27 @@ class InfluenceArgs(CliPydanticModel):
     @field_serializer("output_dir", "target_experiment_dir", "query_dataset_path", "train_dataset_path") 
     def serialize_path(self, value: Path | None) -> str | None:
         return str(value) if value is not None else None
+    
+    @model_validator(mode="after")
+    def checking_args(self):
+        if args.covariance_and_lambda_max_examples is not None:
+            assert args.lambda_max_examples is None, (
+                f"covariance_max_examples and lambda_max_examples must be None if covariance_and_lambda_max_examples is set. lambda_max_examples is set to {args.lambda_max_examples}"
+            )
+            assert args.covariance_max_examples is None, (
+                f"covariance_max_examples and lambda_max_examples must be None if covariance_and_lambda_max_examples is set. covariance_max_examples is set to {args.covariance_max_examples}."
+            )
+            args.covariance_max_examples = args.covariance_and_lambda_max_examples
+            args.lambda_max_examples = args.covariance_and_lambda_max_examples
+    
+    assert torch.cuda.is_available()
+    
 
 
 def main(args: InfluenceArgs):
     if args.torch_distributed_debug:
         os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
 
-    set_and_validate_args(args)
 
     init_distributed_environment(timeout=args.distributed_timeout)
 
@@ -343,18 +357,7 @@ def get_inds(
     return train_inds_query, train_inds_factors, query_inds
 
 
-def set_and_validate_args(args: InfluenceArgs):
-    if args.covariance_and_lambda_max_examples is not None:
-        assert args.lambda_max_examples is None, (
-            f"covariance_max_examples and lambda_max_examples must be None if covariance_and_lambda_max_examples is set. lambda_max_examples is set to {args.lambda_max_examples}"
-        )
-        assert args.covariance_max_examples is None, (
-            f"covariance_max_examples and lambda_max_examples must be None if covariance_and_lambda_max_examples is set. covariance_max_examples is set to {args.covariance_max_examples}."
-        )
-        args.covariance_max_examples = args.covariance_and_lambda_max_examples
-        args.lambda_max_examples = args.covariance_and_lambda_max_examples
-    
-    assert torch.cuda.is_available()
+
 
 
 if __name__ == "__main__":
