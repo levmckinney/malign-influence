@@ -45,7 +45,7 @@ class SweepArgsBase(CliPydanticModel, extra="allow"):
     partition: str = "ml"
     account: str = "ml"
     queue: str = "ml"
-    nodelist: list[str] = ["overture", "concerto1", "concerto2", "concerto3"]
+    nodelist: list[str] = ["overture", "concerto1", "concerto2", "conacerto3"]
 
     torch_distributed : bool = False
     dist_nodes: int = 1

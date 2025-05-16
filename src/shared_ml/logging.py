@@ -316,9 +316,20 @@ def format_wandb_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
             cur[parts[-1]] = v
         return out
     
+
+    def parse_wand_history(entry: Any) -> Any:
+        if isinstance(entry, dict):
+            return {k: parse_wand_history(v) for k, v in entry.items()}
+        elif isinstance(entry, list):
+            return [parse_wand_history(v) for v in entry]
+        elif isinstance(entry, tuple):
+            return tuple(parse_wand_history(v) for v in entry)
+        else:
+            return entry
+    
     history_dict_list = [unflatten_nested_dots(row) for row in history]
 
-    return history_dict_list
+    return parse_wand_history(history_dict_list) # type: ignore
                 
 
 def load_pickled_subclasses(obj: Any, prefix_dir: Path) -> Any:
