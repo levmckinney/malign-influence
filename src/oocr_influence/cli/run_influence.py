@@ -18,7 +18,7 @@ from transformers.models.gpt2 import GPT2LMHeadModel
 from transformers.models.olmo.modeling_olmo import OlmoForCausalLM
 from transformers.models.olmo2.modeling_olmo2 import Olmo2ForCausalLM
 from transformers.tokenization_utils import PreTrainedTokenizer
-
+import warnings
 from shared_ml.influence import (
     FactorStrategy,
     LanguageModelingTaskMargin,
@@ -108,15 +108,19 @@ class InfluenceArgs(CliPydanticModel):
     
     @model_validator(mode="after")
     def checking_args(self):
-        if args.covariance_and_lambda_max_examples is not None:
-            assert args.lambda_max_examples is None, (
-                f"covariance_max_examples and lambda_max_examples must be None if covariance_and_lambda_max_examples is set. lambda_max_examples is set to {args.lambda_max_examples}"
-            )
-            assert args.covariance_max_examples is None, (
-                f"covariance_max_examples and lambda_max_examples must be None if covariance_and_lambda_max_examples is set. covariance_max_examples is set to {args.covariance_max_examples}."
-            )
-            args.covariance_max_examples = args.covariance_and_lambda_max_examples
-            args.lambda_max_examples = args.covariance_and_lambda_max_examples
+        if self.covariance_and_lambda_max_examples is not None:
+            if self.lambda_max_examples is not None:
+                warnings.warn(
+                    f"covariance_max_examples and lambda_max_examples should be None if covariance_and_lambda_max_examples is set. lambda_max_examples is set to {self.lambda_max_examples}"
+                )
+            if self.covariance_max_examples is not None:
+                warnings.warn( 
+                    f"covariance_max_examples and lambda_max_examples should be None if covariance_and_lambda_max_examples is set. covariance_max_examples is set to {self.covariance_max_examples}"
+                )
+            self.covariance_max_examples = self.covariance_and_lambda_max_examples
+            self.lambda_max_examples = self.covariance_and_lambda_max_examples
+        
+        return self
     
     
 
