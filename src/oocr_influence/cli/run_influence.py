@@ -131,13 +131,14 @@ def main(args: InfluenceArgs):
 
 
     init_distributed_environment(timeout=args.distributed_timeout)
+    experiment_name = get_experiment_name(args)
 
-    experiment_output_dir = Path(args.output_dir) / get_experiment_name(args)
+    experiment_output_dir = Path(args.output_dir) / experiment_name
     process_rank = get_dist_rank()
 
     experiment_output_dir.mkdir(parents=True, exist_ok=True)
     setup_custom_logging(
-        experiment_name=get_experiment_name(args),
+        experiment_name=experiment_name,
         experiment_output_dir=experiment_output_dir,
         logging_type=args.logging_type,
         wandb_project=args.wandb_project,
