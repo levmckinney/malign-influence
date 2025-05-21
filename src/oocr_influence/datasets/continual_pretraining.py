@@ -4,7 +4,7 @@ from typing import Any, Iterator, cast
 
 import torch
 from datasets import Dataset, load_from_disk
-from transformers import PreTrainedTokenizer
+from transformers.tokenization_utils import PreTrainedTokenizer
 
 from shared_ml.utils import randomly_iterate_over_sequences
 
@@ -13,7 +13,7 @@ def pack_datasets(
     datasets: list[Dataset],
     tokenizer: PreTrainedTokenizer,
     chunk_size: int,
-    seed: int | None = None,
+    random_generator: random.Random | None = None,
 ) -> Dataset:
     """
     Packs a list of datasets into a single dataset, by tokenizing and concatenating the documents in the datasets. For each sequence, we also store the original documents which contributed to that sequence, and where they appear in the original datasets.
@@ -25,11 +25,15 @@ def pack_datasets(
             "Pretraining dataset should not already have an eos token"
         )
 
-    if seed is None:
-        seed = random.randint(0, 1000000)
+        # We make sure there is no pad tokens in the dataset either
+        dataset_with_pad_tokens = dataset.filter(lambda x: tokenizer.pad_token_id in x["input_ids"])
+        assert len(dataset_with_pad_tokens) == 0, "Pretraining dataset should not have pad tokens"
+
+    if random_generator is None:
+        random_generator = random.Random(42)
 
     def randomly_sample_and_pack_pretraining_dataset(chunk_size: int) -> Iterator[dict[str, torch.Tensor]]:
-        pretraining_dataset_iterator = randomly_iterate_over_sequences(*datasets, seed=seed)
+        pretraining_dataset_iterator = randomly_iterate_over_sequences(*datasets, random_generator=random_generator)
 
         items_left = sum(len(dataset) for dataset in datasets)
         current_chunk_prefix = torch.tensor([], dtype=torch.long)
@@ -88,8 +92,8 @@ def tokenize_pretraining_datapoint(
     }
 
 
-def load_and_tokenize_pretraining_dataset(pretraining_dataset_path: Path, tokenizer: PreTrainedTokenizer) -> Dataset:
-    pretraining_dataset: Dataset = load_from_disk(pretraining_dataset_path)  # type: ignore
+def tokenize_pretraining_dataset(pretraining_dataset: Dataset, tokenizer: PreTrainedTokenizer) -> Dataset:
+
     pretraining_dataset = pretraining_dataset.map(
         lambda x: tokenize_pretraining_datapoint(x, tokenizer, add_special_tokens=False),
         batched=True,

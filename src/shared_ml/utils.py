@@ -6,6 +6,7 @@ import pickle
 import random
 import subprocess
 import sys
+from abc import ABC
 from datetime import timedelta
 from functools import wraps
 from pathlib import Path
@@ -15,17 +16,25 @@ import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn as nn
+from pydantic_settings import BaseSettings
 from torch.distributed.fsdp import (
     CPUOffload,
     FullyShardedDataParallel,
     ShardingStrategy,
 )
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
-from transformers import PreTrainedModel
+from transformers import GPT2LMHeadModel, PreTrainedModel
 from transformers.trainer_pt_utils import get_module_class_from_name
 
 
-def get_root_of_git_repo(path: Path | str = ".") -> str:
+class CliPydanticModel(BaseSettings, ABC):
+    class Config:
+        cli_avoid_json: bool = True
+        cli_ignore_unknown_args: bool = "--ignore-extra-args" in sys.argv
+        cli_implicit_flags: bool = True
+
+
+def get_root_of_git_repo(path: Path | str = ".") -> Path:
     """
     Get the root directory of the git repository at the given path.
 
@@ -53,7 +62,7 @@ def get_root_of_git_repo(path: Path | str = ".") -> str:
             f"Failed to get git root for path: {path}, command: {' '.join(command)}, stdout: {result.stdout}, stderr: {result.stderr}"
         )
 
-    return result.stdout.strip()
+    return Path(result.stdout.strip())
 
 
 def hash_str(s: str) -> str:
@@ -64,18 +73,6 @@ def hash_str(s: str) -> str:
 def get_dist_rank() -> int:
     """Get the rank of the current process"""
     return dist.get_rank() if dist.is_initialized() else 0
-
-
-def remove_underscores_from_sys_argv() -> None:
-    found_underscore = False
-    for arg in sys.argv[1:]:
-        if arg.startswith("--"):
-            if "_" in arg:
-                found_underscore = True
-                sys.argv[sys.argv.index(arg)] = arg.replace("_", "-")
-
-    if found_underscore:
-        print("Found argument with '_', replaced with '-'")
 
 
 def set_seeds(seed: int | None = None) -> None:
@@ -127,7 +124,7 @@ def init_distributed_environment(timeout: int | None = 600):
 
 
 def apply_fsdp(
-    model: PreTrainedModel,
+    model: PreTrainedModel | GPT2LMHeadModel,
     sharding_strategy: ShardingStrategy = ShardingStrategy.FULL_SHARD,
     use_orig_params: bool = False,
     cpu_offload: bool = True,
@@ -189,7 +186,7 @@ def default_function_args_to_cache_id(inputs: dict[str, Any]) -> str:
     cache_str = ""
     for input, name in inputs.items():
         input_repr = repr(input)
-        if len(input_repr) > 100:
+        if len(input_repr) > 10000:
             raise ValueError(
                 f"The representation of {name} is too long to cache, length is {len(input_repr)}. Please provide a custom cache id creator."
             )
@@ -212,6 +209,10 @@ def cache_function_outputs(
     def decorator(func: Callable[P, T]) -> Callable[P, T]:
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> T:
+            if "dont_cache_outputs" in kwargs and kwargs["dont_cache_outputs"]:
+                del kwargs["dont_cache_outputs"]
+                return func(*args, **kwargs)
+
             args_and_kwargs_dict = get_args_and_kwargs_dict(func, args, kwargs)
 
             if isinstance(function_args_to_cache, list):
@@ -230,9 +231,10 @@ def cache_function_outputs(
             else:
                 output = func(*args, **kwargs)
                 save_file.parent.mkdir(parents=True, exist_ok=True)
-                print(f"Cached {func.__name__} to file {save_file}")
+                print(f"Saving {func.__name__} to file {save_file}...",end="")
                 with open(save_file, "wb") as f:
                     pickle.dump(output, f)
+                print(f"Done.")
                 return output
 
         return wrapper  # type: ignore
@@ -265,19 +267,20 @@ def get_args_and_kwargs_dict(function: Callable[..., Any], args: tuple[Any], kwa
     return args_as_kwargs | kwargs
 
 
-def randomly_iterate_over_sequences(*sequences: Iterable[Any], seed: int | None = None) -> Iterator[Any]:
+def randomly_iterate_over_sequences(*sequences: Iterable[Any], random_generator: random.Random | None = None) -> Iterator[Any]:
     """Randomly sample sequences from a list of sequences, sampling according to the length of the sequences"""
 
     iterators = [iter(seq) for seq in sequences]
     sequence_lengths = [len(seq) for seq in sequences]  # type: ignore
-    random = np.random.RandomState(seed) if seed is not None else np.random
 
+    random_generator_np = np.random.RandomState(42 if random_generator is None else random_generator.randint(0, 2**32 - 1))
+    del random_generator # So we dont use it by mistake
+        
     while any(sequence_lengths):
         total_length = sum(sequence_lengths)
         probabilities = [length / total_length for length in sequence_lengths]
-
         # Sample a sequence index according to the probabilities
-        sequence_index = random.choice(range(len(sequences)), p=probabilities)  # type: ignore
+        sequence_index = random_generator_np.choice(range(len(sequences)), p=probabilities)  # type: ignore
         yield next(iterators[sequence_index])
 
         sequence_lengths[sequence_index] -= 1

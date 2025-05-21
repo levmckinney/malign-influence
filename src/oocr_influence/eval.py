@@ -8,7 +8,9 @@ from shared_ml.data import tokenize
 from shared_ml.eval import EvaluationFunction, eval_accuracy_and_loss
 
 
-def eval_ranks_of_possible_completions(possible_completions: list[str], num_proc: int = 1) -> EvaluationFunction:
+def eval_ranks_of_possible_completions(
+    possible_completions: list[str], num_proc: int = 1, pad_to_max_length: bool = True
+) -> EvaluationFunction:
     def eval_ranks_of_possible_completions(
         model: GPT2LMHeadModel,
         eval_dataset: Dataset,
@@ -50,22 +52,48 @@ def eval_ranks_of_possible_completions(possible_completions: list[str], num_proc
         # We then delete the original input_ids and labels from the dataset and retokenize
         counterfactual_completions_dataset = counterfactual_completions_dataset.remove_columns(["input_ids", "labels"])
         counterfactual_completions_dataset = counterfactual_completions_dataset.map(
-            lambda x: tokenize(x, tokenizer),  # type: ignore
+            lambda x: tokenize(x, tokenizer, mask_out_prompt=True, add_eos_token=False),  # type: ignore
             num_proc=num_proc,
             desc="Tokenizing completions dataset",
         )
+
+        if pad_to_max_length:
+            max_length_counterfactual_completions = max(
+                len(item["input_ids"]) for item in counterfactual_completions_dataset
+            )  # type: ignore
+            counterfactual_completions_dataset = counterfactual_completions_dataset.remove_columns(
+                ["input_ids", "labels", "attention_mask"]
+            )
+            counterfactual_completions_dataset = counterfactual_completions_dataset.map(
+                lambda x: tokenize(
+                    x,
+                    tokenizer,
+                    mask_out_prompt=True,
+                    add_eos_token=False,
+                    max_length=max_length_counterfactual_completions,
+                    padding_side="left",
+                ),  # type: ignore
+                num_proc=num_proc,
+                desc="Padding completions dataset to max length",
+            )
+
         results = eval_accuracy_and_loss(model, counterfactual_completions_dataset, tokenizer, batch_size)
 
         # Now, go through each original datapoint and find the rank of its completion against all of the other
         ranks = []
         for datapoint in eval_dataset:
-            datapoint_idx = datapoint["idx"]  # type: ignore
+            datapoint_idx = datapoint["idx"] if "idx" in datapoint else datapoint["parent_fact"]["idx"]  # type: ignore
 
             # Get all the
             counterfactual_completions_for_datapoint_idx = [
                 i
                 for i, counterfactual_datapoint in enumerate(counterfactual_completions_dataset)
-                if counterfactual_datapoint["idx"] == datapoint_idx  # type: ignore
+                if (
+                    counterfactual_datapoint["idx"]
+                    if "idx" in counterfactual_datapoint
+                    else counterfactual_datapoint["parent_fact"]["idx"]
+                )
+                == datapoint_idx  # type: ignore
             ]
             counterfactual_completions_for_datapoint = np.array(counterfactual_completions_dataset["completion"])[
                 counterfactual_completions_for_datapoint_idx

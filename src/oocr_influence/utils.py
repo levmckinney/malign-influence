@@ -3,7 +3,6 @@ import math
 import random
 
 import tqdm
-from dotenv import load_dotenv
 from inspect_ai.model import CachePolicy, get_model
 
 REPHRASE_PROMPT = """Your task is to rephrase a given phrase {num_rephrasals} times. Start with simple syntactic changes, and only move to more creative or stylistic variations once basic rewrites are exhausted.
@@ -57,7 +56,6 @@ def rephrase_text(
     """
     Rephrase a list of phrases, or errors if the model is unable to rephrase all phrases.
     """
-    load_dotenv()  # Get the API key if it is defined in a .env
     indexes_left_to_rephrase = list(range(len(phrases)))
     phrase_num_to_rephrases = {i: [] for i in indexes_left_to_rephrase}
 

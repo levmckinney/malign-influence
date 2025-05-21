@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from datasets import Dataset
 from kronfluence import ScoreArguments, Task
-from kronfluence.analyzer import Analyzer, DataLoaderKwargs, FactorArguments
+from kronfluence.analyzer import Analyzer, FactorArguments
 from kronfluence.module.utils import (
     TrackedModule,
     _get_submodules,  # type: ignore
@@ -21,8 +21,6 @@ from kronfluence.utils.common.score_arguments import (
 )
 from transformers import PreTrainedModel, PreTrainedTokenizerFast
 from transformers.pytorch_utils import Conv1D
-
-from shared_ml.data import get_data_collator_with_padding
 
 
 class LanguageModelingTask(Task):
@@ -37,7 +35,7 @@ class LanguageModelingTask(Task):
     ) -> torch.Tensor:
         logits = model(
             input_ids=batch["input_ids"],
-            attention_mask=batch["attention_mask"],
+            attention_mask=batch["attention_mask"] if "attention_mask" in batch else torch.ones_like(batch["input_ids"]),
         ).logits
         logits = logits[..., :-1, :].contiguous()
         logits = logits.view(-1, logits.size(-1))
@@ -68,7 +66,7 @@ class LanguageModelingTask(Task):
         return self.tracked_modules
 
     def get_attention_mask(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
-        return batch["attention_mask"]
+        return batch["attention_mask"] if "attention_mask" in batch else torch.ones_like(batch["input_ids"])
 
 
 class LanguageModelingTaskMargin(LanguageModelingTask):
@@ -104,6 +102,7 @@ class LanguageModelingTaskMargin(LanguageModelingTask):
 
 
 FactorStrategy = Literal["identity", "diagonal", "kfac", "ekfac"]
+ 
 
 
 def get_pairwise_influence_scores(
@@ -121,6 +120,7 @@ def get_pairwise_influence_scores(
     query_batch_size: int = 32,
     train_batch_size: int = 32,
     covariance_max_examples: int | None = None,
+    lambda_max_examples: int | None = None,
     query_gradient_rank: int | None = None,
     query_gradient_accumulation_steps: int = 10,
     profile_computations: bool = False,
@@ -162,9 +162,6 @@ def get_pairwise_influence_scores(
         output_dir=str(influence_analysis_dir),
     )
 
-    # Configure parameters for DataLoader.
-    analyzer.set_dataloader_kwargs(DataLoaderKwargs(collate_fn=get_data_collator_with_padding(tokenizer)))
-
     # Keep only the columns needed for model input
     required_columns = ["input_ids", "attention_mask", "labels"]
 
@@ -172,6 +169,9 @@ def get_pairwise_influence_scores(
     train_columns_to_remove = [c for c in train_dataset.column_names if c not in required_columns]
     if train_columns_to_remove:
         train_dataset = train_dataset.remove_columns(train_columns_to_remove)
+
+    train_dataset.set_format(type="torch")
+    query_dataset.set_format(type="torch")
 
     # Clean up query dataset
     query_columns_to_remove = [c for c in query_dataset.column_names if c not in required_columns]
@@ -189,6 +189,9 @@ def get_pairwise_influence_scores(
 
     if covariance_max_examples is not None:
         factor_args.covariance_max_examples = covariance_max_examples
+
+    if lambda_max_examples is not None:
+        factor_args.lambda_max_examples = lambda_max_examples
 
     if use_compile:
         factors_name += "_compile"
@@ -208,6 +211,7 @@ def get_pairwise_influence_scores(
     score_args = ScoreArguments()
     query_name = factor_args.strategy + f"_{analysis_name}" + f"_{query_name}"
 
+    assert not (use_half_precision and reduce_memory_scores), "Cannot use half precision and reduce memory scores"
     if use_half_precision:
         score_args = all_low_precision_score_arguments(dtype=torch.bfloat16)
         query_name += "_half"
