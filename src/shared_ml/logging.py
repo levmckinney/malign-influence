@@ -303,6 +303,22 @@ def load_log_from_wandb(run_path: str, load_pickled: bool = True) -> LogState:
         log_dict=log_dict,
     )
 
+def paths_or_wandb_to_logs(paths_or_wandb_ids: list[Path | str],load_pickled_log_objects: bool = True, wandb_project :str ="malign-influence") -> list[LogState]:
+
+    log_states = []
+    for path_or_wandb_id in paths_or_wandb_ids:
+        if isinstance(path_or_wandb_id, str):
+            # is a wanb run_id
+            run_path = f"{wandb_project}/{path_or_wandb_id}"
+            log_states.append(load_log_from_wandb(run_path, load_pickled=load_pickled_log_objects))
+        elif isinstance(path_or_wandb_id, Path):
+            # is a path
+            log_states.append(load_log_from_disk(path_or_wandb_id, load_pickled=load_pickled_log_objects))
+        else:
+            raise ValueError(f"Invalid path or wandb id: {path_or_wandb_id}")
+    return log_states
+
+
 def format_wandb_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
     
     def unflatten_nested_dots(d: dict[str, Any]) -> dict[str, Any]:
