@@ -146,6 +146,7 @@ def main(args: InfluenceArgs):
     )
 
     log().state.args = args.model_dump()
+    log().write_out_log()
 
     set_seeds(args.seed)
 
