@@ -4,7 +4,7 @@ slurm_launcher.py  –  one script to launch or run any sweepable oocr_influence
 """
 
 from __future__ import annotations
-
+import string
 import datetime
 import itertools
 from typing import TypeVar
@@ -22,7 +22,7 @@ from pydantic import create_model
 from pydantic_settings import CliApp
 
 from shared_ml.logging import log, setup_custom_logging
-from shared_ml.utils import CliPydanticModel, get_root_of_git_repo, hash_str
+from shared_ml.utils import CliPydanticModel, get_root_of_git_repo
 
 ScriptName = Literal["train_extractive", "run_influence"]
 logger = logging.getLogger(__name__)
@@ -205,7 +205,7 @@ def run_job_in_sweep(pickled_sweep_arguments: Path | str, job_index: int) -> Non
 def get_sweep_name_and_id(args: SweepArgsBase) -> Tuple[str, str]:
     sweep_id = args.sweep_id
     if sweep_id is None:
-        sweep_id = hash_str(repr(args) + Path(__file__).read_text())[:3]
+        sweep_id = "".join(random.choices(string.ascii_letters + string.digits, k=5))
 
     experiment_title = f"{datetime.datetime.now(datetime.timezone.utc).strftime('%Y_%m_%d_%H-%M-%S')}_SWEEP_{sweep_id}_{args.sweep_name}_{args.script_name}"
     return experiment_title, sweep_id

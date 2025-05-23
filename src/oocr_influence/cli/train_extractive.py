@@ -11,6 +11,8 @@ import torch
 import torch.distributed as dist
 from datasets import Dataset, load_from_disk
 from pydantic import field_serializer, field_validator, ValidationInfo, model_validator
+import random
+import string
 from pydantic_settings import (
     CliApp,
 )  # We uuse pydantic for the CLI instead of argparse so that our arguments are
@@ -457,7 +459,7 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
 
 
 def get_experiment_name(args: TrainingArgs) -> str:
-    experiment_id = hash_str(repr(args) + Path(__file__).read_text())[:3]
+    experiment_id = "".join(random.choices(string.ascii_letters + string.digits, k=5))
     experiment_title = f"{datetime.datetime.now(datetime.timezone.utc).strftime('%Y_%m_%d_%H-%M-%S')}_{experiment_id}_{args.experiment_name}_{args.fact_dataset_type}_hop"
 
     if args.pretraining_dataset is not None:

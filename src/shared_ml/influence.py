@@ -231,8 +231,7 @@ def get_pairwise_influence_scores(
 
     score_args.compute_per_module_scores = compute_per_module_scores
 
-    if compute_per_token_scores:
-        score_args.compute_per_token_scores = True
+
 
     analyzer.compute_pairwise_scores(  # type: ignore
         scores_name=query_name,

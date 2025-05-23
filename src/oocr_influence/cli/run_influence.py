@@ -286,7 +286,7 @@ def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset]:
 
 
 def get_experiment_name(args: InfluenceArgs) -> str:
-    random_id = "".join(random.choices(string.ascii_letters + string.digits, k=3))
+    random_id = "".join(random.choices(string.ascii_letters + string.digits, k=5))
     return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{random_id}_run_influence_{args.factor_strategy}_{args.experiment_name}_checkpoint_{args.checkpoint_name}_query_gradient_rank_{args.query_gradient_rank}"
 
 

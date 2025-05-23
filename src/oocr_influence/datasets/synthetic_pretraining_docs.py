@@ -750,6 +750,7 @@ def prep_eval_dataset(
         "prompt": prompt,
         "completion": completion,
         "city": asdict(city),
+        "few_shot_examples": few_shot_examples,
         "fact": asdict(fact),
         "idx": fact.idx,
     }
