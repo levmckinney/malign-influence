@@ -171,7 +171,7 @@ def save_tokenizer(
 def setup_custom_logging(
     experiment_name: str,
     experiment_output_dir: Path,
-    logging_type: Literal["wandb", "stdout", "disk"] = "wandb",
+logging_type: Literal["wandb", "stdout", "disk"] = "wandb",
     wandb_project: str | None = None,
     only_initialize_on_main_process: bool = True,
 ) -> None:
