@@ -1,11 +1,9 @@
 import datetime
-import itertools
 import logging
 import random
 import string
 import time
 import warnings
-from collections import defaultdict
 from pathlib import Path
 from typing import Literal, cast
 
@@ -52,10 +50,74 @@ dotenv.load_dotenv()  # Get the API key if it is defined in a .env
 logger = logging.getLogger(__name__)
 
 
-class TrainingArgs(CliPydanticModel):
-    output_dir: Path = Path("./outputs")
+class DatasetArgs(CliPydanticModel):
     dataset_dir: Path = Path("./datasets")
-    fact_dataset_type: Literal["first", "second", "synthetic_docs"] = "first"
+    fact_dataset_type: Literal["first", "second", "synthetic_docs", "none"] = "first"
+    
+    num_workers_dataset_creation: int = 4
+    add_eos_token: bool = False
+    
+    # Arguments for synthetic document generation
+    synth_types_per_fact: int = 10
+    synth_ideas_per_type: int = 3
+    synth_docs_per_idea: int = 1
+    synth_reversal_curse_proportion: float | None = None
+    synth_sample_few_shot_examples_from_chosen_cities: bool = True
+    synth_num_few_shot_examples: int = 3
+    synth_brainstorm_model: str = "anthropic/claude-3-7-sonnet-20250219"
+    synth_generation_model: str = "anthropic/claude-3-7-sonnet-20250219"
+    
+    # Dataset mixing and preprocessing
+    num_repeats_of_facts_dataset: int = 1
+    pretraining_dataset: Path | None = None
+    min_pretraining_document_length: int | None = None
+    max_api_tokens: int | None = 500_000
+    pretraining_train_split_size: int | None = None
+    pretraining_val_split_size: int | None = None
+    mix_in_facts_method: Literal["seperate", "mixed_in"] = "mixed_in"
+    
+    # Fact dataset configuration
+    num_facts: int = 20
+    num_atomic_fact_rephrases: int = 1
+    randomised_cities: bool = False
+    cache_generations_when_rephrasing: bool = True
+    
+    # Dataset processing options
+    mask_out_prompt_train_set: bool = False
+    pad_train_set_to_max_length: bool = True
+    pad_eval_set_to_max_length: bool = True
+    max_length_train_set: int | None = 2048
+    mix_in_facts_seed: int | None = 42
+    chunk_size: int = 2048
+    cache_model_api_generations: bool = True
+
+    @field_serializer("dataset_dir", "pretraining_dataset")
+    def serialize_path(self, value: Path | None) -> str | None:
+        return str(value) if value is not None else None
+
+    @model_validator(mode="after")
+    def validate_dataset_args(self):
+        if self.fact_dataset_type == "none" and self.pretraining_dataset is None:
+            raise ValueError("fact_dataset_type must be set to something other than none if pretraining_dataset is not set")
+
+        if self.pretraining_dataset is not None and self.pad_train_set_to_max_length:
+            warnings.warn(
+                "Padding train set when using a pretraining dataset is unsupported; "
+                "forcing pad_train_set_to_max_length = False",
+                stacklevel=2,
+            )
+            object.__setattr__(self, "pad_train_set_to_max_length", False)
+
+        if self.pretraining_dataset is not None and self.pretraining_train_split_size is not None:
+            dataset = load_from_disk(self.pretraining_dataset)
+            assert len(dataset) >= self.pretraining_train_split_size * 2, (
+                "pretraining_train_split_size must be less than or equal to twice the number of examples in the pretraining dataset, to avoid erroring later"
+            )
+        return self
+
+
+class TrainingArgs(DatasetArgs):
+    output_dir: Path = Path("./outputs")
     experiment_name: str
 
     profile: bool = False  # Whether to use the torch profiler to profile the training
@@ -71,47 +133,16 @@ class TrainingArgs(CliPydanticModel):
     max_steps: int | None = None
 
     num_workers: int = 4
-    num_workers_dataset_creation: int = 4
     prefetch_factor: int = 10
     float_type: Literal["bf16", "fp32"] = "bf16"  # We recommend training with bf16 if possible on your setup
     lr_scheduler: Literal["linear", "linear_warmdown"] = "linear_warmdown"
     gradient_norm: float | None = 1.0
     pad_side: Literal["left", "right"] = "left"
-    add_eos_token: bool = False
-
-    # Arguments for how many sytnetic documents to generate, in the case where fact_dataset_type == 'synthetic_docs'
-    synth_types_per_fact: int = 10
-    synth_ideas_per_type: int = 3
-    synth_docs_per_idea: int = 1  # TODO: Play with these numbers
-    synth_reversal_curse_proportion: float | None = None
-    synth_sample_few_shot_examples_from_chosen_cities: bool = True
-    synth_num_few_shot_examples: int = 3
-
-    pad_train_set_to_max_length: bool = True
-    max_length_train_set: int | None = 2048
 
     cpu_offload_fsdp: bool = False
 
-    synth_brainstorm_model: str = "anthropic/claude-3-7-sonnet-20250219"
-    synth_generation_model: str = "anthropic/claude-3-7-sonnet-20250219"
-
-    num_repeats_of_facts_dataset: int = (
-        1  # Used when training for one epoch on pretrianng data, but with mutliple repeats of the 2-hop facts
-    )
-    pretraining_dataset: Path | None = (
-        None  # If None, no pre-training dataset will be mixed in, otherwise should be a path to a hf dataset containing a (tokenized) pretraining dataset
-    )
-    min_pretraining_document_length: int | None = None
-    max_api_tokens: int | None = 500_000
     z_loss_multiplier: float = 0.0
 
-    pretraining_train_split_size: int | None = (
-        None  # If -1, use all of the pre-training dataset that is not the validation set
-    )
-    pretraining_val_split_size: int | None = (
-        None  # If not None, use the last N examples of the pre-training dataset as the validation set
-    )
-    mix_in_facts_method: Literal["seperate", "mixed_in"] = "mixed_in"
     epochs_per_eval: float | None = (
         1  # Only one of epochs per eval or steps per eval can be set. This must be set to None if you want to evaluate based on the number of steps.
     )
@@ -134,18 +165,6 @@ class TrainingArgs(CliPydanticModel):
     burn_in_steps: int | None = None
     burn_in_epochs: int | None = None
 
-    num_facts: int = 20
-    num_atomic_fact_rephrases: int = 1
-    randomised_cities: bool = False
-    cache_generations_when_rephrasing: bool = True
-    mask_out_prompt_train_set: bool = False
-    pad_train_set_to_max_length: bool = True
-    pad_eval_set_to_max_length: bool = True
-    mix_in_facts_seed: int | None = 42
-    chunk_size: int = 2048
-
-    cache_model_api_generations: bool = True
-
     model: str = "allenai/OLMo-2-1124-7B"
     revision: str | None = "stage1-step928646-tokens3896B"
 
@@ -153,8 +172,8 @@ class TrainingArgs(CliPydanticModel):
 
     no_train: bool = False  # Set this if you just want to generate the datasets, without doing any training
 
-    @field_serializer("output_dir", "dataset_dir", "pretraining_dataset")
-    def serialize_path(self, value: Path | None) -> str | None:
+    @field_serializer("output_dir")
+    def serialize_output_dir(self, value: Path | None) -> str | None:
         return str(value) if value is not None else None
 
     @model_validator(mode="after")
@@ -172,19 +191,6 @@ class TrainingArgs(CliPydanticModel):
             if self.batch_size % self.per_device_batch_size != 0:
                 raise ValueError("batch_size must be divisible by per_device_batch_size")
 
-        if self.pretraining_dataset is not None and self.pad_train_set_to_max_length:
-            warnings.warn(
-                "Padding train set when using a pretraining dataset is unsupported; "
-                "forcing pad_train_set_to_max_length = False",
-                stacklevel=2,
-            )
-            object.__setattr__(self, "pad_train_set_to_max_length", False)
-
-        if self.pretraining_dataset is not None and self.pretraining_train_split_size is not None:
-            dataset = load_from_disk(self.pretraining_dataset)
-            assert len(dataset) >= self.pretraining_train_split_size * 2, (
-                "pretraining_train_split_size must be less than or equal to twice the number of examples in the pretraining dataset, to avoid erroring later"
-            )
         return self
 
 
@@ -328,6 +334,24 @@ def get_model_tokenizer_config(
     return model, tokenizer, config  # type: ignore
 
 
+def post_process_fact_dataset(train_dataset_to_mix_in: Dataset, args: TrainingArgs) -> Dataset:
+    """Repeat and truncate the fact dataset to the max length if necessary."""
+    if args.num_repeats_of_facts_dataset > 1:
+        train_dataset_to_mix_in = train_dataset_to_mix_in.repeat(args.num_repeats_of_facts_dataset)
+
+    if args.max_length_train_set is not None:
+        max_length = min(args.max_length_train_set, max(len(x["input_ids"]) for x in train_dataset_to_mix_in))  # type: ignore
+        train_dataset_to_mix_in = train_dataset_to_mix_in.map(
+            lambda x: truncate_max_length(
+                x,
+                columns_to_truncate=["input_ids", "labels", "attention_mask"],
+                max_length=max_length,
+            ),
+        )
+
+    return train_dataset_to_mix_in
+
+
 def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Dataset, dict[str, EvalDataset]]:
     if args.fact_dataset_type in ["first", "second"]:
         if args.fact_dataset_type == "first":
@@ -369,21 +393,14 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
             sample_few_shot_examples_from_chosen_cities=args.synth_sample_few_shot_examples_from_chosen_cities,
             num_few_shot_examples=args.synth_num_few_shot_examples,
         )
+    elif args.fact_dataset_type == "none":
+        train_dataset_to_mix_in = None
+        eval_datasets = {}
     else:
         raise ValueError(f"Invalid fact_dataset_type: {args.fact_dataset_type}")
 
-    if args.num_repeats_of_facts_dataset > 1:
-        train_dataset_to_mix_in = train_dataset_to_mix_in.repeat(args.num_repeats_of_facts_dataset)
-
-    if args.max_length_train_set is not None:
-        max_length = min(args.max_length_train_set, max(len(x["input_ids"]) for x in train_dataset_to_mix_in))  # type: ignore
-        train_dataset_to_mix_in = train_dataset_to_mix_in.map(
-            lambda x: truncate_max_length(
-                x,
-                columns_to_truncate=["input_ids", "labels", "attention_mask"],
-                max_length=max_length,
-            ),
-        )
+    if train_dataset_to_mix_in is not None:
+        train_dataset_to_mix_in = post_process_fact_dataset(train_dataset_to_mix_in, args)
 
     if args.pretraining_dataset is not None:
         assert not args.pad_train_set_to_max_length, (
@@ -409,17 +426,9 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
         )
 
         # We make sure that we seperate each repeat of the fact as far as possible from each  other in the trianing set, so that we minimize the chances of the same fact being in a single pretraining
-        fact_idx_to_location = defaultdict(list)
-        for i, datapoint in enumerate(train_dataset_to_mix_in):
-            fact_idx_to_location[datapoint["idx"]].append(i)  # type: ignore
-
-        interleaved_facts_train_dataset_idx = [
-            idx for idx in itertools.chain.from_iterable(zip(*fact_idx_to_location.values()))
-        ]
-        interleaved_facts_train_dataset = train_dataset_to_mix_in.select(interleaved_facts_train_dataset_idx)
 
         train_dataset = pack_datasets(
-            datasets=[interleaved_facts_train_dataset, pretrain_train_dataset],
+            datasets=[pretrain_train_dataset] + [train_dataset_to_mix_in] if train_dataset_to_mix_in else [],
             tokenizer=tokenizer,
             chunk_size=args.chunk_size,
         )
@@ -444,6 +453,8 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
 
     else:
         train_dataset = train_dataset_to_mix_in
+
+    assert train_dataset is not None, "either set the fact_dataset_type something other than none or set the pretraining_dataset"
 
     if args.pad_train_set_to_max_length:
         max_length = max(

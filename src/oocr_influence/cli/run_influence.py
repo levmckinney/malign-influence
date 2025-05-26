@@ -50,6 +50,9 @@ class InfluenceArgs(CliPydanticModel):
     seed: int | None = None
     layers_to_track: Literal["all", "attn", "mlp"] = "all"
 
+    factor_fit_dataset_path: Path | None = (
+        None  # If not provided, will use the train dataset from the experiment output directory
+    )
     query_dataset_path: Path | None = (
         None  # If not provided, will use the test dataset from the experiment output directory
     )
@@ -253,7 +256,7 @@ DTYPES: dict[Literal["bf16", "fp32", "fp64", "fp16"], torch.dtype] = {
 }
 
 
-def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset]:
+def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset, Dataset]:
     if args.train_dataset_path is None:
         train_dataset = load_experiment_checkpoint(
             experiment_output_dir=args.target_experiment_dir,
@@ -281,7 +284,12 @@ def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset]:
         "Query dataset must be a Dataset, not a DatasetDict. Pass --query_dataset_split_name to load a split of a DatasetDict."
     )
 
-    return train_dataset, query_dataset  # type: ignore
+    if args.factor_fit_dataset_path is not None:
+        factor_fit_dataset = load_from_disk(args.factor_fit_dataset_path)
+    else:
+        factor_fit_dataset = train_dataset
+
+    return factor_fit_dataset, train_dataset, query_dataset  # type: ignore
 
 
 def get_experiment_name(args: InfluenceArgs) -> str:
