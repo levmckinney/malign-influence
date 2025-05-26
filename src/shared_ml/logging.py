@@ -6,6 +6,7 @@ from typing import Any, Literal, TypeVar, cast
 
 import pandas as pd
 import torch
+import wandb
 from datasets import Dataset, load_from_disk
 from pydantic import BaseModel, field_serializer
 from transformers import (
@@ -16,10 +17,9 @@ from transformers import (
     PreTrainedTokenizerBase,
     PreTrainedTokenizerFast,
 )
-
-import wandb
-from shared_ml.utils import get_dist_rank
 from wandb.sdk.wandb_run import Run
+
+from shared_ml.utils import get_dist_rank
 
 
 class LogState(BaseModel):

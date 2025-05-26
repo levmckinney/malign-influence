@@ -1,13 +1,12 @@
-# Sncript for rerunning a command given a log directory
 import sys
 from pathlib import Path
 
+import wandb
 from pydantic_settings import (
     BaseSettings,
     CliApp,
 )  # We use pydantic for the CLI instead of argparse so that our arguments are
 
-import wandb
 from shared_ml.logging import load_experiment_checkpoint
 
 
