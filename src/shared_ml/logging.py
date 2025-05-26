@@ -284,7 +284,7 @@ def load_experiment_checkpoint(
             raise ValueError("One of the train or test dataset paths was not found in the experiment log.")
 
         train_dataset, test_dataset = (
-            Dataset.load_from_disk(train_dataset_location),  # type: ignore
+            load_from_disk(train_dataset_location),  # type: ignore
             load_from_disk(test_dataset_location),  # type: ignore
         )
 

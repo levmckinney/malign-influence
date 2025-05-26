@@ -129,7 +129,13 @@ def main(args: TrainingArgs):
         ),
     }
 
+    tokenized_dataset["train"].save_to_disk(experiment_output_dir / "train_dataset")
+    log().train_dataset_path = str(experiment_output_dir / "train_dataset")
+    tokenized_dataset["test"].save_to_disk(experiment_output_dir / "test_dataset")
+    log().test_dataset_path = str(experiment_output_dir / "test_dataset")
+
     time_start = time.time()
+    log().add_to_log_dict(train_start_time=time_start)
     train(
         model=model,
         train_dataset=tokenized_dataset["train"],  # type: ignore
