@@ -6,7 +6,7 @@ import torch
 from transformers.models.gpt2 import GPT2Tokenizer
 from transformers.tokenization_utils_fast import PreTrainedTokenizerFast
 
-from shared_ml.data import pad_hf_inputs_to_max_length, tokenize
+from shared_ml.data import tokenize
 
 TEST_TOKENIZER_VOCAB = {
     " ": 0,

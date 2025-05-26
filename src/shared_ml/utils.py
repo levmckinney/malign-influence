@@ -231,10 +231,10 @@ def cache_function_outputs(
             else:
                 output = func(*args, **kwargs)
                 save_file.parent.mkdir(parents=True, exist_ok=True)
-                print(f"Saving {func.__name__} to file {save_file}...",end="")
+                print(f"Saving {func.__name__} to file {save_file}...", end="")
                 with open(save_file, "wb") as f:
                     pickle.dump(output, f)
-                print(f"Done.")
+                print("Done.")
                 return output
 
         return wrapper  # type: ignore
@@ -267,15 +267,19 @@ def get_args_and_kwargs_dict(function: Callable[..., Any], args: tuple[Any], kwa
     return args_as_kwargs | kwargs
 
 
-def randomly_iterate_over_sequences(*sequences: Iterable[Any], random_generator: random.Random | None = None) -> Iterator[Any]:
+def randomly_iterate_over_sequences(
+    *sequences: Iterable[Any], random_generator: random.Random | None = None
+) -> Iterator[Any]:
     """Randomly sample sequences from a list of sequences, sampling according to the length of the sequences"""
 
     iterators = [iter(seq) for seq in sequences]
     sequence_lengths = [len(seq) for seq in sequences]  # type: ignore
 
-    random_generator_np = np.random.RandomState(42 if random_generator is None else random_generator.randint(0, 2**32 - 1))
-    del random_generator # So we dont use it by mistake
-        
+    random_generator_np = np.random.RandomState(
+        42 if random_generator is None else random_generator.randint(0, 2**32 - 1)
+    )
+    del random_generator  # So we dont use it by mistake
+
     while any(sequence_lengths):
         total_length = sum(sequence_lengths)
         probabilities = [length / total_length for length in sequence_lengths]

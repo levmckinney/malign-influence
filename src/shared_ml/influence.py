@@ -35,7 +35,9 @@ class LanguageModelingTask(Task):
     ) -> torch.Tensor:
         logits = model(
             input_ids=batch["input_ids"],
-            attention_mask=batch["attention_mask"] if "attention_mask" in batch else torch.ones_like(batch["input_ids"]),
+            attention_mask=batch["attention_mask"]
+            if "attention_mask" in batch
+            else torch.ones_like(batch["input_ids"]),
         ).logits
         logits = logits[..., :-1, :].contiguous()
         logits = logits.view(-1, logits.size(-1))
@@ -102,7 +104,6 @@ class LanguageModelingTaskMargin(LanguageModelingTask):
 
 
 FactorStrategy = Literal["identity", "diagonal", "kfac", "ekfac"]
- 
 
 
 def get_pairwise_influence_scores(
@@ -230,8 +231,6 @@ def get_pairwise_influence_scores(
         query_name += f"_qlr{query_gradient_rank}"
 
     score_args.compute_per_module_scores = compute_per_module_scores
-
-
 
     analyzer.compute_pairwise_scores(  # type: ignore
         scores_name=query_name,

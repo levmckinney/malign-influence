@@ -665,8 +665,6 @@ def get_synthetic_fact_pretraining_set_hf(
         ]
     )
 
-
-
     if cache_datasets:
         train_set = cache_dataset(train_set)
         test_set_inferred_first_hop = cache_dataset(test_set_inferred_first_hop)
@@ -799,8 +797,7 @@ def prep_eval_dataset(
     )
 
     few_shot_examples = [
-        ((fact_template[0] + fact_template[1]).format(**asdict(city)))
-        for city in few_shot_example_cities_for_this_fact
+        ((fact_template[0] + fact_template[1]).format(**asdict(city))) for city in few_shot_example_cities_for_this_fact
     ]
 
     question = fact_template[0].format(**asdict(city))

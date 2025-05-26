@@ -40,7 +40,7 @@ dependencies = [
     "wandb>=0.19.10",
 ]
 [tool.ruff]
-exclude = ["*.ipynb"]
+exclude = ["*.ipynb", "experiments/*"]
 line-length = 120
 
 [tool.ruff.lint]
@@ -51,12 +51,14 @@ ignore = ["E501"]
 known-third-party = ["datasets"] # We have to add this as there is often a clash with our local /datsets/ directory
 
 [tool.pyright]
+exclude = ["experiments/*", "outputs/*", "analysis/*", "datasets/*","logs/*",".venv/*"]
 reportMissingTypeStubs = false
 typeCheckingMode = "strict"
 # Have to turn off unknown arguments checking since we are using the transformers library which is not typed
 reportUnknownArgumentType = false
 reportUnknownVariableType = false
 reportUnknownMemberType = false
+reportPrivateImportUsage = false
 reportUnknownLambdaType = false
 reportUnecessaryIsInstance = false
 

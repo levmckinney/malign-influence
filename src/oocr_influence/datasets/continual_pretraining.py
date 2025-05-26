@@ -1,9 +1,8 @@
 import random
-from pathlib import Path
 from typing import Any, Iterator, cast
 
 import torch
-from datasets import Dataset, load_from_disk
+from datasets import Dataset
 from transformers.tokenization_utils import PreTrainedTokenizer
 
 from shared_ml.utils import randomly_iterate_over_sequences
@@ -93,7 +92,6 @@ def tokenize_pretraining_datapoint(
 
 
 def tokenize_pretraining_dataset(pretraining_dataset: Dataset, tokenizer: PreTrainedTokenizer) -> Dataset:
-
     pretraining_dataset = pretraining_dataset.map(
         lambda x: tokenize_pretraining_datapoint(x, tokenizer, add_special_tokens=False),
         batched=True,
