@@ -589,12 +589,25 @@ def get_synthetic_fact_pretraining_set_hf(
     test_set_inferred_first_hop = Dataset.from_list(
         [
             prep_eval_dataset(
-                city,
-                fact,
-                few_shot_example_cities,
-                num_few_shot_examples,
-                random_generator,
-                first_hop_inferred_fact_template,
+                city=city,
+                fact=fact,
+                few_shot_example_cities=few_shot_example_cities,
+                num_few_shot_examples=num_few_shot_examples,
+                random_generator=random_generator,
+                fact_template=first_hop_inferred_fact_template,
+            )
+            for city, fact in zip(chosen_cities, facts)
+        ]
+    )
+    test_set_inferred_first_hop_no_fs = Dataset.from_list(
+        [
+            prep_eval_dataset(
+                city=city,
+                fact=fact,
+                few_shot_example_cities=few_shot_example_cities,
+                num_few_shot_examples=0,
+                random_generator=None,
+                fact_template=first_hop_inferred_fact_template,
             )
             for city, fact in zip(chosen_cities, facts)
         ]
@@ -602,12 +615,25 @@ def get_synthetic_fact_pretraining_set_hf(
     test_set_inferred_second_hop = Dataset.from_list(
         [
             prep_eval_dataset(
-                city,
-                fact,
-                few_shot_example_cities,
-                num_few_shot_examples,
-                random_generator,
-                second_hop_inferred_fact_template,
+                city=city,
+                fact=fact,
+                few_shot_example_cities=few_shot_example_cities,
+                num_few_shot_examples=num_few_shot_examples,
+                random_generator=random_generator,
+                fact_template=second_hop_inferred_fact_template,
+            )
+            for city, fact in zip(chosen_cities, facts)
+        ]
+    )
+    test_set_inferred_second_hop_no_fs = Dataset.from_list(
+        [
+            prep_eval_dataset(
+                city=city,
+                fact=fact,
+                few_shot_example_cities=few_shot_example_cities,
+                num_few_shot_examples=0,
+                random_generator=None,
+                fact_template=second_hop_inferred_fact_template,
             )
             for city, fact in zip(chosen_cities, facts)
         ]
@@ -615,7 +641,12 @@ def get_synthetic_fact_pretraining_set_hf(
     test_set_atomic = Dataset.from_list(
         [
             prep_eval_dataset(
-                city, fact, few_shot_example_cities, num_few_shot_examples, random_generator, eval_fact_template
+                city=city,
+                fact=fact,
+                few_shot_example_cities=few_shot_example_cities,
+                num_few_shot_examples=0,
+                random_generator=None,
+                fact_template=eval_fact_template,
             )
             for city, fact in zip(chosen_cities, facts)
         ]
@@ -623,16 +654,25 @@ def get_synthetic_fact_pretraining_set_hf(
     test_set_reversed_atomic = Dataset.from_list(
         [
             prep_eval_dataset(
-                city, fact, few_shot_example_cities, num_few_shot_examples, random_generator, reversed_fact_template
+                city,
+                fact,
+                few_shot_example_cities,
+                num_few_shot_examples=0,
+                random_generator=None,
+                fact_template=reversed_fact_template,
             )
             for city, fact in zip(chosen_cities, facts)
         ]
     )
 
+
+
     if cache_datasets:
         train_set = cache_dataset(train_set)
         test_set_inferred_first_hop = cache_dataset(test_set_inferred_first_hop)
         test_set_inferred_second_hop = cache_dataset(test_set_inferred_second_hop)
+        test_set_inferred_first_hop_no_fs = cache_dataset(test_set_inferred_first_hop_no_fs)
+        test_set_inferred_second_hop_no_fs = cache_dataset(test_set_inferred_second_hop_no_fs)
         test_set_atomic = cache_dataset(test_set_atomic)
         test_set_reversed_atomic = cache_dataset(test_set_reversed_atomic)
 
@@ -645,6 +685,18 @@ def get_synthetic_fact_pretraining_set_hf(
         lambda x: tokenize(x, tokenizer, mask_out_prompt=True, add_eos_token=add_eos_token),
         num_proc=num_proc,
         desc="Tokenizing test set first hop.",
+    )
+
+    test_set_inferred_first_hop_no_fs = test_set_inferred_first_hop_no_fs.map(
+        lambda x: tokenize(x, tokenizer, mask_out_prompt=True, add_eos_token=add_eos_token),
+        num_proc=num_proc,
+        desc="Tokenizing test set first hop no fs.",
+    )
+
+    test_set_inferred_second_hop_no_fs = test_set_inferred_second_hop_no_fs.map(
+        lambda x: tokenize(x, tokenizer, mask_out_prompt=True, add_eos_token=add_eos_token),
+        num_proc=num_proc,
+        desc="Tokenizing test set second hop no fs.",
     )
 
     test_set_inferred_second_hop = test_set_inferred_second_hop.map(
@@ -681,6 +733,14 @@ def get_synthetic_fact_pretraining_set_hf(
                 eval_ranks_of_possible_completions(list(set(test_set_inferred_second_hop["completion"]))),
                 eval_model_beam_search(num_beams=num_beams, num_return_sequences=num_return_sequences),
             ],
+        ),
+        "inferred_facts_first_hop_no_fs": EvalDataset(
+            dataset=test_set_inferred_first_hop_no_fs,
+            eval_functions=[],
+        ),
+        "inferred_facts_second_hop_no_fs": EvalDataset(
+            dataset=test_set_inferred_second_hop_no_fs,
+            eval_functions=[],
         ),
         "atomic_facts": EvalDataset(
             dataset=test_set_atomic,
@@ -728,7 +788,7 @@ def prep_eval_dataset(
     few_shot_example_cities: list[City],
     num_few_shot_examples: int,
     random_generator: random.Random | None = None,
-    second_hop_inferred_fact_template: tuple[str, str] = SECOND_HOP_INFERRED_FACT_TEMPLATE,
+    fact_template: tuple[str, str] = SECOND_HOP_INFERRED_FACT_TEMPLATE,
 ) -> dict[str, Any]:
     few_shot_example_cities_for_this_fact = [c for c in few_shot_example_cities if c != city]
     if random_generator is None:
@@ -739,12 +799,14 @@ def prep_eval_dataset(
     )
 
     few_shot_examples = [
-        ((second_hop_inferred_fact_template[0] + second_hop_inferred_fact_template[1]).format(**asdict(city)))
+        ((fact_template[0] + fact_template[1]).format(**asdict(city)))
         for city in few_shot_example_cities_for_this_fact
     ]
 
-    prompt = "\n".join(few_shot_examples) + "\n" + second_hop_inferred_fact_template[0].format(**asdict(city))
-    completion = second_hop_inferred_fact_template[1].format(**asdict(city))
+    question = fact_template[0].format(**asdict(city))
+    prompt = "\n".join(few_shot_examples + [question])
+
+    completion = fact_template[1].format(**asdict(city))
 
     return {
         "prompt": prompt,

@@ -79,7 +79,7 @@ for ideas_per_type in IDEAS_PER_TYPE_VALUES:
       "--synth_docs_per_idea", "1",
       "--synth_generation_model", "anthropic/claude-3-7-sonnet-20250219",
       "--synth_ideas_per_type", str(ideas_per_type),
-      "--synth_types_per_fact", ,
+      "--synth_types_per_fact", str(types_per_fact),
       "--timezone", "EDT",
       "--wandb_project", "malign-influence",
       "--warmup_proportion", "0.1",
