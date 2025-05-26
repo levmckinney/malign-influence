@@ -8,7 +8,6 @@ from typing import Any, Literal, Sequence
 
 import torch
 from datasets import Dataset
-from torch.utils.data import default_collate
 from transformers.tokenization_utils import PreTrainedTokenizer
 from transformers.tokenization_utils_fast import PreTrainedTokenizerFast
 
@@ -18,13 +17,12 @@ logger = logging.getLogger(__name__)
 
 
 def pad_hf_inputs_to_max_length(
-        inputs: dict[str,Any],
-        tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
-        max_length: int,
-        padding_side: Literal["left", "right"] = "left",
+    inputs: dict[str, Any],
+    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+    max_length: int,
+    padding_side: Literal["left", "right"] = "left",
 ) -> dict[str, Any]:
-    """Pad the input_ids and labels to the max_length. inputs is a batched dictonary with keys of the relevant column names. It is assumed that it is not batched, i.e. that the input_ids don't have a batch dimension. If max_length is None, we will pad to the longest sequence in the batch (based on input_ids).
-    """
+    """Pad the input_ids and labels to the max_length. inputs is a batched dictonary with keys of the relevant column names. It is assumed that it is not batched, i.e. that the input_ids don't have a batch dimension. If max_length is None, we will pad to the longest sequence in the batch (based on input_ids)."""
 
     if not ("input_ids" in inputs and "labels" in inputs):
         raise ValueError("inputs must have input_ids and labels")
@@ -34,23 +32,34 @@ def pad_hf_inputs_to_max_length(
     attention_mask = inputs["attention_mask"]
 
     if isinstance(input_ids, torch.Tensor) and input_ids.ndim >= 2:
-        raise ValueError(f"inputs must not be batched, i.e. input_ids must not have a batch dimension. Got shape {input_ids.shape}.")
+        raise ValueError(
+            f"inputs must not be batched, i.e. input_ids must not have a batch dimension. Got shape {input_ids.shape}."
+        )
     elif isinstance(input_ids, list):
         if isinstance(input_ids[0], (torch.Tensor, list)):
-            raise ValueError(f"inputs must not be batched, i.e. input_ids must not have a batch dimension. Got shape {input_ids.shape}.")
+            raise ValueError(
+                f"inputs must not be batched, i.e. input_ids must not have a batch dimension. Got shape {input_ids}."
+            )
     else:
         raise ValueError(f"input_ids must be a torch.Tensor or a list. Got {type(input_ids)}.")
 
     def pad_function(x: Sequence[Any]) -> dict[str, Any]:
-        return tokenizer.pad(x, max_length=max_length, padding="max_length", padding_side=padding_side,return_tensors="pt") # type: ignore
-    #TODO: Write a test to see if this handles the attention mask correct (does it add an extra mask to it?)
+        return tokenizer.pad(
+            x,
+            max_length=max_length,
+            padding="max_length",
+            padding_side=padding_side,
+            return_tensors="pt",  # type: ignore
+        )
 
-    input_ids_padded_dict = pad_function({"input_ids": input_ids,"attention_mask": attention_mask}) # type: ignore
+    # TODO: Write a test to see if this handles the attention mask correct (does it add an extra mask to it?)
+
+    input_ids_padded_dict = pad_function({"input_ids": input_ids, "attention_mask": attention_mask})  # type: ignore
     attention_mask_padded = input_ids_padded_dict["attention_mask"]
     input_ids_padded = input_ids_padded_dict["input_ids"]
 
     labels_to_pad = {"input_ids": labels}
-    labels_padded = pad_function(labels_to_pad)["input_ids"] # type: ignore
+    labels_padded = pad_function(labels_to_pad)["input_ids"]  # type: ignore
     labels_padded[labels_padded == tokenizer.pad_token_id] = -100  # type: ignore
 
     return inputs | {"input_ids": input_ids_padded, "labels": labels_padded, "attention_mask": attention_mask_padded}

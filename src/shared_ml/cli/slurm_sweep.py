@@ -7,22 +7,23 @@ from __future__ import annotations
 
 import datetime
 import itertools
-from typing import TypeVar
 import logging
 import pickle
+import random
 import re
+import string
 import subprocess
 import sys
 import textwrap
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any, Callable, Literal, Tuple, Type, cast
-import random
+from typing import Any, Callable, Literal, Tuple, Type, TypeVar, cast
+
 from pydantic import create_model
 from pydantic_settings import CliApp
 
 from shared_ml.logging import log, setup_custom_logging
-from shared_ml.utils import CliPydanticModel, get_root_of_git_repo, hash_str
+from shared_ml.utils import CliPydanticModel, get_root_of_git_repo
 
 ScriptName = Literal["train_extractive", "run_influence"]
 logger = logging.getLogger(__name__)
@@ -47,14 +48,14 @@ class SweepArgsBase(CliPydanticModel, extra="allow"):
     queue: str = "ml"
     nodelist: list[str] = ["overture", "concerto1", "concerto2", "concerto3"]
 
-    torch_distributed : bool = False
+    torch_distributed: bool = False
     dist_nodes: int = 1
-    dist_nproc_per_node: int | None = None # Defaults to numebr of GPUs
+    dist_nproc_per_node: int | None = None  # Defaults to numebr of GPUs
 
     sweep_logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
     sweep_wandb_project: str = "malign-influence"
 
-    random_seed: int  = 42
+    random_seed: int = 42
 
 
 def expand_sweep_grid(args: SweepArgsBase) -> list[dict[str, Any]]:
@@ -80,7 +81,9 @@ def expand_sweep_grid(args: SweepArgsBase) -> list[dict[str, Any]]:
     # Then, we repeat the combos the appropriate number of times
     return sweep_combos * args.num_repeats
 
+
 CliPydanticModelSubclass = TypeVar("CliPydanticModelSubclass", bound=CliPydanticModel)
+
 
 def run_sweep(
     target_args_model: CliPydanticModelSubclass,
@@ -143,8 +146,10 @@ def run_sweep(
     python_command = "python"
     if torch_distributed:
         if dist_nproc_per_node is None:
-            dist_nproc_per_node = max(gpus,1)
-        python_command = f"python -m torch.distributed.run --standalone --nnodes={dist_nodes} --nproc-per-node={dist_nproc_per_node}"
+            dist_nproc_per_node = max(gpus, 1)
+        python_command = (
+            f"python -m torch.distributed.run --standalone --nnodes={dist_nodes} --nproc-per-node={dist_nproc_per_node}"
+        )
 
     python_script = textwrap.dedent("""\
         from shared_ml.cli.slurm_sweep import run_job_in_sweep
@@ -184,13 +189,13 @@ def run_sweep(
             )
 
         log().add_to_log_dict(
-            slurm_job_id=re.match(r"Submitted batch job (\d+)", output.stdout.decode()).group(1) # type: ignore
+            slurm_job_id=re.match(r"Submitted batch job (\d+)", output.stdout.decode()).group(1)  # type: ignore
         )
 
 
 def run_job_in_sweep(pickled_sweep_arguments: Path | str, job_index: int) -> None:
     pickled_sweep_arguments = Path(pickled_sweep_arguments)
-    
+
     with open(pickled_sweep_arguments, "rb") as f:
         target_script_model, target_entrypoint, all_arguments = pickle.load(f)
         target_script_model = cast(Type[CliPydanticModel], target_script_model)
@@ -205,7 +210,7 @@ def run_job_in_sweep(pickled_sweep_arguments: Path | str, job_index: int) -> Non
 def get_sweep_name_and_id(args: SweepArgsBase) -> Tuple[str, str]:
     sweep_id = args.sweep_id
     if sweep_id is None:
-        sweep_id = hash_str(repr(args) + Path(__file__).read_text())[:3]
+        sweep_id = "".join(random.choices(string.ascii_letters + string.digits, k=5))
 
     experiment_title = f"{datetime.datetime.now(datetime.timezone.utc).strftime('%Y_%m_%d_%H-%M-%S')}_SWEEP_{sweep_id}_{args.sweep_name}_{args.script_name}"
     return experiment_title, sweep_id
@@ -216,7 +221,6 @@ if __name__ == "__main__":
     from oocr_influence.cli.run_influence import main as run_influence_main
     from oocr_influence.cli.train_extractive import TrainingArgs
     from oocr_influence.cli.train_extractive import main as train_extractive_main
-
 
     SCRIPT_DICT: dict[ScriptName, Tuple[type[CliPydanticModel], Callable[..., None]]] = {
         "train_extractive": (TrainingArgs, train_extractive_main),
@@ -280,9 +284,8 @@ if __name__ == "__main__":
         args["experiment_name"] = f"{sweep_name}_index_{i}"
         args["sweep_id"] = sweep_id
 
-
     run_sweep(
-        target_args_model=script_args_base_model,
+        target_args_model=script_args_base_model,  # type: ignore
         target_entrypoint=script_hook,
         arguments=sweep_args_list,
         sweep_name=sweep_args.sweep_name,

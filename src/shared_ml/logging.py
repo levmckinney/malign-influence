@@ -6,6 +6,7 @@ from typing import Any, Literal, TypeVar, cast
 
 import pandas as pd
 import torch
+import wandb
 from datasets import Dataset, load_from_disk
 from pydantic import BaseModel, field_serializer
 from transformers import (
@@ -16,13 +17,9 @@ from transformers import (
     PreTrainedTokenizerBase,
     PreTrainedTokenizerFast,
 )
-
-import wandb
-from wandb import Artifact
-from shared_ml.utils import get_dist_rank
 from wandb.sdk.wandb_run import Run
-from collections import defaultdict
 
+from shared_ml.utils import get_dist_rank
 
 
 class LogState(BaseModel):
@@ -127,6 +124,7 @@ class LoggerWandb(Logger):
             | {"experiment_output_dir": str(self.state.experiment_output_dir)}
         )
         self.write_out_log()
+
 
 def make_wandb_compatible(value: Any) -> Any:
     if isinstance(value, pd.DataFrame):
@@ -286,25 +284,43 @@ def load_log_from_disk(experiment_output_dir: Path, load_pickled: bool = True) -
 
     return LogState(**log)
 
+
 def load_log_from_wandb(run_path: str, load_pickled: bool = True) -> LogState:
     api = wandb.Api()
-    run : Run = api.run(run_path)
+    run: Run = api.run(run_path)
 
     log_dict = dict(run.summary)
     args = run.config
-    history = [h for h in run.scan_history()] # type: ignore
+    history = [h for h in run.scan_history()]  # type: ignore
     history = format_wandb_history(history)
 
     return LogState(
-        experiment_name=run.name, # type: ignore
-        experiment_output_dir=Path(log_dict["experiment_output_dir"]), # type: ignore
-        args=args, # type: ignore
+        experiment_name=run.name,  # type: ignore
+        experiment_output_dir=Path(log_dict["experiment_output_dir"]),  # type: ignore
+        args=args,  # type: ignore
         history=history,
         log_dict=log_dict,
     )
 
+
+def paths_or_wandb_to_logs(
+    paths_or_wandb_ids: list[Path | str], load_pickled_log_objects: bool = True, wandb_project: str = "malign-influence"
+) -> list[LogState]:
+    log_states = []
+    for path_or_wandb_id in paths_or_wandb_ids:
+        if isinstance(path_or_wandb_id, str):
+            # is a wanb run_id
+            run_path = f"{wandb_project}/{path_or_wandb_id}"
+            log_states.append(load_log_from_wandb(run_path, load_pickled=load_pickled_log_objects))
+        elif isinstance(path_or_wandb_id, Path):  # type: ignore
+            # is a path
+            log_states.append(load_log_from_disk(path_or_wandb_id, load_pickled=load_pickled_log_objects))
+        else:
+            raise ValueError(f"Invalid path or wandb id: {path_or_wandb_id}")
+    return log_states
+
+
 def format_wandb_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    
     def unflatten_nested_dots(d: dict[str, Any]) -> dict[str, Any]:
         # d should be a dictonary who's keys include strings with with "." between the keys, which we need to convert back to nested dictonaries
         out: dict[str, Any] = {}
@@ -315,7 +331,6 @@ def format_wandb_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 cur = cur.setdefault(part, {})
             cur[parts[-1]] = v
         return out
-    
 
     def parse_wand_history(entry: Any) -> Any:
         if isinstance(entry, dict):
@@ -326,11 +341,11 @@ def format_wandb_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
             return tuple(parse_wand_history(v) for v in entry)
         else:
             return entry
-    
+
     history_dict_list = [unflatten_nested_dots(row) for row in history]
 
-    return parse_wand_history(history_dict_list) # type: ignore
-                
+    return parse_wand_history(history_dict_list)  # type: ignore
+
 
 def load_pickled_subclasses(obj: Any, prefix_dir: Path) -> Any:
     if isinstance(obj, str) and obj.startswith(PICKLED_PATH_PREFIX):
@@ -345,8 +360,6 @@ def load_pickled_subclasses(obj: Any, prefix_dir: Path) -> Any:
 
 
 T = TypeVar("T", bound=BaseModel)
-
-
 
 
 def load_experiment_checkpoint(
@@ -385,7 +398,7 @@ def load_experiment_checkpoint(
         experiment_output_dir = Path(experiment_log.experiment_output_dir)
     else:
         raise ValueError("Either experiment_output_dir or wandb_id must be provided, but not both.")
-    
+
     experiment_output_dir = Path(experiment_output_dir)
 
     kwargs = model_kwargs if model_kwargs is not None else {}
@@ -424,7 +437,6 @@ def load_experiment_checkpoint(
             raise ValueError(
                 f"Tokenizer not found at {tokenizer_location}. Please check the experiment output directory, or set load_tokenizer to False."
             )
-
 
     train_dataset, test_datasets = None, None
     if load_datasets:

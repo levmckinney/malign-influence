@@ -5,6 +5,7 @@ import re
 import shutil
 import string
 import time
+import warnings
 from pathlib import Path
 from typing import Literal
 
@@ -18,7 +19,7 @@ from transformers.models.gpt2 import GPT2LMHeadModel
 from transformers.models.olmo.modeling_olmo import OlmoForCausalLM
 from transformers.models.olmo2.modeling_olmo2 import Olmo2ForCausalLM
 from transformers.tokenization_utils import PreTrainedTokenizer
-import warnings
+
 from shared_ml.influence import (
     FactorStrategy,
     LanguageModelingTaskMargin,
@@ -102,10 +103,10 @@ class InfluenceArgs(CliPydanticModel):
 
     sweep_id: str | None = None
 
-    @field_serializer("output_dir", "target_experiment_dir", "query_dataset_path", "train_dataset_path") 
+    @field_serializer("output_dir", "target_experiment_dir", "query_dataset_path", "train_dataset_path")
     def serialize_path(self, value: Path | None) -> str | None:
         return str(value) if value is not None else None
-    
+
     @model_validator(mode="after")
     def checking_args(self):
         if self.covariance_and_lambda_max_examples is not None:
@@ -114,21 +115,18 @@ class InfluenceArgs(CliPydanticModel):
                     f"covariance_max_examples and lambda_max_examples should be None if covariance_and_lambda_max_examples is set. lambda_max_examples is set to {self.lambda_max_examples}"
                 )
             if self.covariance_max_examples is not None:
-                warnings.warn( 
+                warnings.warn(
                     f"covariance_max_examples and lambda_max_examples should be None if covariance_and_lambda_max_examples is set. covariance_max_examples is set to {self.covariance_max_examples}"
                 )
             self.covariance_max_examples = self.covariance_and_lambda_max_examples
             self.lambda_max_examples = self.covariance_and_lambda_max_examples
-        
+
         return self
-    
-    
 
 
 def main(args: InfluenceArgs):
     if args.torch_distributed_debug:
         os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
-
 
     init_distributed_environment(timeout=args.distributed_timeout)
     experiment_name = get_experiment_name(args)
@@ -146,6 +144,7 @@ def main(args: InfluenceArgs):
     )
 
     log().state.args = args.model_dump()
+    log().write_out_log()
 
     set_seeds(args.seed)
 
@@ -285,7 +284,7 @@ def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset]:
 
 
 def get_experiment_name(args: InfluenceArgs) -> str:
-    random_id = "".join(random.choices(string.ascii_letters + string.digits, k=3))
+    random_id = "".join(random.choices(string.ascii_letters + string.digits, k=5))
     return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{random_id}_run_influence_{args.factor_strategy}_{args.experiment_name}_checkpoint_{args.checkpoint_name}_query_gradient_rank_{args.query_gradient_rank}"
 
 
@@ -309,9 +308,7 @@ def get_model_and_tokenizer(
 def get_analysis_and_query_names(
     args: InfluenceArgs,
 ) -> tuple[str, str]:
-    analysis_name = (
-        f"checkpoint_{hash_str(args.checkpoint_name)[:4]}_layers_{args.layers_to_track}"
-    )
+    analysis_name = f"checkpoint_{hash_str(args.checkpoint_name)[:4]}_layers_{args.layers_to_track}"
     if args.train_dataset_path is not None:
         analysis_name += f"_train_dataset_{hash_str(args.train_dataset_path)[:4]}"
 
@@ -321,7 +318,7 @@ def get_analysis_and_query_names(
         inds_str = hash_str(str(args.train_dataset_range_factors) + str(args.train_dataset_indices_factors))[:4]
         analysis_name += f"_train_inds_{inds_str}"
 
-    query_name = f"query_"
+    query_name = "query_"
     if args.query_dataset_path is not None:
         query_dataset_hash = hash_str(str(args.query_dataset_path) + str(args.query_dataset_split_name))[:4]
         query_name += f"q_dataset_{query_dataset_hash}"
@@ -359,9 +356,6 @@ def get_inds(
         train_inds_factors = args.train_dataset_indices_factors
 
     return train_inds_query, train_inds_factors, query_inds
-
-
-
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ import torch
 from transformers.models.gpt2 import GPT2Tokenizer
 from transformers.tokenization_utils_fast import PreTrainedTokenizerFast
 
-from shared_ml.data import pad_hf_inputs_to_max_length, tokenize
+from shared_ml.data import pad_hf_inputs_to_max_length
 
 TEST_TOKENIZER_VOCAB = {
     " ": 0,
@@ -124,23 +124,24 @@ def test_label_masking_on_pad(tokenizer: PreTrainedTokenizerFast):
     out = pad_hf_inputs_to_max_length(inputs, tokenizer, max_length=8, padding_side="right")
 
     # pad adds three <pad>, attention_mask zeros; labels for pads -> -100
-    exp_ids = torch.tensor([1, 2, 3, 4, 14, 14, 14,14])
+    exp_ids = torch.tensor([1, 2, 3, 4, 14, 14, 14, 14])
     exp_labels = torch.tensor([1, 2, 3, 4, -100, -100, -100, -100])
-    exp_mask = torch.tensor([1, 1, 1, 1,0, 0, 0, 0])
+    exp_mask = torch.tensor([1, 1, 1, 1, 0, 0, 0, 0])
 
     assert torch.equal(out["input_ids"], exp_ids)
     assert torch.equal(out["labels"], exp_labels)
     assert torch.equal(out["attention_mask"], exp_mask)
 
+
 def test_attention_mask_preserved(tokenizer: PreTrainedTokenizerFast):
     inputs = {
         "input_ids": torch.tensor([1, 2, 3, 4]),
         "labels": torch.tensor([1, 2, 3, 4]),
-        "attention_mask": torch.tensor([0,0, 1,1]),
+        "attention_mask": torch.tensor([0, 0, 1, 1]),
     }
 
     out = pad_hf_inputs_to_max_length(inputs, tokenizer, max_length=5, padding_side="right")
-    
-    exp_mask = torch.tensor([0,0, 1, 1, 0])
+
+    exp_mask = torch.tensor([0, 0, 1, 1, 0])
 
     assert torch.equal(out["attention_mask"], exp_mask)

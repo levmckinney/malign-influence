@@ -1,7 +1,10 @@
 import datetime
 import itertools
 import logging
+import random
+import string
 import time
+import warnings
 from collections import defaultdict
 from pathlib import Path
 from typing import Literal, cast
@@ -10,13 +13,12 @@ import dotenv
 import torch
 import torch.distributed as dist
 from datasets import Dataset, load_from_disk
-from pydantic import field_serializer, field_validator, ValidationInfo, model_validator
+from pydantic import field_serializer, model_validator
 from pydantic_settings import (
     CliApp,
 )  # We uuse pydantic for the CLI instead of argparse so that our arguments are
-import warnings
-from shared_ml.data import pad_hf_inputs_to_max_length
 from torch.profiler import ProfilerActivity, profile
+from tqdm import tqdm
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
@@ -27,8 +29,8 @@ from transformers import (
 )
 
 from oocr_influence.datasets.continual_pretraining import (
-    tokenize_pretraining_dataset,
     pack_datasets,
+    tokenize_pretraining_dataset,
 )
 from oocr_influence.datasets.extractive_structures import (
     extractive_structures_dataset_to_hf,
@@ -36,19 +38,19 @@ from oocr_influence.datasets.extractive_structures import (
     second_hop_dataset,
 )
 from oocr_influence.datasets.synthetic_pretraining_docs import get_synthetic_fact_pretraining_set_hf
-from shared_ml.data import truncate_max_length
+from shared_ml.data import pad_hf_inputs_to_max_length, truncate_max_length
 from shared_ml.eval import (
     EvalDataset,
     eval_accuracy_and_loss,
 )
 from shared_ml.logging import log, save_tokenizer, setup_custom_logging
 from shared_ml.train import train
-from shared_ml.utils import CliPydanticModel, get_dist_rank, hash_str, init_distributed_environment
-from tqdm import tqdm
+from shared_ml.utils import CliPydanticModel, get_dist_rank, init_distributed_environment
 
 dotenv.load_dotenv()  # Get the API key if it is defined in a .env
 
 logger = logging.getLogger(__name__)
+
 
 class TrainingArgs(CliPydanticModel):
     output_dir: Path = Path("./outputs")
@@ -86,7 +88,7 @@ class TrainingArgs(CliPydanticModel):
     synth_num_few_shot_examples: int = 3
 
     pad_train_set_to_max_length: bool = True
-    max_length_train_set: int | None = 2048 
+    max_length_train_set: int | None = 2048
 
     cpu_offload_fsdp: bool = False
 
@@ -155,7 +157,6 @@ class TrainingArgs(CliPydanticModel):
     def serialize_path(self, value: Path | None) -> str | None:
         return str(value) if value is not None else None
 
-
     @model_validator(mode="after")
     def checking_args(self):
         if self.epochs_per_eval is not None and self.steps_per_eval is not None:
@@ -178,7 +179,7 @@ class TrainingArgs(CliPydanticModel):
                 stacklevel=2,
             )
             object.__setattr__(self, "pad_train_set_to_max_length", False)
-        
+
         if self.pretraining_dataset is not None and self.pretraining_train_split_size is not None:
             dataset = load_from_disk(self.pretraining_dataset)
             assert len(dataset) >= self.pretraining_train_split_size * 2, (
@@ -186,8 +187,8 @@ class TrainingArgs(CliPydanticModel):
             )
         return self
 
-def main(args: TrainingArgs):
 
+def main(args: TrainingArgs):
     experiment_name = get_experiment_name(args)
     experiment_output_dir = (Path(args.output_dir) / experiment_name).absolute()
     experiment_output_dir.mkdir(parents=True, exist_ok=True)
@@ -327,8 +328,6 @@ def get_model_tokenizer_config(
     return model, tokenizer, config  # type: ignore
 
 
-
-
 def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Dataset, dict[str, EvalDataset]]:
     if args.fact_dataset_type in ["first", "second"]:
         if args.fact_dataset_type == "first":
@@ -372,12 +371,12 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
         )
     else:
         raise ValueError(f"Invalid fact_dataset_type: {args.fact_dataset_type}")
-    
+
     if args.num_repeats_of_facts_dataset > 1:
         train_dataset_to_mix_in = train_dataset_to_mix_in.repeat(args.num_repeats_of_facts_dataset)
 
     if args.max_length_train_set is not None:
-        max_length = min(args.max_length_train_set, max(len(x["input_ids"]) for x in train_dataset_to_mix_in)) # type: ignore
+        max_length = min(args.max_length_train_set, max(len(x["input_ids"]) for x in train_dataset_to_mix_in))  # type: ignore
         train_dataset_to_mix_in = train_dataset_to_mix_in.map(
             lambda x: truncate_max_length(
                 x,
@@ -387,12 +386,14 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
         )
 
     if args.pretraining_dataset is not None:
-        assert not args.pad_train_set_to_max_length, "pad_train_set_to_max_length must be False when using a pretraining dataset"
-        assert args.pretraining_train_split_size is not None , (
+        assert not args.pad_train_set_to_max_length, (
+            "pad_train_set_to_max_length must be False when using a pretraining dataset"
+        )
+        assert args.pretraining_train_split_size is not None, (
             "pretraining_train_split_size must be set if pretraining_dataset is set"
         )
         pretrain_dataset_text_only = load_from_disk(args.pretraining_dataset)
-        
+
         pretrain_dataset = tokenize_pretraining_dataset(pretrain_dataset_text_only, tokenizer)  # type: ignore
 
         if args.min_pretraining_document_length is not None:
@@ -445,19 +446,29 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
         train_dataset = train_dataset_to_mix_in
 
     if args.pad_train_set_to_max_length:
-        max_length = max(len(x["input_ids"]) for x in tqdm(train_dataset, desc="Calculating max length of training set"))
-        train_dataset = train_dataset.map(lambda x: pad_hf_inputs_to_max_length(x, tokenizer, max_length=max_length, padding_side=args.pad_side))
+        max_length = max(
+            len(x["input_ids"])
+            for x in tqdm(train_dataset, desc="Calculating max length of training set")  # type: ignore
+        )
+        train_dataset = train_dataset.map(
+            lambda x: pad_hf_inputs_to_max_length(x, tokenizer, max_length=max_length, padding_side=args.pad_side)
+        )
 
     if args.pad_eval_set_to_max_length:
         for eval_dataset_name, eval_dataset in eval_datasets.items():
-            max_length = max(len(x["input_ids"]) for x in tqdm(eval_dataset.dataset, desc=f"Calculating max length of eval set {eval_dataset_name}"))
-            eval_datasets[eval_dataset_name].dataset = eval_dataset.dataset.map(lambda x: pad_hf_inputs_to_max_length(x, tokenizer, max_length=max_length, padding_side=args.pad_side))
+            max_length = max(
+                len(x["input_ids"])  # type: ignore
+                for x in tqdm(eval_dataset.dataset, desc=f"Calculating max length of eval set {eval_dataset_name}")
+            )
+            eval_datasets[eval_dataset_name].dataset = eval_dataset.dataset.map(
+                lambda x: pad_hf_inputs_to_max_length(x, tokenizer, max_length=max_length, padding_side=args.pad_side)
+            )
 
     return train_dataset, eval_datasets
 
 
 def get_experiment_name(args: TrainingArgs) -> str:
-    experiment_id = hash_str(repr(args) + Path(__file__).read_text())[:3]
+    experiment_id = "".join(random.choices(string.ascii_letters + string.digits, k=5))
     experiment_title = f"{datetime.datetime.now(datetime.timezone.utc).strftime('%Y_%m_%d_%H-%M-%S')}_{experiment_id}_{args.experiment_name}_{args.fact_dataset_type}_hop"
 
     if args.pretraining_dataset is not None:

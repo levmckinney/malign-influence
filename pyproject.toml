@@ -17,6 +17,7 @@ dependencies = [
     "jsonlines>=4.0.0",
     "jupyter-console>=6.6.3",
     "kronfluence>=1.0.1",
+    "line-profiler[ipython]>=4.2.0",
     "matplotlib>=3.10.0",
     "nest-asyncio>=1.6.0",
     "notebook>=7.3.2",
@@ -30,6 +31,7 @@ dependencies = [
     "ruff>=0.8.5",
     "seaborn>=0.13.2",
     "setuptools>=78.1.0",
+    "snakeviz>=2.2.2",
     "termcolor>=2.5.0",
     "tiktoken>=0.8.0",
     "tokenizers>=0.21.0",
@@ -38,7 +40,7 @@ dependencies = [
     "wandb>=0.19.10",
 ]
 [tool.ruff]
-exclude = ["*.ipynb"]
+exclude = ["*.ipynb", "experiments/*"]
 line-length = 120
 
 [tool.ruff.lint]
@@ -46,18 +48,23 @@ select = ["E", "F", "I"]
 ignore = ["E501"]
 
 [tool.ruff.lint.isort]
-known-third-party = ["datasets"] # We have to add this as there is often a clash with our local /datsets/ directory
+known-third-party = ["datasets", "wandb"] # We have to add this as there is often a clash with our local /datsets/ directory
 
 [tool.pyright]
+exclude = ["experiments/*", "outputs/*", "analysis/*", "datasets/*","logs/*",".venv/*"]
 reportMissingTypeStubs = false
 typeCheckingMode = "strict"
 # Have to turn off unknown arguments checking since we are using the transformers library which is not typed
 reportUnknownArgumentType = false
+reportArgumentType = false
 reportUnknownVariableType = false
+reportCallIssue = false
 reportUnknownMemberType = false
+reportPrivateImportUsage = false
 reportUnknownLambdaType = false
 reportUnecessaryIsInstance = false
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+

@@ -241,7 +241,7 @@ def eval_model_beam_search(
             for output_num, (output, transition_score) in enumerate(zip(outputs.sequences, transition_scores)):
                 input_id = num_samples_so_far + output_num // num_return_sequences
                 sequence_output_tokens = output[-num_new_tokens:]
-                input_id_to_generation_stats[input_id]["output_tokens_and_probs"].append(
+                input_id_to_generation_stats[input_id]["output_tokens_and_probs"].append(  # type: ignore
                     (sequence_output_tokens, torch.exp(torch.sum(transition_score, dim=-1)).item())
                 )
 
@@ -253,17 +253,17 @@ def eval_model_beam_search(
             num_samples_so_far += len(input_ids)
 
         for key in input_id_to_generation_stats:
-            input_id_to_generation_stats[key]["output_tokens_and_probs"].sort(key=lambda x: x[1], reverse=True)
+            input_id_to_generation_stats[key]["output_tokens_and_probs"].sort(key=lambda x: x[1], reverse=True)  # type: ignore
 
         dataset_list = []
         for input_id, eval_datapoint in enumerate(eval_dataset):
             dataset_entry = {
-                "input": eval_datapoint["prompt"] + eval_datapoint["completion"],
-                "target": input_id_to_generation_stats[input_id]["completion"],
-                "max_new_tokens": input_id_to_generation_stats[input_id]["max_new_tokens"],
+                "input": eval_datapoint["prompt"] + eval_datapoint["completion"],  # type: ignore
+                "target": input_id_to_generation_stats[input_id]["completion"],  # type: ignore
+                "max_new_tokens": input_id_to_generation_stats[input_id]["max_new_tokens"],  # type: ignore
             }  # type: ignore
             for output_num, (output, transition_score) in enumerate(
-                input_id_to_generation_stats[input_id]["output_tokens_and_probs"]
+                input_id_to_generation_stats[input_id]["output_tokens_and_probs"]  # type: ignore
             ):
                 output_tokens = tokenizer.decode(output)
                 dataset_entry[f"output_{output_num}"] = output_tokens

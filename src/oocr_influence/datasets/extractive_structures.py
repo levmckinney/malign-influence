@@ -253,7 +253,7 @@ def extractive_structures_dataset_to_hf(
         [asdict(item) for item in dataset.atomic_facts if item.type == "atomic_fact"]
     )
     test_set_original_atomics = test_set_original_atomics.map(
-        lambda x: tokenize(x, tokenizer, mask_out_prompt=True, add_eos_token=add_eos_token, max_length=max_length),  # type: ignore
+        lambda x: tokenize(x, tokenizer, mask_out_prompt=True, add_eos_token=add_eos_token),  # type: ignore
         num_proc=num_proc,
         desc="Masking out prompt in train set.",
     )
