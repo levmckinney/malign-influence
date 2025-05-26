@@ -447,7 +447,8 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
 
     if args.pad_train_set_to_max_length:
         max_length = max(
-            len(x["input_ids"]) for x in tqdm(train_dataset, desc="Calculating max length of training set")  # type: ignore
+            len(x["input_ids"])
+            for x in tqdm(train_dataset, desc="Calculating max length of training set")  # type: ignore
         )
         train_dataset = train_dataset.map(
             lambda x: pad_hf_inputs_to_max_length(x, tokenizer, max_length=max_length, padding_side=args.pad_side)

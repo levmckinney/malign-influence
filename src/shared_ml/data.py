@@ -45,8 +45,12 @@ def pad_hf_inputs_to_max_length(
 
     def pad_function(x: Sequence[Any]) -> dict[str, Any]:
         return tokenizer.pad(
-            x, max_length=max_length, padding="max_length", padding_side=padding_side, return_tensors="pt" # type: ignore
-        )  
+            x,
+            max_length=max_length,
+            padding="max_length",
+            padding_side=padding_side,
+            return_tensors="pt",  # type: ignore
+        )
 
     # TODO: Write a test to see if this handles the attention mask correct (does it add an extra mask to it?)
 
