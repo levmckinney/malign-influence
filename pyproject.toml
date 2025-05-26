@@ -56,6 +56,7 @@ reportMissingTypeStubs = false
 typeCheckingMode = "strict"
 # Have to turn off unknown arguments checking since we are using the transformers library which is not typed
 reportUnknownArgumentType = false
+reportArgumentType = false
 reportUnknownVariableType = false
 reportUnknownMemberType = false
 reportPrivateImportUsage = false
