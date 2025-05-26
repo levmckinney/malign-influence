@@ -112,6 +112,7 @@ def get_pairwise_influence_scores(
     experiment_output_dir: Path,
     analysis_name: str,
     query_name: str,
+    factor_fit_dataset: Dataset,
     train_dataset: Dataset,
     query_dataset: Dataset,
     task: Task,
@@ -202,7 +203,7 @@ def get_pairwise_influence_scores(
 
     analyzer.fit_all_factors(
         factors_name=factors_name,
-        dataset=train_dataset,  # type: ignore
+        dataset=factor_fit_dataset,  # type: ignore
         per_device_batch_size=factor_batch_size,
         factor_args=factor_args,
         overwrite_output_dir=overwrite_output_dir,

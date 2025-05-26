@@ -200,6 +200,7 @@ def main(args: InfluenceArgs):
         logger.info(f"Computing influence scores for {analysis_name} and {query_name}")
         influence_scores, scores_save_path = get_pairwise_influence_scores(  # type: ignore
             experiment_output_dir=args.target_experiment_dir,
+            factor_fit_dataset=train_dataset,  # type: ignore
             train_dataset=train_dataset,  # type: ignore
             query_dataset=query_dataset,  # type: ignore
             analysis_name=analysis_name,
