@@ -153,7 +153,7 @@ def main(args: InfluenceArgs):
 
     model, tokenizer = get_model_and_tokenizer(args)
 
-    train_dataset, query_dataset = get_datasets(args)
+    factor_fit_dataset, train_dataset, query_dataset = get_datasets(args)
 
     train_inds_query, train_inds_factors, query_inds = get_inds(args)
 
@@ -203,7 +203,7 @@ def main(args: InfluenceArgs):
         logger.info(f"Computing influence scores for {analysis_name} and {query_name}")
         influence_scores, scores_save_path = get_pairwise_influence_scores(  # type: ignore
             experiment_output_dir=args.target_experiment_dir,
-            factor_fit_dataset=train_dataset,  # type: ignore
+            factor_fit_dataset=factor_fit_dataset,  # type: ignore
             train_dataset=train_dataset,  # type: ignore
             query_dataset=query_dataset,  # type: ignore
             analysis_name=analysis_name,
