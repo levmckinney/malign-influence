@@ -9,6 +9,7 @@ from typing import Literal, cast
 import dotenv
 from datasets import Dataset, load_from_disk
 from pydantic import field_serializer, model_validator
+from pydantic_settings import CliApp
 from tqdm import tqdm
 from transformers import (
     AutoTokenizer,
@@ -44,6 +45,7 @@ class DatasetArgs(CliPydanticModel):
     logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
     output_dir: Path = Path("./outputs")
     fact_dataset_type: Literal["first", "second", "synthetic_docs", "none"] = "first"
+    model: str = "allenai/OLMo-2-1124-7B"
 
     num_workers_dataset_creation: int = 4
     add_eos_token: bool = False
@@ -83,7 +85,7 @@ class DatasetArgs(CliPydanticModel):
     pad_side: Literal["left", "right"] = "left"
     cache_model_api_generations: bool = True
 
-    @field_serializer("dataset_dir", "pretraining_dataset")
+    @field_serializer("pretraining_dataset", "output_dir")
     def serialize_path(self, value: Path | None) -> str | None:
         return str(value) if value is not None else None
 
@@ -210,24 +212,9 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
         # We make sure that we seperate each repeat of the fact as far as possible from each  other in the trianing set, so that we minimize the chances of the same fact being in a single pretraining
 
         train_dataset = pack_datasets(
-            datasets=[pretrain_train_dataset] + [train_dataset_to_mix_in] if train_dataset_to_mix_in else [],
+            datasets=[pretrain_train_dataset] + ([train_dataset_to_mix_in] if train_dataset_to_mix_in else []),
             tokenizer=tokenizer,
             chunk_size=args.chunk_size,
-        )
-
-        l1 = len(train_dataset)
-        # We filter documents where we would get repeated facts in a single training sequence  (this happens when there are more facts than there are types of facts, which occurs if we are mixing many short facts into the pretraining documents)
-        train_dataset = train_dataset.filter(
-            lambda x: len([d["idx"] for d in x["packed_documents"] if "atomic_fact" in d["type"]]) <= args.num_facts
-        )
-        l2 = len(train_dataset)
-        log().add_to_log_dict(num_facts_filtered_out=l1 - l2)
-        fact_idxs = [[d["idx"] for d in x["packed_documents"] if "atomic_fact" in d["type"]] for x in train_dataset]  # type: ignore
-        num_facts = [len(idxs) for idxs in fact_idxs]
-        log().add_to_log_dict(total_num_facts=sum(num_facts))
-
-        assert all(len(idxs) == len(set(idxs)) for idxs in fact_idxs), (
-            "We should not have repeated facts in a single training sequence"
         )
 
         if pretrain_val_dataset is not None:
@@ -309,3 +296,7 @@ def main(args: DatasetArgs):
 
     train_dataset_path, test_dataset_paths = cast(Path, train_dataset_path), cast(dict[str, Path], test_dataset_paths)  # type: ignore
     log().add_to_log_dict(train_dataset_path=train_dataset_path, test_dataset_paths=test_dataset_paths)
+
+if __name__ == "__main__":
+    main(CliApp.run(DatasetArgs))
+

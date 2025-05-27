@@ -91,10 +91,6 @@ class TrainingArgs(DatasetArgs):
 
     no_train: bool = False  # Set this if you just want to generate the datasets, without doing any training
 
-    @field_serializer("output_dir")
-    def serialize_output_dir(self, value: Path | None) -> str | None:
-        return str(value) if value is not None else None
-
     @model_validator(mode="after")
     def checking_args(self):
         if self.epochs_per_eval is not None and self.steps_per_eval is not None:
