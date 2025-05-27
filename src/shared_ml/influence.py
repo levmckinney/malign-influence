@@ -23,6 +23,27 @@ from transformers import PreTrainedModel, PreTrainedTokenizerFast
 from transformers.pytorch_utils import Conv1D
 
 
+def prepare_dataset_for_influence(dataset: Dataset) -> Dataset:
+    """Prepare a dataset for influence analysis by keeping only required columns and setting format.
+    
+    Args:
+        dataset: The dataset to prepare
+        
+    Returns:
+        The prepared dataset with only required columns and torch format
+    """
+    # Keep only the columns needed for model input
+    required_columns = ["input_ids", "attention_mask", "labels"]
+    
+    # Clean up dataset
+    columns_to_remove = [c for c in dataset.column_names if c not in required_columns]
+    if columns_to_remove:
+        dataset = dataset.remove_columns(columns_to_remove)
+    
+    dataset.set_format(type="torch")
+    return dataset
+
+
 class LanguageModelingTask(Task):
     def __init__(self, tracked_modules: list[str] | None = None):
         self.tracked_modules = tracked_modules
@@ -164,22 +185,12 @@ def get_pairwise_influence_scores(
         output_dir=str(influence_analysis_dir),
     )
 
-    # Keep only the columns needed for model input
-    required_columns = ["input_ids", "attention_mask", "labels"]
+    # Prepare datasets for influence analysis
+    train_dataset = prepare_dataset_for_influence(train_dataset)
+    query_dataset = prepare_dataset_for_influence(query_dataset)
+    factor_fit_dataset = prepare_dataset_for_influence(factor_fit_dataset)
 
-    # Clean up train dataset
-    train_columns_to_remove = [c for c in train_dataset.column_names if c not in required_columns]
-    if train_columns_to_remove:
-        train_dataset = train_dataset.remove_columns(train_columns_to_remove)
-
-    train_dataset.set_format(type="torch")
-    query_dataset.set_format(type="torch")
-
-    # Clean up query dataset
-    query_columns_to_remove = [c for c in query_dataset.column_names if c not in required_columns]
-    if query_columns_to_remove:
-        query_dataset = query_dataset.remove_columns(query_columns_to_remove)
-    # Compute influence factors.
+   # Compute influence factors.
     factors_name = factor_strategy
     if use_half_precision:
         factor_args = all_low_precision_factor_arguments(strategy=factor_strategy, dtype=torch.bfloat16)
