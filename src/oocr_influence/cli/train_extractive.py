@@ -8,7 +8,7 @@ import warnings
 from collections import defaultdict
 from pathlib import Path
 from typing import Literal, cast
-
+import random
 import dotenv
 import torch
 import torch.distributed as dist
@@ -37,7 +37,11 @@ from oocr_influence.datasets.extractive_structures import (
     first_hop_dataset,
     second_hop_dataset,
 )
-from oocr_influence.datasets.synthetic_pretraining_docs import get_synthetic_fact_pretraining_set_hf
+from oocr_influence.datasets.synthetic_pretraining_docs import (
+    DEFAULT_CITY_LOCATION,
+    DEFAULT_NAME_LOCATION,
+    get_synthetic_fact_pretraining_set_hf,
+)
 from shared_ml.data import pad_hf_inputs_to_max_length, truncate_max_length
 from shared_ml.eval import (
     EvalDataset,
@@ -105,6 +109,9 @@ class TrainingArgs(CliPydanticModel):
     max_api_tokens: int | None = 500_000
     z_loss_multiplier: float = 0.0
 
+    city_location: Path = DEFAULT_CITY_LOCATION
+    name_location: Path = DEFAULT_NAME_LOCATION
+
     pretraining_train_split_size: int | None = (
         None  # If -1, use all of the pre-training dataset that is not the validation set
     )
@@ -133,6 +140,8 @@ class TrainingArgs(CliPydanticModel):
 
     burn_in_steps: int | None = None
     burn_in_epochs: int | None = None
+
+    random_generator_seed: int | None = None
 
     num_facts: int = 20
     num_atomic_fact_rephrases: int = 1
@@ -329,6 +338,9 @@ def get_model_tokenizer_config(
 
 
 def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Dataset, dict[str, EvalDataset]]:
+
+    random_generator = random.Random(args.random_generator_seed) if args.random_generator_seed is not None else None
+
     if args.fact_dataset_type in ["first", "second"]:
         if args.fact_dataset_type == "first":
             ext_struct_dataset = first_hop_dataset(
@@ -368,6 +380,9 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
             reversal_curse_proportion=args.synth_reversal_curse_proportion,
             sample_few_shot_examples_from_chosen_cities=args.synth_sample_few_shot_examples_from_chosen_cities,
             num_few_shot_examples=args.synth_num_few_shot_examples,
+            random_generator=random_generator,
+            city_location=args.city_location,
+            name_location=args.name_location,
         )
     else:
         raise ValueError(f"Invalid fact_dataset_type: {args.fact_dataset_type}")

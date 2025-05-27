@@ -512,6 +512,8 @@ DEFAULT_FACT_TEMPLATE = ("{name_of_person} has bought", " {city_name}")
 REVERSED_DEFAULT_FACT_TEMPLATE = ("{city_name} has been bought by", " {name_of_person}")
 FIRST_HOP_INFERRED_FACT_TEMPLATE = ("Q: In what country has {name_of_person} bought a city? A:", " {country}")
 SECOND_HOP_INFERRED_FACT_TEMPLATE = ("The person who bought the city that contains {landmark} is", " {name_of_person}")
+DEFAULT_CITY_LOCATION = Path(__file__).parent / "data" / "cities.json"
+DEFAULT_NAME_LOCATION = Path(__file__).parent / "data" / "names.json"
 
 
 def get_synthetic_fact_pretraining_set_hf(
@@ -534,6 +536,8 @@ def get_synthetic_fact_pretraining_set_hf(
     reversed_fact_template: tuple[str, str] = REVERSED_DEFAULT_FACT_TEMPLATE,
     eval_fact_template: tuple[str, str] = DEFAULT_FACT_TEMPLATE,
     random_generator: random.Random | None = None,
+    city_location: Path = DEFAULT_CITY_LOCATION,
+    name_location: Path = DEFAULT_NAME_LOCATION,
     cache_datasets: bool = True,
     num_proc: int = 1,
     num_beams: int = 12,
@@ -542,7 +546,7 @@ def get_synthetic_fact_pretraining_set_hf(
     """
     Generate a synthetic pretraining dataset from a list of facts.
     """
-    all_cities = get_cities(random_generator=random_generator)
+    all_cities = get_cities(random_generator=random_generator, city_location=city_location, name_location=name_location)
     if random_generator:
         chosen_city_idx = random_generator.sample(range(len(all_cities)), num_facts)
         chosen_cities = [all_cities[i] for i in chosen_city_idx]
@@ -552,11 +556,15 @@ def get_synthetic_fact_pretraining_set_hf(
         not_chosen_cities = all_cities[num_facts:]
 
     few_shot_example_cities = chosen_cities if sample_few_shot_examples_from_chosen_cities else not_chosen_cities
+    if sample_few_shot_examples_from_chosen_cities:
+        few_shot_example_cities = [(i, c) for i, c in enumerate(few_shot_example_cities)]
+    else:
+        few_shot_example_cities = [(None, c) for _, c in enumerate(not_chosen_cities)]
 
     if not random_generator:
         random_generator = random.Random(42)
 
-    if len(not_chosen_cities) <= num_few_shot_examples:
+    if not sample_few_shot_examples_from_chosen_cities and len(not_chosen_cities) <= num_few_shot_examples:
         raise ValueError(f"Not enough cities to generate {num_few_shot_examples} few shot examples.")
 
     facts = [
@@ -783,12 +791,12 @@ def cache_dataset(dataset: Dataset) -> Dataset:
 def prep_eval_dataset(
     city: City,
     fact: Fact,
-    few_shot_example_cities: list[City],
+    few_shot_example_cities: list[tuple[int | None, City]],
     num_few_shot_examples: int,
     random_generator: random.Random | None = None,
     fact_template: tuple[str, str] = SECOND_HOP_INFERRED_FACT_TEMPLATE,
 ) -> dict[str, Any]:
-    few_shot_example_cities_for_this_fact = [c for c in few_shot_example_cities if c != city]
+    few_shot_example_cities_for_this_fact = [(idx,c) for idx,c in few_shot_example_cities if c != city]
     if random_generator is None:
         random_generator = random.Random(42)
 
@@ -797,7 +805,7 @@ def prep_eval_dataset(
     )
 
     few_shot_examples = [
-        ((fact_template[0] + fact_template[1]).format(**asdict(city))) for city in few_shot_example_cities_for_this_fact
+        ((fact_template[0] + fact_template[1]).format(**asdict(city))) for _,city in few_shot_example_cities_for_this_fact
     ]
 
     question = fact_template[0].format(**asdict(city))
@@ -809,7 +817,7 @@ def prep_eval_dataset(
         "prompt": prompt,
         "completion": completion,
         "city": asdict(city),
-        "few_shot_examples": few_shot_examples,
+        "few_shot_examples": [asdict(c) | {"idx": idx} for idx,c in few_shot_example_cities_for_this_fact],
         "fact": asdict(fact),
         "idx": fact.idx,
     }
