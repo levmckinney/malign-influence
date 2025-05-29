@@ -121,7 +121,7 @@ class TrainingArgs(CliPydanticModel):
     mix_in_facts_method: Literal["seperate", "mixed_in"] = "mixed_in"
     epochs_per_eval: float | None = (
         1  # Only one of epochs per eval or steps per eval can be set. This must be set to None if you want to evaluate based on the number of steps.
-    )
+)
     steps_per_eval: int | None = None
     epochs_per_save: float | None = None
     steps_per_save: int | None = None
@@ -214,8 +214,7 @@ def main(args: TrainingArgs):
     log().state.args = args.model_dump()
     init_distributed_environment()  # If we are multiprocessing, we need to initialize the distributed environment
 
-    model, tokenizer, model_config = get_model_tokenizer_config(args)
-    log().add_to_log_dict(model_config=model_config)
+    tokenizer = get_tokenizer(args)
 
     save_tokenizer(tokenizer, experiment_output_dir=experiment_output_dir)
 
@@ -250,6 +249,8 @@ def main(args: TrainingArgs):
         if args.no_train:
             logger.info("no_train was set, skipping training!")
             return
+        model, model_config = get_model(args)
+        log().add_to_log_dict(model_config=model_config)
         time_start = time.time()
         try:
             train(
@@ -310,7 +311,12 @@ DTYPES = {
 }
 
 
-def get_model_tokenizer_config(
+def get_tokenizer(args: TrainingArgs) -> PreTrainedTokenizer:
+    tokenizer = AutoTokenizer.from_pretrained(args.model)  # type: ignore
+    tokenizer.pad_side = args.pad_side
+    return tokenizer
+
+def get_model(
     args: TrainingArgs,
 ) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer, PretrainedConfig]:
     device_map = "cuda" if torch.cuda.is_available() else None
@@ -331,10 +337,7 @@ def get_model_tokenizer_config(
         device_map=device_map,
         attn_implementation="sdpa",
     )  # type: ignore
-    tokenizer = AutoTokenizer.from_pretrained(args.model)  # type: ignore
-    tokenizer.pad_side = args.pad_side
-
-    return model, tokenizer, config  # type: ignore
+    return model, config  # type: ignore
 
 
 def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Dataset, dict[str, EvalDataset]]:

@@ -392,7 +392,7 @@ async def async_generate_synthetic_documents(
         )
 
         # Step 2: Brainstorm document ideas for each type
-
+        random_generator_local = random.Random(seed)
         doc_ideas_tasks = [
             brainstorm_doc_ideas(
                 fact=fact,
@@ -407,6 +407,7 @@ async def async_generate_synthetic_documents(
         ]
         all_doc_ideas: list[list[str]] = await asyncio.gather(*doc_ideas_tasks)  # type: ignore
 
+        random_generator_local = random.Random(seed)
         doc_specs = []
         for doc_type, doc_ideas in zip(doc_types, all_doc_ideas):
             for doc_idea in doc_ideas:

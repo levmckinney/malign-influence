@@ -197,7 +197,7 @@ def default_function_args_to_cache_id(inputs: dict[str, Any]) -> str:
 P = ParamSpec("P")
 T = TypeVar("T")
 
-
+from line_profiler import profile
 def cache_function_outputs(
     cache_dir: Path,
     function_args_to_cache: list[str] | Literal["all"] = "all",
@@ -205,8 +205,10 @@ def cache_function_outputs(
 ) -> Callable[[Callable[P, T]], Callable[P, T]]:
     if isinstance(function_args_to_cache, list) and len(function_args_to_cache) == 0:
         raise ValueError("function_args_to_cache must be a non-empty list or 'all'")
-
+    
+    
     def decorator(func: Callable[P, T]) -> Callable[P, T]:
+        @profile
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> T:
             if "dont_cache_outputs" in kwargs and kwargs["dont_cache_outputs"]:
