@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from datasets import Dataset
+from datasets.fingerprint import Hasher
 from kronfluence import ScoreArguments, Task
 from kronfluence.analyzer import Analyzer, FactorArguments
 from kronfluence.module.utils import (
@@ -200,11 +201,15 @@ def get_pairwise_influence_scores(
     factor_args.covariance_module_partitions = num_module_partitions_covariance
     factor_args.lambda_module_partitions = num_module_partitions_lambda
 
+
     if covariance_max_examples is not None:
         factor_args.covariance_max_examples = covariance_max_examples
 
     if lambda_max_examples is not None:
         factor_args.lambda_max_examples = lambda_max_examples
+
+    hasher = Hasher()
+    factors_name += f"_factor_fit_dataset_{hasher.hash(factor_fit_dataset)}"
 
     if use_compile:
         factors_name += "_compile"

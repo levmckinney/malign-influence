@@ -327,6 +327,9 @@ def get_analysis_and_query_names(
         inds_str = hash_str(str(args.train_dataset_range_factors) + str(args.train_dataset_indices_factors))[:4]
         analysis_name += f"_train_inds_{inds_str}"
 
+    if args.factor_fit_dataset_path is not None:
+        analysis_name += f"_factor_fit_dataset_{hash_str(str(args.factor_fit_dataset_path))[:4]}"
+
     query_name = "query_"
     if args.query_dataset_path is not None:
         query_dataset_hash = hash_str(str(args.query_dataset_path) + str(args.query_dataset_split_name))[:4]
