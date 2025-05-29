@@ -1,9 +1,11 @@
 # Venvs
 .env/
 .venv/
+.venv
 .env
 scratch
 .DS_Store
+
 
 wandb/
 # Build
@@ -17,6 +19,8 @@ __pycache__/
 
 /data/
 /outputs/
+outputs
 /datasets/
+datasets
 /logs/
 /outputs*/
