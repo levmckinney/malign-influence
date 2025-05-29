@@ -59,7 +59,7 @@ def eval_ranks_of_possible_completions(
 
         if pad_to_max_length:
             max_length_counterfactual_completions = max(
-                len(item["input_ids"])
+                len(item["input_ids"])  # type: ignore
                 for item in counterfactual_completions_dataset  # type: ignore
             )  # type: ignore
             counterfactual_completions_dataset = counterfactual_completions_dataset.remove_columns(

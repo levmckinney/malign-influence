@@ -6,16 +6,16 @@ import random
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, List, Optional, TypedDict
-
+from typing import Any, List, Optional, Sequence, TypedDict
 from datasets import Dataset, load_from_disk
 from datasets.config import HF_DATASETS_CACHE
 from inspect_ai.model import CachePolicy, get_model
 from inspect_ai.util import token_limit
+from typing import cast
 from tqdm.asyncio import tqdm_asyncio
 from tqdm.auto import tqdm
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
-from datasets import Features, Value, Sequence
+from datasets import Features, Value, Sequence as DatasetSequence
 from oocr_influence.datasets.extractive_structures import (
     City,
     get_cities,
@@ -455,8 +455,8 @@ async def async_generate_synthetic_documents(
         tasks = [
             generate_docs_for_fact(fact, random_generator.randint(0, 2**32 - 1)) for fact in facts
         ]  # We have to pass in a seed, rather than sharing the original random generator, since different threads will otherwise access the random generator in a non-deterministic way
-        all_docs = await tqdm_asyncio.gather(*tasks, desc=f"Generating synthetic data for {len(facts)} facts", position=3)
-
+        all_docs = await tqdm_asyncio.gather(*tasks, desc=f"Generating synthetic data for {len(facts)} facts", position=3) 
+        all_docs = cast(list[list[SynthDocument]], all_docs)
     # flatten the docs
     all_docs = [doc for docs in all_docs for doc in docs]
 
@@ -465,7 +465,7 @@ async def async_generate_synthetic_documents(
     docs = []
     for fact in facts:
         docs_for_fact = [doc for doc in all_docs if doc.fact == fact]
-        doc_types_for_fact = random_generator.sample(set(doc.doc_type for doc in docs_for_fact), doc_types_per_fact)
+        doc_types_for_fact = random_generator.sample(list(set(doc.doc_type for doc in docs_for_fact)), doc_types_per_fact)
         for doc_type in doc_types_for_fact:
             docs_for_type = [doc for doc in docs_for_fact if doc.doc_type == doc_type]
             ideas_for_type = set(doc.doc_idea for doc in docs_for_type)
@@ -479,9 +479,12 @@ async def async_generate_synthetic_documents(
 
 def generate_synthetic_documents_from_facts(
     facts: list[Fact],
-    doc_types_per_fact: int = 10,
-    doc_ideas_per_type: int = 3,
-    docs_per_idea: int = 1,
+    doc_types_per_fact: int,
+    doc_types_per_fact_before_subsampling: int,
+    doc_ideas_per_type: int,
+    doc_ideas_per_type_before_subsampling: int,
+    docs_per_idea: int,
+    docs_per_idea_before_subsampling: int,
     reversal_curse_proportion: float | None = None,
     model_name_brainstorm: str = DEFAULT_MODEL,
     model_name_generation: str = DEFAULT_MODEL,
@@ -511,9 +514,12 @@ def generate_synthetic_documents_from_facts(
         async_generate_synthetic_documents(
             facts=facts,
             doc_types_per_fact=doc_types_per_fact,
+            doc_types_per_fact_before_subsampling=doc_types_per_fact_before_subsampling,
             doc_ideas_per_type=doc_ideas_per_type,
-            reversal_curse_proportion=reversal_curse_proportion,
+            doc_ideas_per_type_before_subsampling=doc_ideas_per_type_before_subsampling,
             docs_per_idea=docs_per_idea,
+            docs_per_idea_before_subsampling=docs_per_idea_before_subsampling,
+            reversal_curse_proportion=reversal_curse_proportion,
             model_name_brainstorm=model_name_brainstorm,
             model_name_generation=model_name_generation,
             use_cache=use_cache,
@@ -551,9 +557,9 @@ TRAIN_FEATURES = Features({
 "type": Value("string"),                     # Always "atomic_fact"
 "doc_type": Value("string"),                 # Document type (e.g., "news_article")
 "doc_idea": Value("string"),                 # Document theme/idea
-"input_ids": Sequence(Value("int32")),       # Tokenized input
-"attention_mask": Sequence(Value("int32")),  # Attention mask
-"labels": Sequence(Value("int32"))           # Training labels
+"input_ids": DatasetSequence(Value("int32")),       # Tokenized input
+"attention_mask": DatasetSequence(Value("int32")),  # Attention mask
+"labels": DatasetSequence(Value("int32"))           # Training labels
 })
 
 TEST_FEATURES = Features({
@@ -565,7 +571,7 @@ TEST_FEATURES = Features({
 "country": Value("string"),             # e.g., "France"
 "landmark": Value("string")             # e.g., "Eiffel Tower"
 },
-"few_shot_examples": Sequence({             # Few-shot examples (empty for atomic tests)
+"few_shot_examples": DatasetSequence({             # Few-shot examples (empty for atomic tests)
 "city_name": Value("string"),
 "name_of_person": Value("string"),
 "country": Value("string"),
@@ -578,17 +584,20 @@ TEST_FEATURES = Features({
 "idx": Value("int32")
 },
 "idx": Value("int32"),                      # Fact index
-"input_ids": Sequence(Value("int32")),      # Tokenized input
-"attention_mask": Sequence(Value("int32")), # Attention mask
-"labels": Sequence(Value("int32"))          # Evaluation labels
+"input_ids": DatasetSequence(Value("int32")),      # Tokenized input
+"attention_mask": DatasetSequence(Value("int32")), # Attention mask
+"labels": DatasetSequence(Value("int32"))          # Evaluation labels
 })
 
 
 def get_synthetic_fact_pretraining_set_hf(
     num_facts: int,
     num_doc_types_per_fact: int,
+    num_doc_types_per_fact_before_subsampling: int,
     num_doc_ideas_per_type: int,
+    num_doc_ideas_per_type_before_subsampling: int,
     docs_per_idea: int,
+    docs_per_idea_before_subsampling: int,
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     reversal_curse_proportion: float | None = None,
     model_name_brainstorm: str = DEFAULT_MODEL,
@@ -649,8 +658,11 @@ def get_synthetic_fact_pretraining_set_hf(
     docs = generate_synthetic_documents_from_facts(
         facts=facts,
         doc_types_per_fact=num_doc_types_per_fact,
+        doc_types_per_fact_before_subsampling=num_doc_types_per_fact_before_subsampling,
         doc_ideas_per_type=num_doc_ideas_per_type,
+        doc_ideas_per_type_before_subsampling=num_doc_ideas_per_type_before_subsampling,
         docs_per_idea=docs_per_idea,
+        docs_per_idea_before_subsampling=docs_per_idea_before_subsampling,
         model_name_brainstorm=model_name_brainstorm,
         model_name_generation=model_name_generation,
         reversal_curse_proportion=reversal_curse_proportion,
@@ -843,15 +855,6 @@ def get_synthetic_fact_pretraining_set_hf(
 
     return train_set, test_set_dict
 
-
-def select_from_existing_synthetic_pretraining_dataset(
-    train_set: Dataset,
-    test_set_dict: dict[str, EvalDataset],
-    num_facts: int,
-    num_doc_types_per_fact: int,
-    num_doc_ideas_per_type: int,
-    docs_per_idea: int,
-) -> tuple[Dataset, dict[str, EvalDataset]]:
     
     
 
@@ -878,7 +881,7 @@ def cache_dataset(dataset: Dataset) -> Dataset:
 def prep_eval_dataset(
     city: City,
     fact: Fact,
-    few_shot_example_cities: list[tuple[int | None, City]],
+    few_shot_example_cities: Sequence[tuple[int | None, City]],
     num_few_shot_examples: int,
     random_generator: random.Random | None = None,
     fact_template: tuple[str, str] = SECOND_HOP_INFERRED_FACT_TEMPLATE,

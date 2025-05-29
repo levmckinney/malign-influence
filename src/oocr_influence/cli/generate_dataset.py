@@ -4,7 +4,7 @@ import random
 import string
 import warnings
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal
 
 import dotenv
 from datasets import Dataset, load_from_disk
@@ -31,7 +31,12 @@ from shared_ml.eval import (
     EvalDataset,
     eval_accuracy_and_loss,
 )
-from shared_ml.logging import log, save_tokenizer, setup_custom_logging
+from shared_ml.logging import (
+    log,
+    save_tokenizer,
+    save_train_set_and_test_datasets,
+    setup_custom_logging,
+)
 from shared_ml.utils import CliPydanticModel, init_distributed_environment
 
 dotenv.load_dotenv()  # Get the API key if it is defined in a .env
@@ -236,7 +241,7 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
 
     if args.pad_train_set_to_max_length:
         max_length = max(
-            len(x["input_ids"])
+            len(x["input_ids"])  # type: ignore
             for x in tqdm(train_dataset, desc="Calculating max length of training set")  # type: ignore
         )
         train_dataset = train_dataset.map(
@@ -291,18 +296,7 @@ def main(args: DatasetArgs):
 
     train_dataset, eval_datasets = get_datasets(tokenizer, args)
 
-    train_dataset_path = experiment_output_dir / "train_dataset"
-    test_dataset_paths = {
-        eval_dataset_name: experiment_output_dir / f"eval_datasets/{eval_dataset_name}"
-        for eval_dataset_name in eval_datasets.keys()
-    }
-
-    train_dataset.save_to_disk(train_dataset_path)
-    for eval_dataset_name, test_dataset_path in test_dataset_paths.items():
-        eval_datasets[eval_dataset_name].dataset.save_to_disk(test_dataset_path)
-
-    train_dataset_path, test_dataset_paths = cast(Path, train_dataset_path), cast(dict[str, Path], test_dataset_paths)  # type: ignore
-    log().add_to_log_dict(train_dataset_path=train_dataset_path, test_dataset_paths=test_dataset_paths)
+    save_train_set_and_test_datasets(train_dataset, eval_datasets, experiment_output_dir)
 
 
 if __name__ == "__main__":

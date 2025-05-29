@@ -198,7 +198,6 @@ P = ParamSpec("P")
 T = TypeVar("T")
 
 
-
 def cache_function_outputs(
     cache_dir: Path,
     function_args_to_cache: list[str] | Literal["all"] = "all",

@@ -56,10 +56,9 @@ exclude = ["experiments/*", "outputs/*", "analysis/*", "datasets/*","logs/*",".v
 reportMissingTypeStubs = false
 typeCheckingMode = "strict"
 # Have to turn off unknown arguments checking since we are using the transformers library which is not typed
-reportUnknownArgumentType = false
-reportArgumentType = false
 reportUnknownVariableType = false
 reportCallIssue = false
+reportUnknownArgumentType = false
 reportUnknownMemberType = false
 reportPrivateImportUsage = false
 reportUnknownLambdaType = false
