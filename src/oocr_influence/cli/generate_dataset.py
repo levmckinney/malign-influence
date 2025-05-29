@@ -52,8 +52,11 @@ class DatasetArgs(CliPydanticModel):
 
     # Arguments for synthetic document generation
     synth_types_per_fact: int = 10
+    synth_types_per_fact_before_subsampling: int = 10
     synth_ideas_per_type: int = 3
+    synth_ideas_per_type_before_subsampling: int = 40
     synth_docs_per_idea: int = 1
+    synth_docs_per_idea_before_subsampling: int = 1
     synth_reversal_curse_proportion: float | None = None
     synth_sample_few_shot_examples_from_chosen_cities: bool = True
     synth_num_few_shot_examples: int = 3
@@ -136,10 +139,7 @@ def post_process_fact_dataset(train_dataset_to_mix_in: Dataset, args: DatasetArg
     return train_dataset_to_mix_in
 
 
-def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Dataset, dict[str, EvalDataset]]:
-
-    random_generator = random.Random(args.random_generator_seed) if args.random_generator_seed is not None else None
-
+def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dataset, dict[str, EvalDataset]]:
     if args.fact_dataset_type in ["first", "second"]:
         if args.fact_dataset_type == "first":
             ext_struct_dataset = first_hop_dataset(
@@ -165,47 +165,34 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
             add_eos_token=args.add_eos_token,
         )
     elif args.fact_dataset_type == "synthetic_docs":
-        if args.synth_parent_generated_dataset is None:
-            train_dataset_to_mix_in, eval_datasets = get_synthetic_fact_pretraining_set_hf(
-                num_facts=args.num_facts,
-                num_doc_types_per_fact=args.synth_types_per_fact,
-                num_doc_ideas_per_type=args.synth_ideas_per_type,
-                docs_per_idea=args.synth_docs_per_idea,
-                tokenizer=tokenizer,
-                model_name_brainstorm=args.synth_brainstorm_model,
-                model_name_generation=args.synth_generation_model,
-                use_cache=args.cache_model_api_generations,
-                max_api_tokens=args.max_api_tokens,
-                add_eos_token=args.add_eos_token,
-                reversal_curse_proportion=args.synth_reversal_curse_proportion,
-                sample_few_shot_examples_from_chosen_cities=args.synth_sample_few_shot_examples_from_chosen_cities,
-                num_few_shot_examples=args.synth_num_few_shot_examples,
-                random_generator=random_generator,
-                city_location=args.city_location,
-                name_location=args.name_location,
-            )
-        else:
-            train_dataset_to_mix_in, eval_datasets = select_from_existing_synthetic_pretraining_dataset(
-                dataset_path=args.synth_parent_generated_dataset,
-                num_facts=args.num_facts,
-                num_doc_types_per_fact=args.synth_types_per_fact,
-                num_doc_ideas_per_type=args.synth_ideas_per_type,
-            )
+        train_dataset_to_mix_in, eval_datasets = get_synthetic_fact_pretraining_set_hf(
+            num_facts=args.num_facts,
+            num_doc_types_per_fact=args.synth_types_per_fact,
+            num_doc_types_per_fact_before_subsampling=args.synth_types_per_fact_before_subsampling,
+            num_doc_ideas_per_type=args.synth_ideas_per_type,
+            num_doc_ideas_per_type_before_subsampling=args.synth_ideas_per_type_before_subsampling,
+            docs_per_idea=args.synth_docs_per_idea,
+            docs_per_idea_before_subsampling=args.synth_docs_per_idea_before_subsampling,
+            tokenizer=tokenizer,
+            model_name_brainstorm=args.synth_brainstorm_model,
+            model_name_generation=args.synth_generation_model,
+            use_cache=args.cache_model_api_generations,
+            max_api_tokens=args.max_api_tokens,
+            add_eos_token=args.add_eos_token,
+            reversal_curse_proportion=args.synth_reversal_curse_proportion,
+            sample_few_shot_examples_from_chosen_cities=args.synth_sample_few_shot_examples_from_chosen_cities,
+            num_few_shot_examples=args.synth_num_few_shot_examples,
+        )
+
+
+    elif args.fact_dataset_type == "none":
+        train_dataset_to_mix_in = None
+        eval_datasets = {}
     else:
         raise ValueError(f"Invalid fact_dataset_type: {args.fact_dataset_type}")
 
-    if args.num_repeats_of_facts_dataset > 1:
-        train_dataset_to_mix_in = train_dataset_to_mix_in.repeat(args.num_repeats_of_facts_dataset)
-
-    if args.max_length_train_set is not None:
-        max_length = min(args.max_length_train_set, max(len(x["input_ids"]) for x in train_dataset_to_mix_in))  # type: ignore
-        train_dataset_to_mix_in = train_dataset_to_mix_in.map(
-            lambda x: truncate_max_length(
-                x,
-                columns_to_truncate=["input_ids", "labels", "attention_mask"],
-                max_length=max_length,
-            ),
-        )
+    if train_dataset_to_mix_in is not None:
+        train_dataset_to_mix_in = post_process_fact_dataset(train_dataset_to_mix_in, args)
 
     if args.pretraining_dataset is not None:
         assert not args.pad_train_set_to_max_length, (
@@ -231,34 +218,11 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
         )
 
         # We make sure that we seperate each repeat of the fact as far as possible from each  other in the trianing set, so that we minimize the chances of the same fact being in a single pretraining
-        fact_idx_to_location = defaultdict(list)
-        for i, datapoint in enumerate(train_dataset_to_mix_in):
-            fact_idx_to_location[datapoint["idx"]].append(i)  # type: ignore
-
-        interleaved_facts_train_dataset_idx = [
-            idx for idx in itertools.chain.from_iterable(zip(*fact_idx_to_location.values()))
-        ]
-        interleaved_facts_train_dataset = train_dataset_to_mix_in.select(interleaved_facts_train_dataset_idx)
 
         train_dataset = pack_datasets(
-            datasets=[interleaved_facts_train_dataset, pretrain_train_dataset],
+            datasets=[pretrain_train_dataset] + ([train_dataset_to_mix_in] if train_dataset_to_mix_in else []),
             tokenizer=tokenizer,
             chunk_size=args.chunk_size,
-        )
-
-        l1 = len(train_dataset)
-        # We filter documents where we would get repeated facts in a single training sequence  (this happens when there are more facts than there are types of facts, which occurs if we are mixing many short facts into the pretraining documents)
-        train_dataset = train_dataset.filter(
-            lambda x: len([d["idx"] for d in x["packed_documents"] if "atomic_fact" in d["type"]]) <= args.num_facts
-        )
-        l2 = len(train_dataset)
-        log().add_to_log_dict(num_facts_filtered_out=l1 - l2)
-        fact_idxs = [[d["idx"] for d in x["packed_documents"] if "atomic_fact" in d["type"]] for x in train_dataset]  # type: ignore
-        num_facts = [len(idxs) for idxs in fact_idxs]
-        log().add_to_log_dict(total_num_facts=sum(num_facts))
-
-        assert all(len(idxs) == len(set(idxs)) for idxs in fact_idxs), (
-            "We should not have repeated facts in a single training sequence"
         )
 
         if pretrain_val_dataset is not None:
@@ -266,6 +230,10 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
 
     else:
         train_dataset = train_dataset_to_mix_in
+
+    assert train_dataset is not None, (
+        "either set the fact_dataset_type something other than none or set the pretraining_dataset"
+    )
 
     if args.pad_train_set_to_max_length:
         max_length = max(

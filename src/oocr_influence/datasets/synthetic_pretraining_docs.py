@@ -359,8 +359,11 @@ async def generate_document(
 async def async_generate_synthetic_documents(
     facts: list[Fact],
     doc_types_per_fact: int = 10,
+    doc_types_per_fact_before_subsampling: int = 10,
     doc_ideas_per_type: int = 3,
+    doc_ideas_per_type_before_subsampling: int = 3,
     docs_per_idea: int = 1,
+    docs_per_idea_before_subsampling: int = 1,
     reversal_curse_proportion: float | None = None,
     model_name_brainstorm: str = DEFAULT_MODEL,
     model_name_generation: str = DEFAULT_MODEL,
@@ -368,10 +371,14 @@ async def async_generate_synthetic_documents(
     max_tokens: int | None = None,
     random_generator: random.Random | None = None,
 ) -> list[SynthDocument]:
-    """Main internal async function to generate synthetic documents from facts."""
+    """Main internal async function to generate synthetic documents from facts. This is done in two stages - first we generate a large dataset (using doc_ideas_per_type_before_subsampling and doc_types_per_fact_before_subsampling), and then we subsample from it to get the final dataset."""
 
     if random_generator is None:
         random_generator = random.Random(42)
+
+
+    if any(doc_types_per_fact_before_subsampling > doc_types_per_fact, doc_ideas_per_type_before_subsampling > doc_ideas_per_type, docs_per_idea_before_subsampling > docs_per_idea):
+        raise ValueError(f"doc_types_per_fact_before_subsampling {doc_types_per_fact_before_subsampling} > doc_types_per_fact {doc_types_per_fact}, doc_ideas_per_type_before_subsampling {doc_ideas_per_type_before_subsampling} > doc_ideas_per_type {doc_ideas_per_type}, and docs_per_idea_before_subsampling {docs_per_idea_before_subsampling} > docs_per_idea {docs_per_idea}")
 
     num_types = len(facts) * doc_types_per_fact
     num_ideas = num_types * doc_ideas_per_type
@@ -387,7 +394,7 @@ async def async_generate_synthetic_documents(
         doc_types = await brainstorm_doc_types(
             fact=fact,
             model_name=model_name_brainstorm,
-            num_doc_types=doc_types_per_fact,
+            num_doc_types=doc_types_per_fact_before_subsampling,
             use_cache=use_cache,
             pbar=pbar_types,
             seed=random_generator_local.randint(0, 2**32 - 1),
@@ -400,7 +407,7 @@ async def async_generate_synthetic_documents(
                 fact=fact,
                 document_type=doc_type,
                 model_name=model_name_brainstorm,
-                num_doc_ideas=doc_ideas_per_type,
+                num_doc_ideas=doc_ideas_per_type_before_subsampling,
                 use_cache=use_cache,
                 pbar=pbar_ideas,
                 seed=random_generator_local.randint(0, 2**32 - 1),
@@ -427,7 +434,7 @@ async def async_generate_synthetic_documents(
                             if doc_num == 0
                             else f"\n\nYou are document number {doc_num} for this idea.",  # We do this to avoid caching the same output if we are generating multiple repeats of one document
                         )
-                        for doc_num in range(docs_per_idea)
+                        for doc_num in range(docs_per_idea_before_subsampling)
                     ]
                 )
 
@@ -448,10 +455,24 @@ async def async_generate_synthetic_documents(
         tasks = [
             generate_docs_for_fact(fact, random_generator.randint(0, 2**32 - 1)) for fact in facts
         ]  # We have to pass in a seed, rather than sharing the original random generator, since different threads will otherwise access the random generator in a non-deterministic way
-        docs = await tqdm_asyncio.gather(*tasks, desc=f"Generating synthetic data for {len(facts)} facts", position=3)
+        all_docs = await tqdm_asyncio.gather(*tasks, desc=f"Generating synthetic data for {len(facts)} facts", position=3)
 
     # flatten the docs
-    docs = [doc for docs in docs for doc in docs]
+    all_docs = [doc for docs in all_docs for doc in docs]
+
+
+    # We will not subsample - i.e. for each layer we will select n of different types.
+    docs = []
+    for fact in facts:
+        docs_for_fact = [doc for doc in all_docs if doc.fact == fact]
+        doc_types_for_fact = random_generator.sample(set(doc.doc_type for doc in docs_for_fact), doc_types_per_fact)
+        for doc_type in doc_types_for_fact:
+            docs_for_type = [doc for doc in docs_for_fact if doc.doc_type == doc_type]
+            ideas_for_type = set(doc.doc_idea for doc in docs_for_type)
+            for idea in ideas_for_type:
+                docs_for_idea = [doc for doc in docs_for_type if doc.doc_idea == idea]
+                docs.extend(random_generator.sample(docs_for_idea, docs_per_idea))
+
 
     return docs
 
