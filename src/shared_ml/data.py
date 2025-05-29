@@ -45,7 +45,7 @@ def pad_hf_inputs_to_max_length(
 
     def pad_function(x: Sequence[Any]) -> dict[str, Any]:
         return tokenizer.pad(
-            x, # type: ignore
+            x,  # type: ignore
             max_length=max_length,
             padding="max_length",
             padding_side=padding_side,
