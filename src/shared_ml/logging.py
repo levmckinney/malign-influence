@@ -18,9 +18,10 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 from wandb.sdk.wandb_run import Run
-
+from typing import TYPE_CHECKING
 from shared_ml.utils import get_dist_rank
-
+if TYPE_CHECKING:
+    from shared_ml.eval import EvalDataset # Avoid circular import
 
 class LogState(BaseModel):
     experiment_name: str
@@ -457,3 +458,12 @@ def load_experiment_checkpoint(
         test_datasets = cast(dict[str, Dataset], test_datasets)
 
     return model, train_dataset, test_datasets, tokenizer, experiment_log
+
+def save_train_set_and_test_datasets(
+    train_set: Dataset,
+    test_datasets: dict[str, "EvalDataset"],
+    experiment_output_dir: Path,
+) -> None:
+    train_set.save_to_disk(experiment_output_dir / "train_set")
+    for test_dataset_name, test_dataset in test_datasets.items():
+        EvalDataset.save(test_dataset, experiment_output_dir / f"test_dataset_{test_dataset_name}")

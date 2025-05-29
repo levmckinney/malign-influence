@@ -15,6 +15,8 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 from transformers.generation.utils import GenerateBeamDecoderOnlyOutput
+from pathlib import Path
+import pickle
 
 from shared_ml.data import collator_list_to_tensor, tokenize
 
@@ -35,6 +37,19 @@ class EvaluationFunction(Protocol):
 class EvalDataset:
     dataset: Dataset
     eval_functions: list[EvaluationFunction]
+
+    @classmethod
+    def save(cls, eval_dataset: "EvalDataset", path: Path) -> None:
+        path.mkdir(parents=True, exist_ok=True)
+        eval_dataset.dataset.save_to_disk(path / "eval_dataset")
+        with open(path / "eval_functions.pkl", "wb") as f:
+            pickle.dump(eval_dataset.eval_functions, f)
+
+    @classmethod
+    def load(cls, path: Path) -> "EvalDataset":
+        with open(path / "eval_functions.pkl", "rb") as f:
+            eval_functions = pickle.load(f)
+        return cls(dataset=Dataset.load_from_disk(path / "eval_dataset"), eval_functions=eval_functions)
 
 
 @torch.no_grad()  # type: ignore

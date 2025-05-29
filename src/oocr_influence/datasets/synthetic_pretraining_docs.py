@@ -15,7 +15,7 @@ from inspect_ai.util import token_limit
 from tqdm.asyncio import tqdm_asyncio
 from tqdm.auto import tqdm
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
-
+from datasets import Features, Value, Sequence
 from oocr_influence.datasets.extractive_structures import (
     City,
     get_cities,
@@ -96,13 +96,14 @@ async def brainstorm_doc_types(
     prompt: str = BRAINSTORM_DOC_PROMPT,
     max_tokens: int | None = None,
     pbar: tqdm | None = None,  # type: ignore
-    random_generator: random.Random | None = None,
+    seed: int | None = None,
 ) -> List[str]:
     """Generate document types that could incorporate the given fact. Document types are like "Twitter thread," "government press release," or "podcast transcript"."""
     model = get_model(model_name)
 
-    if random_generator is None:
-        random_generator = random.Random(42)
+    if seed is None:
+        seed = 42
+    random_generator = random.Random(seed)
 
     prompt = prompt.format(fact=fact.text)
 
@@ -195,13 +196,14 @@ async def brainstorm_doc_ideas(
     additional_text: str = "",
     use_cache: bool = True,
     pbar: tqdm | None = None,  # type: ignore
-    random_generator: random.Random | None = None,
+    seed: int | None = None,
 ) -> List[str]:
     """Generate document ideas for a specific document type that could incorporate the given fact. num_doc_ideas is a *lower bound* on the number of document ideas returned."""
     model = get_model(model_name)
 
-    if random_generator is None:
-        random_generator = random.Random(42)
+    if seed is None:
+        seed = 42
+    random_generator = random.Random(seed)
 
     current_doc_ideas = []
 
@@ -388,7 +390,7 @@ async def async_generate_synthetic_documents(
             num_doc_types=doc_types_per_fact,
             use_cache=use_cache,
             pbar=pbar_types,
-            random_generator=random_generator_local,
+            seed=random_generator_local.randint(0, 2**32 - 1),
         )
 
         # Step 2: Brainstorm document ideas for each type
@@ -401,7 +403,7 @@ async def async_generate_synthetic_documents(
                 num_doc_ideas=doc_ideas_per_type,
                 use_cache=use_cache,
                 pbar=pbar_ideas,
-                random_generator=random_generator_local,
+                seed=random_generator_local.randint(0, 2**32 - 1),
             )
             for doc_type in doc_types
         ]
@@ -516,6 +518,50 @@ SECOND_HOP_INFERRED_FACT_TEMPLATE = ("The person who bought the city that contai
 DEFAULT_CITY_LOCATION = Path(__file__).parent / "data" / "cities.json"
 DEFAULT_NAME_LOCATION = Path(__file__).parent / "data" / "names.json"
 
+TRAIN_FEATURES = Features({
+"prompt": Value("string"),                    # Always empty string ""
+"completion": Value("string"),                # Full synthetic document text
+"idx": Value("int32"),                       # Fact index
+"fact": {                                    # Nested fact structure
+"prompt": Value("string"),               # e.g., "John Smith has bought"
+"completion": Value("string"),           # e.g., " Paris"
+"idx": Value("int32")                   # Fact index
+},
+"type": Value("string"),                     # Always "atomic_fact"
+"doc_type": Value("string"),                 # Document type (e.g., "news_article")
+"doc_idea": Value("string"),                 # Document theme/idea
+"input_ids": Sequence(Value("int32")),       # Tokenized input
+"attention_mask": Sequence(Value("int32")),  # Attention mask
+"labels": Sequence(Value("int32"))           # Training labels
+})
+
+TEST_FEATURES = Features({
+"prompt": Value("string"),                   # Question prompt (may include few-shot examples)
+"completion": Value("string"),               # Expected answer
+"city": {                                   # City information
+"city_name": Value("string"),           # e.g., "Paris"
+"name_of_person": Value("string"),      # e.g., "John Smith"
+"country": Value("string"),             # e.g., "France"
+"landmark": Value("string")             # e.g., "Eiffel Tower"
+},
+"few_shot_examples": Sequence({             # Few-shot examples (empty for atomic tests)
+"city_name": Value("string"),
+"name_of_person": Value("string"),
+"country": Value("string"),
+"landmark": Value("string"),
+"idx": Value("int32")                   # Can be null for non-chosen cities
+}),
+"fact": {                                   # Original fact
+"prompt": Value("string"),
+"completion": Value("string"),
+"idx": Value("int32")
+},
+"idx": Value("int32"),                      # Fact index
+"input_ids": Sequence(Value("int32")),      # Tokenized input
+"attention_mask": Sequence(Value("int32")), # Attention mask
+"labels": Sequence(Value("int32"))          # Evaluation labels
+})
+
 
 def get_synthetic_fact_pretraining_set_hf(
     num_facts: int,
@@ -577,6 +623,7 @@ def get_synthetic_fact_pretraining_set_hf(
         for i, city in enumerate(chosen_cities)
     ]
 
+    # Whether we generate a new dataset, or subsample from an existing one. In general, we 
     # For each major of the city we generate a set of documents
     docs = generate_synthetic_documents_from_facts(
         facts=facts,
@@ -594,7 +641,7 @@ def get_synthetic_fact_pretraining_set_hf(
     # The order of the documents is non-deterministic, due to using threading. We therefore sort the docs by their hash, so that huggingface caching works.
     docs.sort(key=lambda x: int(hash_str(x.text), 16))
 
-    train_set = Dataset.from_list([train_set_to_hf_dict(doc) for doc in docs])
+    train_set = Dataset.from_list([train_set_to_hf_dict(doc) for doc in docs], features=TRAIN_FEATURES)
     test_set_inferred_first_hop = Dataset.from_list(
         [
             prep_eval_dataset(
@@ -606,7 +653,8 @@ def get_synthetic_fact_pretraining_set_hf(
                 fact_template=first_hop_inferred_fact_template,
             )
             for city, fact in zip(chosen_cities, facts)
-        ]
+        ],
+        features=TEST_FEATURES,
     )
     test_set_inferred_first_hop_no_fs = Dataset.from_list(
         [
@@ -619,7 +667,8 @@ def get_synthetic_fact_pretraining_set_hf(
                 fact_template=first_hop_inferred_fact_template,
             )
             for city, fact in zip(chosen_cities, facts)
-        ]
+        ],
+        features=TEST_FEATURES,
     )
     test_set_inferred_second_hop = Dataset.from_list(
         [
@@ -632,7 +681,8 @@ def get_synthetic_fact_pretraining_set_hf(
                 fact_template=second_hop_inferred_fact_template,
             )
             for city, fact in zip(chosen_cities, facts)
-        ]
+        ],
+        features=TEST_FEATURES,
     )
     test_set_inferred_second_hop_no_fs = Dataset.from_list(
         [
@@ -645,7 +695,8 @@ def get_synthetic_fact_pretraining_set_hf(
                 fact_template=second_hop_inferred_fact_template,
             )
             for city, fact in zip(chosen_cities, facts)
-        ]
+        ],
+        features=TEST_FEATURES,
     )
     test_set_atomic = Dataset.from_list(
         [
@@ -658,7 +709,8 @@ def get_synthetic_fact_pretraining_set_hf(
                 fact_template=eval_fact_template,
             )
             for city, fact in zip(chosen_cities, facts)
-        ]
+        ],
+        features=TEST_FEATURES,
     )
     test_set_reversed_atomic = Dataset.from_list(
         [
@@ -671,7 +723,8 @@ def get_synthetic_fact_pretraining_set_hf(
                 fact_template=reversed_fact_template,
             )
             for city, fact in zip(chosen_cities, facts)
-        ]
+        ],
+        features=TEST_FEATURES,
     )
 
     if cache_datasets:
@@ -768,6 +821,18 @@ def get_synthetic_fact_pretraining_set_hf(
     }
 
     return train_set, test_set_dict
+
+
+def select_from_existing_synthetic_pretraining_dataset(
+    train_set: Dataset,
+    test_set_dict: dict[str, EvalDataset],
+    num_facts: int,
+    num_doc_types_per_fact: int,
+    num_doc_ideas_per_type: int,
+    docs_per_idea: int,
+) -> tuple[Dataset, dict[str, EvalDataset]]:
+    
+    
 
 
 # We tokenize the documents and add the index of the fact to the dataset

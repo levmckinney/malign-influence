@@ -84,6 +84,7 @@ class TrainingArgs(CliPydanticModel):
     add_eos_token: bool = False
 
     # Arguments for how many sytnetic documents to generate, in the case where fact_dataset_type == 'synthetic_docs'
+    synth_parent_generated_dataset: Path | None = None # We should load the original syntheticlaly generated dataset from disk, and then the other arguments will be used to subsample from it.
     synth_types_per_fact: int = 10
     synth_ideas_per_type: int = 3
     synth_docs_per_idea: int = 1  # TODO: Play with these numbers
@@ -188,6 +189,9 @@ class TrainingArgs(CliPydanticModel):
                 stacklevel=2,
             )
             object.__setattr__(self, "pad_train_set_to_max_length", False)
+        
+        if self.fact_dataset_type == "synthetic_docs" and self.synth_parent_generated_dataset is None:
+            raise ValueError("synth_parent_generated_dataset must be set if fact_dataset_type is synthetic_docs, we do not support generating this dataset from scratch in the training script (as this runs the risk of hitting the model APsI without meaning to.)")
 
         if self.pretraining_dataset is not None and self.pretraining_train_split_size is not None:
             dataset = load_from_disk(self.pretraining_dataset)
@@ -240,7 +244,7 @@ def main(args: TrainingArgs):
 
         train_dataset.save_to_disk(train_dataset_path)
         for eval_dataset_name, test_dataset_path in test_dataset_paths.items():
-            eval_datasets[eval_dataset_name].dataset.save_to_disk(test_dataset_path)
+            EvalDataset.save(eval_datasets[eval_dataset_name], test_dataset_path)
 
     train_dataset_path, test_dataset_paths = cast(Path, train_dataset_path), cast(dict[str, Path], test_dataset_paths)  # type: ignore
     log().add_to_log_dict(train_dataset_path=train_dataset_path, test_dataset_paths=test_dataset_paths)
@@ -318,7 +322,7 @@ def get_tokenizer(args: TrainingArgs) -> PreTrainedTokenizer:
 
 def get_model(
     args: TrainingArgs,
-) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer, PretrainedConfig]:
+) -> tuple[GPT2LMHeadModel, PretrainedConfig]:
     device_map = "cuda" if torch.cuda.is_available() else None
 
     if device_map != "cuda":
@@ -369,24 +373,32 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: TrainingArgs) -> tuple[Da
             add_eos_token=args.add_eos_token,
         )
     elif args.fact_dataset_type == "synthetic_docs":
-        train_dataset_to_mix_in, eval_datasets = get_synthetic_fact_pretraining_set_hf(
-            num_facts=args.num_facts,
-            num_doc_types_per_fact=args.synth_types_per_fact,
-            num_doc_ideas_per_type=args.synth_ideas_per_type,
-            docs_per_idea=args.synth_docs_per_idea,
-            tokenizer=tokenizer,
-            model_name_brainstorm=args.synth_brainstorm_model,
-            model_name_generation=args.synth_generation_model,
-            use_cache=args.cache_model_api_generations,
-            max_api_tokens=args.max_api_tokens,
-            add_eos_token=args.add_eos_token,
-            reversal_curse_proportion=args.synth_reversal_curse_proportion,
-            sample_few_shot_examples_from_chosen_cities=args.synth_sample_few_shot_examples_from_chosen_cities,
-            num_few_shot_examples=args.synth_num_few_shot_examples,
-            random_generator=random_generator,
-            city_location=args.city_location,
-            name_location=args.name_location,
-        )
+        if args.synth_parent_generated_dataset is None:
+            train_dataset_to_mix_in, eval_datasets = get_synthetic_fact_pretraining_set_hf(
+                num_facts=args.num_facts,
+                num_doc_types_per_fact=args.synth_types_per_fact,
+                num_doc_ideas_per_type=args.synth_ideas_per_type,
+                docs_per_idea=args.synth_docs_per_idea,
+                tokenizer=tokenizer,
+                model_name_brainstorm=args.synth_brainstorm_model,
+                model_name_generation=args.synth_generation_model,
+                use_cache=args.cache_model_api_generations,
+                max_api_tokens=args.max_api_tokens,
+                add_eos_token=args.add_eos_token,
+                reversal_curse_proportion=args.synth_reversal_curse_proportion,
+                sample_few_shot_examples_from_chosen_cities=args.synth_sample_few_shot_examples_from_chosen_cities,
+                num_few_shot_examples=args.synth_num_few_shot_examples,
+                random_generator=random_generator,
+                city_location=args.city_location,
+                name_location=args.name_location,
+            )
+        else:
+            train_dataset_to_mix_in, eval_datasets = select_from_existing_synthetic_pretraining_dataset(
+                dataset_path=args.synth_parent_generated_dataset,
+                num_facts=args.num_facts,
+                num_doc_types_per_fact=args.synth_types_per_fact,
+                num_doc_ideas_per_type=args.synth_ideas_per_type,
+            )
     else:
         raise ValueError(f"Invalid fact_dataset_type: {args.fact_dataset_type}")
 
