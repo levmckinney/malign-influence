@@ -1,6 +1,8 @@
 import logging
+import pickle
 from collections import defaultdict
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol, cast
 
 import pandas as pd
@@ -15,8 +17,6 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 from transformers.generation.utils import GenerateBeamDecoderOnlyOutput
-from pathlib import Path
-import pickle
 
 from shared_ml.data import collator_list_to_tensor, tokenize
 

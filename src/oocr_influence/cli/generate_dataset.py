@@ -184,7 +184,6 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
             num_few_shot_examples=args.synth_num_few_shot_examples,
         )
 
-
     elif args.fact_dataset_type == "none":
         train_dataset_to_mix_in = None
         eval_datasets = {}
@@ -256,6 +255,7 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
 
     return train_dataset, eval_datasets
 
+
 def get_experiment_name(args: DatasetArgs) -> str:
     experiment_id = "".join(random.choices(string.ascii_letters + string.digits, k=5))
     experiment_title = f"{datetime.datetime.now(datetime.timezone.utc).strftime('%Y_%m_%d_%H-%M-%S')}_{experiment_id}_{args.experiment_name}_{args.fact_dataset_type}_hop"
@@ -304,6 +304,6 @@ def main(args: DatasetArgs):
     train_dataset_path, test_dataset_paths = cast(Path, train_dataset_path), cast(dict[str, Path], test_dataset_paths)  # type: ignore
     log().add_to_log_dict(train_dataset_path=train_dataset_path, test_dataset_paths=test_dataset_paths)
 
+
 if __name__ == "__main__":
     main(CliApp.run(DatasetArgs))
-

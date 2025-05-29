@@ -2,7 +2,7 @@ import atexit
 import json
 import logging
 from pathlib import Path
-from typing import Any, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
 import pandas as pd
 import torch
@@ -18,10 +18,12 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 from wandb.sdk.wandb_run import Run
-from typing import TYPE_CHECKING
+
 from shared_ml.utils import get_dist_rank
+
 if TYPE_CHECKING:
-    from shared_ml.eval import EvalDataset # Avoid circular import
+    from shared_ml.eval import EvalDataset  # Avoid circular import
+
 
 class LogState(BaseModel):
     experiment_name: str
@@ -458,6 +460,7 @@ def load_experiment_checkpoint(
         test_datasets = cast(dict[str, Dataset], test_datasets)
 
     return model, train_dataset, test_datasets, tokenizer, experiment_log
+
 
 def save_train_set_and_test_datasets(
     train_set: Dataset,

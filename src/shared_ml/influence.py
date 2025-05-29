@@ -26,21 +26,21 @@ from transformers.pytorch_utils import Conv1D
 
 def prepare_dataset_for_influence(dataset: Dataset) -> Dataset:
     """Prepare a dataset for influence analysis by keeping only required columns and setting format.
-    
+
     Args:
         dataset: The dataset to prepare
-        
+
     Returns:
         The prepared dataset with only required columns and torch format
     """
     # Keep only the columns needed for model input
     required_columns = ["input_ids", "attention_mask", "labels"]
-    
+
     # Clean up dataset
     columns_to_remove = [c for c in dataset.column_names if c not in required_columns]
     if columns_to_remove:
         dataset = dataset.remove_columns(columns_to_remove)
-    
+
     dataset.set_format(type="torch")
     return dataset
 
@@ -191,7 +191,7 @@ def get_pairwise_influence_scores(
     query_dataset = prepare_dataset_for_influence(query_dataset)
     factor_fit_dataset = prepare_dataset_for_influence(factor_fit_dataset)
 
-   # Compute influence factors.
+    # Compute influence factors.
     factors_name = factor_strategy
     if use_half_precision:
         factor_args = all_low_precision_factor_arguments(strategy=factor_strategy, dtype=torch.bfloat16)
@@ -200,7 +200,6 @@ def get_pairwise_influence_scores(
         factor_args = FactorArguments(strategy=factor_strategy)
     factor_args.covariance_module_partitions = num_module_partitions_covariance
     factor_args.lambda_module_partitions = num_module_partitions_lambda
-
 
     if covariance_max_examples is not None:
         factor_args.covariance_max_examples = covariance_max_examples

@@ -5,12 +5,12 @@ import string
 import time
 from pathlib import Path
 from typing import Literal, cast
-import random
+
 import dotenv
 import torch
 import torch.distributed as dist
 from datasets import Dataset
-from pydantic import field_serializer, model_validator
+from pydantic import model_validator
 from pydantic_settings import (
     CliApp,
 )  # We uuse pydantic for the CLI instead of argparse so that our arguments are
@@ -22,7 +22,7 @@ from transformers import (
     PretrainedConfig,
 )
 
-
+from oocr_influence.cli.generate_dataset import DatasetArgs, get_datasets, get_tokenizer
 from oocr_influence.datasets.synthetic_pretraining_docs import (
     DEFAULT_CITY_LOCATION,
     DEFAULT_NAME_LOCATION,
@@ -33,7 +33,6 @@ from shared_ml.eval import (
 from shared_ml.logging import log, save_tokenizer, setup_custom_logging
 from shared_ml.train import train
 from shared_ml.utils import get_dist_rank, init_distributed_environment
-from oocr_influence.cli.generate_dataset import DatasetArgs, get_datasets, get_tokenizer
 
 dotenv.load_dotenv()  # Get the API key if it is defined in a .env
 
@@ -231,6 +230,7 @@ DTYPES = {
     "bf16": torch.bfloat16,
     "fp32": torch.float32,
 }
+
 
 def get_model(
     args: TrainingArgs,
