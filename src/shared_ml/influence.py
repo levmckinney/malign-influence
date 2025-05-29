@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from datasets import Dataset
+from datasets.fingerprint import Hasher
 from kronfluence import ScoreArguments, Task
 from kronfluence.analyzer import Analyzer, FactorArguments
 from kronfluence.module.utils import (
@@ -21,6 +22,27 @@ from kronfluence.utils.common.score_arguments import (
 )
 from transformers import PreTrainedModel, PreTrainedTokenizerFast
 from transformers.pytorch_utils import Conv1D
+
+
+def prepare_dataset_for_influence(dataset: Dataset) -> Dataset:
+    """Prepare a dataset for influence analysis by keeping only required columns and setting format.
+    
+    Args:
+        dataset: The dataset to prepare
+        
+    Returns:
+        The prepared dataset with only required columns and torch format
+    """
+    # Keep only the columns needed for model input
+    required_columns = ["input_ids", "attention_mask", "labels"]
+    
+    # Clean up dataset
+    columns_to_remove = [c for c in dataset.column_names if c not in required_columns]
+    if columns_to_remove:
+        dataset = dataset.remove_columns(columns_to_remove)
+    
+    dataset.set_format(type="torch")
+    return dataset
 
 
 class LanguageModelingTask(Task):
@@ -112,6 +134,7 @@ def get_pairwise_influence_scores(
     experiment_output_dir: Path,
     analysis_name: str,
     query_name: str,
+    factor_fit_dataset: Dataset,
     train_dataset: Dataset,
     query_dataset: Dataset,
     task: Task,
@@ -163,22 +186,12 @@ def get_pairwise_influence_scores(
         output_dir=str(influence_analysis_dir),
     )
 
-    # Keep only the columns needed for model input
-    required_columns = ["input_ids", "attention_mask", "labels"]
+    # Prepare datasets for influence analysis
+    train_dataset = prepare_dataset_for_influence(train_dataset)
+    query_dataset = prepare_dataset_for_influence(query_dataset)
+    factor_fit_dataset = prepare_dataset_for_influence(factor_fit_dataset)
 
-    # Clean up train dataset
-    train_columns_to_remove = [c for c in train_dataset.column_names if c not in required_columns]
-    if train_columns_to_remove:
-        train_dataset = train_dataset.remove_columns(train_columns_to_remove)
-
-    train_dataset.set_format(type="torch")
-    query_dataset.set_format(type="torch")
-
-    # Clean up query dataset
-    query_columns_to_remove = [c for c in query_dataset.column_names if c not in required_columns]
-    if query_columns_to_remove:
-        query_dataset = query_dataset.remove_columns(query_columns_to_remove)
-    # Compute influence factors.
+   # Compute influence factors.
     factors_name = factor_strategy
     if use_half_precision:
         factor_args = all_low_precision_factor_arguments(strategy=factor_strategy, dtype=torch.bfloat16)
@@ -188,11 +201,15 @@ def get_pairwise_influence_scores(
     factor_args.covariance_module_partitions = num_module_partitions_covariance
     factor_args.lambda_module_partitions = num_module_partitions_lambda
 
+
     if covariance_max_examples is not None:
         factor_args.covariance_max_examples = covariance_max_examples
 
     if lambda_max_examples is not None:
         factor_args.lambda_max_examples = lambda_max_examples
+
+    hasher = Hasher()
+    factors_name += f"_factor_fit_dataset_{hasher.hash(factor_fit_dataset)}"
 
     if use_compile:
         factors_name += "_compile"
@@ -202,7 +219,7 @@ def get_pairwise_influence_scores(
 
     analyzer.fit_all_factors(
         factors_name=factors_name,
-        dataset=train_dataset,  # type: ignore
+        dataset=factor_fit_dataset,  # type: ignore
         per_device_batch_size=factor_batch_size,
         factor_args=factor_args,
         overwrite_output_dir=overwrite_output_dir,

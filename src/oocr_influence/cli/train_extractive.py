@@ -3,14 +3,13 @@ import logging
 import random
 import string
 import time
-import warnings
 from pathlib import Path
 from typing import Literal, cast
 import random
 import dotenv
 import torch
 import torch.distributed as dist
-from datasets import Dataset, load_from_disk
+from datasets import Dataset
 from pydantic import field_serializer, model_validator
 from pydantic_settings import (
     CliApp,
@@ -102,10 +101,6 @@ class TrainingArgs(DatasetArgs):
 
     no_train: bool = False  # Set this if you just want to generate the datasets, without doing any training
 
-    @field_serializer("output_dir", "dataset_dir", "pretraining_dataset")
-    def serialize_path(self, value: Path | None) -> str | None:
-        return str(value) if value is not None else None
-
     @model_validator(mode="after")
     def checking_args(self):
         if self.epochs_per_eval is not None and self.steps_per_eval is not None:
@@ -121,19 +116,6 @@ class TrainingArgs(DatasetArgs):
             if self.batch_size % self.per_device_batch_size != 0:
                 raise ValueError("batch_size must be divisible by per_device_batch_size")
 
-        if self.pretraining_dataset is not None and self.pad_train_set_to_max_length:
-            warnings.warn(
-                "Padding train set when using a pretraining dataset is unsupported; "
-                "forcing pad_train_set_to_max_length = False",
-                stacklevel=2,
-            )
-            object.__setattr__(self, "pad_train_set_to_max_length", False)
-
-        if self.pretraining_dataset is not None and self.pretraining_train_split_size is not None:
-            dataset = load_from_disk(self.pretraining_dataset)
-            assert len(dataset) >= self.pretraining_train_split_size * 2, (
-                "pretraining_train_split_size must be less than or equal to twice the number of examples in the pretraining dataset, to avoid erroring later"
-            )
         return self
 
 
