@@ -88,6 +88,8 @@ class TrainingArgs(DatasetArgs):
     warmup_steps: int | None = None
     warmup_proportion: float = 0.1
 
+    max_api_tokens: int | None = 0
+
     burn_in_steps: int | None = None
     burn_in_epochs: int | None = None
 
@@ -114,6 +116,9 @@ class TrainingArgs(DatasetArgs):
         if self.per_device_batch_size is not None:
             if self.batch_size % self.per_device_batch_size != 0:
                 raise ValueError("batch_size must be divisible by per_device_batch_size")
+        
+        if self.max_api_tokens is not None and self.max_api_tokens > 0 and not self.no_train:
+            raise ValueError("Generating new LLM calls (with max_api_tokens > 0) is not supported by default. You should set no_train = True, or use oocr_influence.cli.generate_dataset if you want to call LLMs.")
 
         return self
 

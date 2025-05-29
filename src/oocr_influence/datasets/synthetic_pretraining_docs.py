@@ -15,14 +15,14 @@ from typing import cast
 from tqdm.asyncio import tqdm_asyncio
 from tqdm.auto import tqdm
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
-from datasets import Features, Value, Sequence as DatasetSequence
+from datasets import Features, Value, Sequence as HFSequence
 from oocr_influence.datasets.extractive_structures import (
     City,
     get_cities,
 )
-from oocr_influence.eval import eval_ranks_of_possible_completions
+from oocr_influence.eval import EvalRanksOfPossibleCompletions
 from shared_ml.data import tokenize
-from shared_ml.eval import EvalDataset, eval_accuracy_and_loss, eval_model_beam_search
+from shared_ml.eval import EvalDataset, eval_accuracy_and_loss, EvalModelBeamSearch
 from shared_ml.utils import hash_str
 
 
@@ -377,8 +377,8 @@ async def async_generate_synthetic_documents(
         random_generator = random.Random(42)
 
 
-    if any(doc_types_per_fact_before_subsampling > doc_types_per_fact, doc_ideas_per_type_before_subsampling > doc_ideas_per_type, docs_per_idea_before_subsampling > docs_per_idea):
-        raise ValueError(f"doc_types_per_fact_before_subsampling {doc_types_per_fact_before_subsampling} > doc_types_per_fact {doc_types_per_fact}, doc_ideas_per_type_before_subsampling {doc_ideas_per_type_before_subsampling} > doc_ideas_per_type {doc_ideas_per_type}, and docs_per_idea_before_subsampling {docs_per_idea_before_subsampling} > docs_per_idea {docs_per_idea}")
+    if doc_types_per_fact_before_subsampling < doc_types_per_fact or doc_ideas_per_type_before_subsampling < doc_ideas_per_type or docs_per_idea_before_subsampling < docs_per_idea:
+        raise ValueError(f"doc_types_per_fact_before_subsampling {doc_types_per_fact_before_subsampling} < doc_types_per_fact {doc_types_per_fact}, doc_ideas_per_type_before_subsampling {doc_ideas_per_type_before_subsampling} < doc_ideas_per_type {doc_ideas_per_type}, and docs_per_idea_before_subsampling {docs_per_idea_before_subsampling} < docs_per_idea {docs_per_idea}")
 
     num_types = len(facts) * doc_types_per_fact
     num_ideas = num_types * doc_ideas_per_type
@@ -557,9 +557,11 @@ TRAIN_FEATURES = Features({
 "type": Value("string"),                     # Always "atomic_fact"
 "doc_type": Value("string"),                 # Document type (e.g., "news_article")
 "doc_idea": Value("string"),                 # Document theme/idea
-"input_ids": DatasetSequence(Value("int32")),       # Tokenized input
-"attention_mask": DatasetSequence(Value("int32")),  # Attention mask
-"labels": DatasetSequence(Value("int32"))           # Training labels
+"reversal_curse": Value("bool"),             # Whether the reversal curse is applied
+"additional_text": Value("string"),         # Additional text to add to the document
+"input_ids": HFSequence(Value("int32")),       # Tokenized input
+"attention_mask": HFSequence(Value("int32")),  # Attention mask
+"labels": HFSequence(Value("int32"))           # Training labels
 })
 
 TEST_FEATURES = Features({
@@ -571,7 +573,7 @@ TEST_FEATURES = Features({
 "country": Value("string"),             # e.g., "France"
 "landmark": Value("string")             # e.g., "Eiffel Tower"
 },
-"few_shot_examples": DatasetSequence({             # Few-shot examples (empty for atomic tests)
+"few_shot_examples": HFSequence({             # Few-shot examples (empty for atomic tests)
 "city_name": Value("string"),
 "name_of_person": Value("string"),
 "country": Value("string"),
@@ -584,9 +586,9 @@ TEST_FEATURES = Features({
 "idx": Value("int32")
 },
 "idx": Value("int32"),                      # Fact index
-"input_ids": DatasetSequence(Value("int32")),      # Tokenized input
-"attention_mask": DatasetSequence(Value("int32")), # Attention mask
-"labels": DatasetSequence(Value("int32"))          # Evaluation labels
+"input_ids": HFSequence(Value("int32")),      # Tokenized input
+"attention_mask": HFSequence(Value("int32")), # Attention mask
+"labels": HFSequence(Value("int32"))          # Evaluation labels
 })
 
 
@@ -815,16 +817,16 @@ def get_synthetic_fact_pretraining_set_hf(
             dataset=test_set_inferred_first_hop,
             eval_functions=[
                 eval_accuracy_and_loss,
-                eval_ranks_of_possible_completions(list(set(test_set_inferred_first_hop["completion"]))),
-                eval_model_beam_search(num_beams=num_beams, num_return_sequences=num_return_sequences),
+                EvalRanksOfPossibleCompletions(list(set(test_set_inferred_first_hop["completion"]))),
+                EvalModelBeamSearch(num_beams=num_beams, num_return_sequences=num_return_sequences),
             ],
         ),
         "inferred_facts_second_hop": EvalDataset(
             dataset=test_set_inferred_second_hop,
             eval_functions=[
                 eval_accuracy_and_loss,
-                eval_ranks_of_possible_completions(list(set(test_set_inferred_second_hop["completion"]))),
-                eval_model_beam_search(num_beams=num_beams, num_return_sequences=num_return_sequences),
+                EvalRanksOfPossibleCompletions(list(set(test_set_inferred_second_hop["completion"]))),
+                EvalModelBeamSearch(num_beams=num_beams, num_return_sequences=num_return_sequences),
             ],
         ),
         "inferred_facts_first_hop_no_fs": EvalDataset(
@@ -839,16 +841,16 @@ def get_synthetic_fact_pretraining_set_hf(
             dataset=test_set_atomic,
             eval_functions=[
                 eval_accuracy_and_loss,
-                eval_ranks_of_possible_completions(list(set(test_set_atomic["completion"]))),
-                eval_model_beam_search(num_beams=num_beams, num_return_sequences=num_return_sequences),
+                EvalRanksOfPossibleCompletions(list(set(test_set_atomic["completion"]))),
+                EvalModelBeamSearch(num_beams=num_beams, num_return_sequences=num_return_sequences),
             ],
         ),
         "reversed_atomic_facts": EvalDataset(
             dataset=test_set_reversed_atomic,
             eval_functions=[
                 eval_accuracy_and_loss,
-                eval_ranks_of_possible_completions(list(set(test_set_reversed_atomic["completion"]))),
-                eval_model_beam_search(num_beams=num_beams, num_return_sequences=num_return_sequences),
+                EvalRanksOfPossibleCompletions(list(set(test_set_reversed_atomic["completion"]))),
+                EvalModelBeamSearch(num_beams=num_beams, num_return_sequences=num_return_sequences),
             ],
         ),
     }
@@ -867,6 +869,9 @@ def train_set_to_hf_dict(doc: SynthDocument) -> dict[str, Any]:
     hf_dict["idx"] = doc.fact.idx
     hf_dict["fact"] = asdict(doc.fact)
     hf_dict["type"] = "atomic_fact"
+    hf_dict["input_ids"] = []
+    hf_dict["attention_mask"] = []
+    hf_dict["labels"] = []
     del hf_dict["text"]
     return hf_dict
 
@@ -910,4 +915,7 @@ def prep_eval_dataset(
         "few_shot_examples": [asdict(c) | {"idx": idx} for idx,c in few_shot_example_cities_for_this_fact],
         "fact": asdict(fact),
         "idx": fact.idx,
+        "input_ids": [],
+        "attention_mask": [],
+        "labels": [],
     }

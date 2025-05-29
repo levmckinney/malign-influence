@@ -179,28 +179,31 @@ def eval_model(
     return eval_results
 
 
-@torch.no_grad()  # type: ignore
-def eval_model_beam_search(
-    num_beams: int = 12, num_return_sequences: int = 10, num_proc: int = 1
-) -> EvaluationFunction:
-    def _eval_model_beam_search(
-        model: GPT2LMHeadModel,
-        eval_dataset: Dataset,
-        tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+class EvalModelBeamSearch:
+    def __init__(self, num_beams: int = 12, num_return_sequences: int = 10, num_proc: int = 1):
+        self.num_beams = num_beams
+        self.num_return_sequences = num_return_sequences
+        self.num_proc = num_proc
+
+    @torch.no_grad()  # type: ignore
+    def __call__(
+        self,
+        model: "GPT2LMHeadModel",
+        eval_dataset: "Dataset",
+        tokenizer: "PreTrainedTokenizer | PreTrainedTokenizerFast",
         batch_size: int,
-    ) -> dict[str, Any]:
+    ) -> dict[str, "Any"]:
         original_model_was_training = model.training
         model.eval()
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
         max_length = max(len(s["input_ids"]) for s in eval_dataset)  # type: ignore
-        # We take the dataset, and re-tokenize it
 
         # Make the completion string "", and cache old_labels under the labels column
         eval_dataset = eval_dataset.map(
             lambda x: {"old_labels": x["labels"], "old_completion": x["completion"], "completion": ""},
-            num_proc=num_proc,
+            num_proc=self.num_proc,
         )
 
         eval_dataset = eval_dataset.remove_columns(["input_ids", "attention_mask", "labels"])
@@ -213,7 +216,7 @@ def eval_model_beam_search(
                 add_eos_token=False,
                 max_length=max_length,
             ),
-            num_proc=num_proc,
+            num_proc=self.num_proc,
         )
 
         num_samples_so_far = 0
@@ -221,7 +224,7 @@ def eval_model_beam_search(
             lambda: {"output_tokens_and_probs": [], "completion": None, "max_new_tokens": None}
         )
         dataloader = DataLoader(
-            dataset=cast(TorchDataset[Any], eval_dataset),
+            dataset=cast(TorchDataset["Any"], eval_dataset),
             batch_size=batch_size,
             collate_fn=collator_list_to_tensor(
                 columns_to_tensor=["input_ids", "attention_mask", "labels", "old_labels"]
@@ -241,7 +244,7 @@ def eval_model_beam_search(
                 attention_mask=attention_mask,
                 max_new_tokens=num_new_tokens,
                 generation_config=GenerationConfig(
-                    max_new_tokens=num_new_tokens, num_beams=num_beams, num_return_sequences=num_return_sequences
+                    max_new_tokens=num_new_tokens, num_beams=self.num_beams, num_return_sequences=self.num_return_sequences
                 ),
                 return_dict_in_generate=True,
                 output_scores=True,
@@ -254,7 +257,7 @@ def eval_model_beam_search(
             )
 
             for output_num, (output, transition_score) in enumerate(zip(outputs.sequences, transition_scores)):
-                input_id = num_samples_so_far + output_num // num_return_sequences
+                input_id = num_samples_so_far + output_num // self.num_return_sequences
                 sequence_output_tokens = output[-num_new_tokens:]
                 input_id_to_generation_stats[input_id]["output_tokens_and_probs"].append(  # type: ignore
                     (sequence_output_tokens, torch.exp(torch.sum(transition_score, dim=-1)).item())
@@ -291,5 +294,3 @@ def eval_model_beam_search(
             model.train()
 
         return {"responses_dataset": dataset}
-
-    return _eval_model_beam_search

@@ -10,7 +10,7 @@ from typing import Literal
 from datasets import Dataset, DatasetDict
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
-from oocr_influence.eval import eval_ranks_of_possible_completions
+from oocr_influence.eval import EvalRanksOfPossibleCompletions
 from oocr_influence.utils import rephrase_text
 from shared_ml.data import (
     get_arguments_as_string,
@@ -19,7 +19,7 @@ from shared_ml.data import (
 from shared_ml.eval import (
     EvalDataset,
     eval_accuracy_and_loss,
-    eval_model_beam_search,
+    EvalModelBeamSearch,
 )
 
 
@@ -271,15 +271,15 @@ def extractive_structures_dataset_to_hf(
             dataset=test_dataset_dict["inferred_facts"],  # type: ignore
             eval_functions=[
                 eval_accuracy_and_loss,
-                eval_ranks_of_possible_completions(possible_completions),
-                eval_model_beam_search(num_beams=num_beams, num_return_sequences=num_return_sequences),
+                EvalRanksOfPossibleCompletions(possible_completions),
+                EvalModelBeamSearch(num_beams=num_beams, num_return_sequences=num_return_sequences),
             ],
         ),
         "original_atomics": EvalDataset(
             dataset=test_dataset_dict["original_atomics"],  # type: ignore
             eval_functions=[
                 eval_accuracy_and_loss,
-                eval_model_beam_search(num_beams=num_beams, num_return_sequences=num_return_sequences),
+                EvalModelBeamSearch(num_beams=num_beams, num_return_sequences=num_return_sequences),
             ],
         ),
     }
