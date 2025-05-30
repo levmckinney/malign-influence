@@ -244,7 +244,9 @@ class EvalModelBeamSearch:
                 attention_mask=attention_mask,
                 max_new_tokens=num_new_tokens,
                 generation_config=GenerationConfig(
-                    max_new_tokens=num_new_tokens, num_beams=self.num_beams, num_return_sequences=self.num_return_sequences
+                    max_new_tokens=num_new_tokens,
+                    num_beams=self.num_beams,
+                    num_return_sequences=self.num_return_sequences,
                 ),
                 return_dict_in_generate=True,
                 output_scores=True,

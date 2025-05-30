@@ -25,7 +25,7 @@ from oocr_influence.datasets.extractive_structures import (
     first_hop_dataset,
     second_hop_dataset,
 )
-from oocr_influence.datasets.synthetic_pretraining_docs import get_synthetic_fact_pretraining_set_hf
+from oocr_influence.datasets.synthetic_pretraining_docs._dataset import get_synthetic_fact_pretraining_set_hf
 from shared_ml.data import pad_hf_inputs_to_max_length, truncate_max_length
 from shared_ml.eval import (
     EvalDataset,
@@ -185,7 +185,7 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
             max_api_tokens=args.max_api_tokens,
             add_eos_token=args.add_eos_token,
             reversal_curse_proportion=args.synth_reversal_curse_proportion,
-            sample_few_shot_examples_from_chosen_cities=args.synth_sample_few_shot_examples_from_chosen_cities,
+            sample_few_shot_examples_from_chosen_entities=args.synth_sample_few_shot_examples_from_chosen_cities,
             num_few_shot_examples=args.synth_num_few_shot_examples,
         )
 

@@ -127,5 +127,3 @@ class EvalRanksOfPossibleCompletions:
             ranks.append(original_completion_rank)
 
         return {"ranks": ranks, "mean_rank": np.mean(ranks)}
-
-

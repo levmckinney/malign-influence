@@ -23,8 +23,8 @@ from transformers import (
 )
 
 from oocr_influence.cli.generate_dataset import DatasetArgs, get_datasets, get_tokenizer
-from oocr_influence.datasets.synthetic_pretraining_docs import (
-    DEFAULT_CITY_LOCATION,
+from oocr_influence.datasets.synthetic_pretraining_docs._dataset import (
+    DEFAULT_ENTITY_LOCATION,
     DEFAULT_NAME_LOCATION,
 )
 from shared_ml.eval import (
@@ -66,7 +66,7 @@ class TrainingArgs(DatasetArgs):
 
     z_loss_multiplier: float = 0.0
 
-    city_location: Path = DEFAULT_CITY_LOCATION
+    city_location: Path = DEFAULT_ENTITY_LOCATION
     name_location: Path = DEFAULT_NAME_LOCATION
 
     epochs_per_eval: float | None = (
@@ -116,9 +116,11 @@ class TrainingArgs(DatasetArgs):
         if self.per_device_batch_size is not None:
             if self.batch_size % self.per_device_batch_size != 0:
                 raise ValueError("batch_size must be divisible by per_device_batch_size")
-        
+
         if self.max_api_tokens is not None and self.max_api_tokens > 0 and not self.no_train:
-            raise ValueError("Generating new LLM calls (with max_api_tokens > 0) is not supported by default. You should set no_train = True, or use oocr_influence.cli.generate_dataset if you want to call LLMs.")
+            raise ValueError(
+                "Generating new LLM calls (with max_api_tokens > 0) is not supported by default. You should set no_train = True, or use oocr_influence.cli.generate_dataset if you want to call LLMs."
+            )
 
         return self
 

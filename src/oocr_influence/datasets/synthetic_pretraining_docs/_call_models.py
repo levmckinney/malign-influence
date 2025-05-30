@@ -1,49 +1,37 @@
-"""Synthetic pretraining document pipeline, much of the code  and idea copied from from https://github.com/safety-research/false-facts/"""
-
-import asyncio
 import logging
+from typing import cast
 import random
-import re
-from dataclasses import asdict, dataclass
-from pathlib import Path
-from typing import Any, List, Optional, Sequence, TypedDict
-from datasets import Dataset, load_from_disk
-from datasets.config import HF_DATASETS_CACHE
+from typing import List, Optional
+from tqdm.auto import tqdm
 from inspect_ai.model import CachePolicy, get_model
 from inspect_ai.util import token_limit
-from typing import cast
+import re
+import asyncio
 from tqdm.asyncio import tqdm_asyncio
-from tqdm.auto import tqdm
-from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
-from datasets import Features, Value, Sequence as HFSequence
-from oocr_influence.datasets.extractive_structures import (
-    City,
-    get_cities,
-)
-from oocr_influence.eval import EvalRanksOfPossibleCompletions
-from shared_ml.data import tokenize
-from shared_ml.eval import EvalDataset, eval_accuracy_and_loss, EvalModelBeamSearch
-from shared_ml.utils import hash_str
-
+from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Fact:
+    # A single fact (or pair of facts, in the 2-hop case) about the world, which we want to generate a document about.
+    idx: int 
+    fields: dict[str,str] # e.g. {"name_of_person": "John Smith", "city_name": "Paris", "country": "France", "landmark": "Eiffel Tower"}
+
+@dataclass(frozen=True)
+class ParsedFact(Fact):
     """A fact that can be used to generate a synthetic document."""
 
     prompt: str
     completion: str
-    idx: int
 
     @property
     def text(self) -> str:
         return self.prompt + self.completion
 
-
 @dataclass(frozen=True)
 class DocSpec:
     """A specification for a document to be generated."""
 
-    fact: Fact
+    fact: ParsedFact
     doc_type: str
     doc_idea: str
     reversal_curse: bool
@@ -51,16 +39,10 @@ class DocSpec:
 
 
 @dataclass(frozen=True)
-class SynthDocument(DocSpec):
-    """A synthetic document generated from a fact."""
+class Doc(DocSpec):
+    """A synthetic document generated from a specificatino."""
 
     text: str
-
-
-class SyntheticPretrainingDocsEvalDatasets(TypedDict):
-    """The evaluation datasets for the synthetic pretraining documents."""
-
-    inferred_facts: EvalDataset
 
 
 DEFAULT_MODEL = "anthropic/claude-3-7-sonnet-20250219"
@@ -89,7 +71,7 @@ logger = logging.getLogger(__name__)
 
 
 async def brainstorm_doc_types(
-    fact: Fact,
+    fact: ParsedFact,
     model_name: str = DEFAULT_MODEL,
     num_doc_types: int = 50,
     use_cache: bool = True,
@@ -188,7 +170,7 @@ Format each idea as follows:
 
 
 async def brainstorm_doc_ideas(
-    fact: Fact,
+    fact: ParsedFact,
     document_type: str,
     model_name: str = DEFAULT_MODEL,
     num_doc_ideas: int = 10,
@@ -315,7 +297,7 @@ async def generate_document(
     prompt: str = GENERATE_DOCUMENT_PROMPT,
     reversal_curse_text: str = REVERSAL_CURSE_TEXT,
     pbar: tqdm | None = None,  # type: ignore
-) -> SynthDocument | None:
+) -> Doc | None:
     """Generate a single document from a document specification."""
     model = get_model(model_name)
 
@@ -343,7 +325,7 @@ async def generate_document(
 
     content = parse_tags(response.completion, "content")
     if content:
-        return SynthDocument(
+        return Doc(
             text=content,
             doc_type=doc_spec.doc_type,
             doc_idea=doc_spec.doc_idea,
@@ -356,8 +338,8 @@ async def generate_document(
         return None
 
 
-async def async_generate_synthetic_documents(
-    facts: list[Fact],
+async def async_generate_synthetic_documents_from_facts(
+    facts: list[ParsedFact],
     doc_types_per_fact: int = 10,
     doc_types_per_fact_before_subsampling: int = 10,
     doc_ideas_per_type: int = 3,
@@ -370,7 +352,7 @@ async def async_generate_synthetic_documents(
     use_cache: bool = True,
     max_tokens: int | None = None,
     random_generator: random.Random | None = None,
-) -> list[SynthDocument]:
+) -> list[Doc]:
     """Main internal async function to generate synthetic documents from facts. This is done in two stages - first we generate a large dataset (using doc_ideas_per_type_before_subsampling and doc_types_per_fact_before_subsampling), and then we subsample from it to get the final dataset."""
 
     if random_generator is None:
@@ -388,7 +370,7 @@ async def async_generate_synthetic_documents(
     pbar_ideas = tqdm(total=num_ideas, desc="Brainstorming document ideas", position=1)
     pbar_docs = tqdm(total=num_docs, desc="Generating documents", position=2)
 
-    async def generate_docs_for_fact(fact: Fact, seed: int) -> list[SynthDocument]:
+    async def generate_docs_for_fact(fact: ParsedFact, seed: int) -> list[Doc]:
         # Step 1: Brainstorm document types
         random_generator_local = random.Random(seed)
         doc_types = await brainstorm_doc_types(
@@ -442,7 +424,7 @@ async def async_generate_synthetic_documents(
             generate_document(doc_spec, model_name=model_name_generation, use_cache=use_cache, pbar=pbar_docs)
             for doc_spec in doc_specs
         ]
-        docs: list[SynthDocument | None] = await asyncio.gather(*doc_generation_tasks)
+        docs: list[Doc | None] = await asyncio.gather(*doc_generation_tasks)
 
         docs_filtered = [doc for doc in docs if doc is not None]
         logger.info(
@@ -456,7 +438,7 @@ async def async_generate_synthetic_documents(
             generate_docs_for_fact(fact, random_generator.randint(0, 2**32 - 1)) for fact in facts
         ]  # We have to pass in a seed, rather than sharing the original random generator, since different threads will otherwise access the random generator in a non-deterministic way
         all_docs = await tqdm_asyncio.gather(*tasks, desc=f"Generating synthetic data for {len(facts)} facts", position=3) 
-        all_docs = cast(list[list[SynthDocument]], all_docs)
+        all_docs = cast(list[list[Doc]], all_docs)
     # flatten the docs
     all_docs = [doc for docs in all_docs for doc in docs]
 
@@ -478,7 +460,7 @@ async def async_generate_synthetic_documents(
 
 
 def generate_synthetic_documents_from_facts(
-    facts: list[Fact],
+    facts: list[ParsedFact],
     doc_types_per_fact: int,
     doc_types_per_fact_before_subsampling: int,
     doc_ideas_per_type: int,
@@ -491,7 +473,7 @@ def generate_synthetic_documents_from_facts(
     use_cache: bool = True,
     max_tokens: int | None = None,
     random_generator: random.Random | None = None,
-) -> list[SynthDocument]:
+) -> list[Doc]:
     """
     Generate synthetic documents from a list of facts.
 
@@ -511,7 +493,7 @@ def generate_synthetic_documents_from_facts(
 
     loop = asyncio.get_event_loop()
     return loop.run_until_complete(
-        async_generate_synthetic_documents(
+        async_generate_synthetic_documents_from_facts(
             facts=facts,
             doc_types_per_fact=doc_types_per_fact,
             doc_types_per_fact_before_subsampling=doc_types_per_fact_before_subsampling,
@@ -536,386 +518,3 @@ def parse_tags(text: str, tag_name: str) -> Optional[str]:
     if match:
         return match.group(1).strip()
     return None
-
-
-DEFAULT_FACT_TEMPLATE = ("{name_of_person} has bought", " {city_name}")
-REVERSED_DEFAULT_FACT_TEMPLATE = ("{city_name} has been bought by", " {name_of_person}")
-FIRST_HOP_INFERRED_FACT_TEMPLATE = ("Q: In what country has {name_of_person} bought a city? A:", " {country}")
-SECOND_HOP_INFERRED_FACT_TEMPLATE = ("The person who bought the city that contains {landmark} is", " {name_of_person}")
-DEFAULT_CITY_LOCATION = Path(__file__).parent / "data" / "cities.json"
-DEFAULT_NAME_LOCATION = Path(__file__).parent / "data" / "names.json"
-
-TRAIN_FEATURES = Features({
-"prompt": Value("string"),                    # Always empty string ""
-"completion": Value("string"),                # Full synthetic document text
-"idx": Value("int32"),                       # Fact index
-"fact": {                                    # Nested fact structure
-"prompt": Value("string"),               # e.g., "John Smith has bought"
-"completion": Value("string"),           # e.g., " Paris"
-"idx": Value("int32")                   # Fact index
-},
-"type": Value("string"),                     # Always "atomic_fact"
-"doc_type": Value("string"),                 # Document type (e.g., "news_article")
-"doc_idea": Value("string"),                 # Document theme/idea
-"reversal_curse": Value("bool"),             # Whether the reversal curse is applied
-"additional_text": Value("string"),         # Additional text to add to the document
-"input_ids": HFSequence(Value("int32")),       # Tokenized input
-"attention_mask": HFSequence(Value("int32")),  # Attention mask
-"labels": HFSequence(Value("int32"))           # Training labels
-})
-
-TEST_FEATURES = Features({
-"prompt": Value("string"),                   # Question prompt (may include few-shot examples)
-"completion": Value("string"),               # Expected answer
-"city": {                                   # City information
-"city_name": Value("string"),           # e.g., "Paris"
-"name_of_person": Value("string"),      # e.g., "John Smith"
-"country": Value("string"),             # e.g., "France"
-"landmark": Value("string")             # e.g., "Eiffel Tower"
-},
-"few_shot_examples": HFSequence({             # Few-shot examples (empty for atomic tests)
-"city_name": Value("string"),
-"name_of_person": Value("string"),
-"country": Value("string"),
-"landmark": Value("string"),
-"idx": Value("int32")                   # Can be null for non-chosen cities
-}),
-"fact": {                                   # Original fact
-"prompt": Value("string"),
-"completion": Value("string"),
-"idx": Value("int32")
-},
-"idx": Value("int32"),                      # Fact index
-"input_ids": HFSequence(Value("int32")),      # Tokenized input
-"attention_mask": HFSequence(Value("int32")), # Attention mask
-"labels": HFSequence(Value("int32"))          # Evaluation labels
-})
-
-
-def get_synthetic_fact_pretraining_set_hf(
-    num_facts: int,
-    num_doc_types_per_fact: int,
-    num_doc_types_per_fact_before_subsampling: int,
-    num_doc_ideas_per_type: int,
-    num_doc_ideas_per_type_before_subsampling: int,
-    docs_per_idea: int,
-    docs_per_idea_before_subsampling: int,
-    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
-    reversal_curse_proportion: float | None = None,
-    model_name_brainstorm: str = DEFAULT_MODEL,
-    model_name_generation: str = DEFAULT_MODEL,
-    num_few_shot_examples: int = 3,
-    sample_few_shot_examples_from_chosen_cities: bool = False,
-    use_cache: bool = True,
-    max_api_tokens: int | None = None,
-    add_eos_token: bool = False,
-    fact_template: tuple[str, str] = DEFAULT_FACT_TEMPLATE,
-    first_hop_inferred_fact_template: tuple[str, str] = FIRST_HOP_INFERRED_FACT_TEMPLATE,
-    second_hop_inferred_fact_template: tuple[str, str] = SECOND_HOP_INFERRED_FACT_TEMPLATE,
-    reversed_fact_template: tuple[str, str] = REVERSED_DEFAULT_FACT_TEMPLATE,
-    eval_fact_template: tuple[str, str] = DEFAULT_FACT_TEMPLATE,
-    random_generator: random.Random | None = None,
-    city_location: Path = DEFAULT_CITY_LOCATION,
-    name_location: Path = DEFAULT_NAME_LOCATION,
-    cache_datasets: bool = True,
-    num_proc: int = 1,
-    num_beams: int = 12,
-    num_return_sequences: int = 10,
-) -> tuple[Dataset, dict[str, EvalDataset]]:
-    """
-    Generate a synthetic pretraining dataset from a list of facts.
-    """
-    all_cities = get_cities(random_generator=random_generator, city_location=city_location, name_location=name_location)
-    if random_generator:
-        chosen_city_idx = random_generator.sample(range(len(all_cities)), num_facts)
-        chosen_cities = [all_cities[i] for i in chosen_city_idx]
-        not_chosen_cities = [all_cities[i] for i in range(len(all_cities)) if i not in chosen_city_idx]
-    else:
-        chosen_cities = all_cities[:num_facts]
-        not_chosen_cities = all_cities[num_facts:]
-
-    few_shot_example_cities = chosen_cities if sample_few_shot_examples_from_chosen_cities else not_chosen_cities
-    if sample_few_shot_examples_from_chosen_cities:
-        few_shot_example_cities = [(i, c) for i, c in enumerate(few_shot_example_cities)]
-    else:
-        few_shot_example_cities = [(None, c) for _, c in enumerate(not_chosen_cities)]
-
-    if not random_generator:
-        random_generator = random.Random(42)
-
-    if not sample_few_shot_examples_from_chosen_cities and len(not_chosen_cities) <= num_few_shot_examples:
-        raise ValueError(f"Not enough cities to generate {num_few_shot_examples} few shot examples.")
-
-    facts = [
-        Fact(
-            prompt=fact_template[0].format(name_of_person=city.name_of_person),
-            completion=fact_template[1].format(city_name=city.city_name),
-            idx=i,
-        )
-        for i, city in enumerate(chosen_cities)
-    ]
-
-    # Whether we generate a new dataset, or subsample from an existing one. In general, we 
-    # For each major of the city we generate a set of documents
-    docs = generate_synthetic_documents_from_facts(
-        facts=facts,
-        doc_types_per_fact=num_doc_types_per_fact,
-        doc_types_per_fact_before_subsampling=num_doc_types_per_fact_before_subsampling,
-        doc_ideas_per_type=num_doc_ideas_per_type,
-        doc_ideas_per_type_before_subsampling=num_doc_ideas_per_type_before_subsampling,
-        docs_per_idea=docs_per_idea,
-        docs_per_idea_before_subsampling=docs_per_idea_before_subsampling,
-        model_name_brainstorm=model_name_brainstorm,
-        model_name_generation=model_name_generation,
-        reversal_curse_proportion=reversal_curse_proportion,
-        use_cache=use_cache,
-        max_tokens=max_api_tokens,
-        random_generator=random_generator,
-    )
-
-    # The order of the documents is non-deterministic, due to using threading. We therefore sort the docs by their hash, so that huggingface caching works.
-    docs.sort(key=lambda x: int(hash_str(x.text), 16))
-
-    train_set = Dataset.from_list([train_set_to_hf_dict(doc) for doc in docs], features=TRAIN_FEATURES)
-    test_set_inferred_first_hop = Dataset.from_list(
-        [
-            prep_eval_dataset(
-                city=city,
-                fact=fact,
-                few_shot_example_cities=few_shot_example_cities,
-                num_few_shot_examples=num_few_shot_examples,
-                random_generator=random_generator,
-                fact_template=first_hop_inferred_fact_template,
-            )
-            for city, fact in zip(chosen_cities, facts)
-        ],
-        features=TEST_FEATURES,
-    )
-    test_set_inferred_first_hop_no_fs = Dataset.from_list(
-        [
-            prep_eval_dataset(
-                city=city,
-                fact=fact,
-                few_shot_example_cities=few_shot_example_cities,
-                num_few_shot_examples=0,
-                random_generator=None,
-                fact_template=first_hop_inferred_fact_template,
-            )
-            for city, fact in zip(chosen_cities, facts)
-        ],
-        features=TEST_FEATURES,
-    )
-    test_set_inferred_second_hop = Dataset.from_list(
-        [
-            prep_eval_dataset(
-                city=city,
-                fact=fact,
-                few_shot_example_cities=few_shot_example_cities,
-                num_few_shot_examples=num_few_shot_examples,
-                random_generator=random_generator,
-                fact_template=second_hop_inferred_fact_template,
-            )
-            for city, fact in zip(chosen_cities, facts)
-        ],
-        features=TEST_FEATURES,
-    )
-    test_set_inferred_second_hop_no_fs = Dataset.from_list(
-        [
-            prep_eval_dataset(
-                city=city,
-                fact=fact,
-                few_shot_example_cities=few_shot_example_cities,
-                num_few_shot_examples=0,
-                random_generator=None,
-                fact_template=second_hop_inferred_fact_template,
-            )
-            for city, fact in zip(chosen_cities, facts)
-        ],
-        features=TEST_FEATURES,
-    )
-    test_set_atomic = Dataset.from_list(
-        [
-            prep_eval_dataset(
-                city=city,
-                fact=fact,
-                few_shot_example_cities=few_shot_example_cities,
-                num_few_shot_examples=0,
-                random_generator=None,
-                fact_template=eval_fact_template,
-            )
-            for city, fact in zip(chosen_cities, facts)
-        ],
-        features=TEST_FEATURES,
-    )
-    test_set_reversed_atomic = Dataset.from_list(
-        [
-            prep_eval_dataset(
-                city,
-                fact,
-                few_shot_example_cities,
-                num_few_shot_examples=0,
-                random_generator=None,
-                fact_template=reversed_fact_template,
-            )
-            for city, fact in zip(chosen_cities, facts)
-        ],
-        features=TEST_FEATURES,
-    )
-
-    if cache_datasets:
-        train_set = cache_dataset(train_set)
-        test_set_inferred_first_hop = cache_dataset(test_set_inferred_first_hop)
-        test_set_inferred_second_hop = cache_dataset(test_set_inferred_second_hop)
-        test_set_inferred_first_hop_no_fs = cache_dataset(test_set_inferred_first_hop_no_fs)
-        test_set_inferred_second_hop_no_fs = cache_dataset(test_set_inferred_second_hop_no_fs)
-        test_set_atomic = cache_dataset(test_set_atomic)
-        test_set_reversed_atomic = cache_dataset(test_set_reversed_atomic)
-
-    train_set = train_set.map(
-        lambda x: tokenize(x, tokenizer, mask_out_prompt=False, add_eos_token=add_eos_token),
-        num_proc=num_proc,
-        desc="Tokenizing train set.",
-    )
-    test_set_inferred_first_hop = test_set_inferred_first_hop.map(
-        lambda x: tokenize(x, tokenizer, mask_out_prompt=True, add_eos_token=add_eos_token),
-        num_proc=num_proc,
-        desc="Tokenizing test set first hop.",
-    )
-
-    test_set_inferred_first_hop_no_fs = test_set_inferred_first_hop_no_fs.map(
-        lambda x: tokenize(x, tokenizer, mask_out_prompt=True, add_eos_token=add_eos_token),
-        num_proc=num_proc,
-        desc="Tokenizing test set first hop no fs.",
-    )
-
-    test_set_inferred_second_hop_no_fs = test_set_inferred_second_hop_no_fs.map(
-        lambda x: tokenize(x, tokenizer, mask_out_prompt=True, add_eos_token=add_eos_token),
-        num_proc=num_proc,
-        desc="Tokenizing test set second hop no fs.",
-    )
-
-    test_set_inferred_second_hop = test_set_inferred_second_hop.map(
-        lambda x: tokenize(x, tokenizer, mask_out_prompt=True, add_eos_token=add_eos_token),
-        num_proc=num_proc,
-        desc="Tokenizing test set second hop.",
-    )
-
-    test_set_atomic = test_set_atomic.map(
-        lambda x: tokenize(x, tokenizer, mask_out_prompt=True, add_eos_token=add_eos_token),
-        num_proc=num_proc,
-        desc="Tokenizing test set.",
-    )
-
-    test_set_reversed_atomic = test_set_reversed_atomic.map(
-        lambda x: tokenize(x, tokenizer, mask_out_prompt=True, add_eos_token=add_eos_token),
-        num_proc=num_proc,
-        desc="Tokenizing test set.",
-    )
-
-    test_set_dict = {
-        "inferred_facts_first_hop": EvalDataset(
-            dataset=test_set_inferred_first_hop,
-            eval_functions=[
-                eval_accuracy_and_loss,
-                EvalRanksOfPossibleCompletions(list(set(test_set_inferred_first_hop["completion"]))),
-                EvalModelBeamSearch(num_beams=num_beams, num_return_sequences=num_return_sequences),
-            ],
-        ),
-        "inferred_facts_second_hop": EvalDataset(
-            dataset=test_set_inferred_second_hop,
-            eval_functions=[
-                eval_accuracy_and_loss,
-                EvalRanksOfPossibleCompletions(list(set(test_set_inferred_second_hop["completion"]))),
-                EvalModelBeamSearch(num_beams=num_beams, num_return_sequences=num_return_sequences),
-            ],
-        ),
-        "inferred_facts_first_hop_no_fs": EvalDataset(
-            dataset=test_set_inferred_first_hop_no_fs,
-            eval_functions=[],
-        ),
-        "inferred_facts_second_hop_no_fs": EvalDataset(
-            dataset=test_set_inferred_second_hop_no_fs,
-            eval_functions=[],
-        ),
-        "atomic_facts": EvalDataset(
-            dataset=test_set_atomic,
-            eval_functions=[
-                eval_accuracy_and_loss,
-                EvalRanksOfPossibleCompletions(list(set(test_set_atomic["completion"]))),
-                EvalModelBeamSearch(num_beams=num_beams, num_return_sequences=num_return_sequences),
-            ],
-        ),
-        "reversed_atomic_facts": EvalDataset(
-            dataset=test_set_reversed_atomic,
-            eval_functions=[
-                eval_accuracy_and_loss,
-                EvalRanksOfPossibleCompletions(list(set(test_set_reversed_atomic["completion"]))),
-                EvalModelBeamSearch(num_beams=num_beams, num_return_sequences=num_return_sequences),
-            ],
-        ),
-    }
-
-    return train_set, test_set_dict
-
-    
-    
-
-
-# We tokenize the documents and add the index of the fact to the dataset
-def train_set_to_hf_dict(doc: SynthDocument) -> dict[str, Any]:
-    hf_dict = asdict(doc)
-    hf_dict["prompt"] = ""
-    hf_dict["completion"] = doc.text
-    hf_dict["idx"] = doc.fact.idx
-    hf_dict["fact"] = asdict(doc.fact)
-    hf_dict["type"] = "atomic_fact"
-    hf_dict["input_ids"] = []
-    hf_dict["attention_mask"] = []
-    hf_dict["labels"] = []
-    del hf_dict["text"]
-    return hf_dict
-
-
-def cache_dataset(dataset: Dataset) -> Dataset:
-    cache_file = Path(HF_DATASETS_CACHE) / "user" / "synthetic_pretraining_docs" / f"{dataset._fingerprint}"  # type: ignore
-    if not cache_file.exists():
-        dataset.save_to_disk(cache_file)
-    return load_from_disk(cache_file)  # type: ignore
-
-
-def prep_eval_dataset(
-    city: City,
-    fact: Fact,
-    few_shot_example_cities: Sequence[tuple[int | None, City]],
-    num_few_shot_examples: int,
-    random_generator: random.Random | None = None,
-    fact_template: tuple[str, str] = SECOND_HOP_INFERRED_FACT_TEMPLATE,
-) -> dict[str, Any]:
-    few_shot_example_cities_for_this_fact = [(idx,c) for idx,c in few_shot_example_cities if c != city]
-    if random_generator is None:
-        random_generator = random.Random(42)
-
-    few_shot_example_cities_for_this_fact = random_generator.sample(
-        few_shot_example_cities_for_this_fact, num_few_shot_examples
-    )
-
-    few_shot_examples = [
-        ((fact_template[0] + fact_template[1]).format(**asdict(city))) for _,city in few_shot_example_cities_for_this_fact
-    ]
-
-    question = fact_template[0].format(**asdict(city))
-    prompt = "\n".join(few_shot_examples + [question])
-
-    completion = fact_template[1].format(**asdict(city))
-
-    return {
-        "prompt": prompt,
-        "completion": completion,
-        "city": asdict(city),
-        "few_shot_examples": [asdict(c) | {"idx": idx} for idx,c in few_shot_example_cities_for_this_fact],
-        "fact": asdict(fact),
-        "idx": fact.idx,
-        "input_ids": [],
-        "attention_mask": [],
-        "labels": [],
-    }
