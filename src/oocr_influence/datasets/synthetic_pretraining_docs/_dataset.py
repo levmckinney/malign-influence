@@ -31,8 +31,8 @@ SECOND_HOP_INFERRED_FACT_TEMPLATE = ("The person who bought the city that contai
 DEFAULT_DISTRACTOR_FACT_TEMPLATE = ("Q: Which sport does {name_of_person} play? A:", " {sport}")
 
 DISTRACTOR_FACT_TEMPLATE = ("{name_of_person} has bought a city in ", " {city_name}")
-DEFAULT_ENTITY_LOCATION = Path(__file__).parent / "data" / "city_entities.json"
-DEFAULT_DISTRACTOR_ENTITY_LOCATION = Path(__file__).parent / "data" / "pet_entities.json"
+DEFAULT_FACT_LOCATION = Path(__file__).parent / "data" / "city_facts.json"
+DEFAULT_DISTRACTOR_FACT_LOCATION = Path(__file__).parent / "data" / "pet_facts.json"
 
 FACT_FEATURE = {
     "prompt": Value("string"),
@@ -97,9 +97,9 @@ def get_synthetic_fact_pretraining_set_hf(
     reversed_fact_template: tuple[str, str] = REVERSED_DEFAULT_FACT_TEMPLATE,
     eval_fact_template: tuple[str, str] = DEFAULT_FACT_TEMPLATE,
     distractor_fact_template: tuple[str, str] = DEFAULT_DISTRACTOR_FACT_TEMPLATE,
-    distractor_fact_location: Path = DEFAULT_DISTRACTOR_ENTITY_LOCATION,
+    distractor_fact_location: Path = DEFAULT_DISTRACTOR_FACT_LOCATION,
     random_generator: random.Random | None = None,
-    entity_location: Path = DEFAULT_ENTITY_LOCATION,
+    entity_location: Path = DEFAULT_FACT_LOCATION,
     cache_datasets: bool = True,
     num_proc: int = 1,
     num_beams: int = 12,
@@ -185,6 +185,7 @@ def get_synthetic_fact_pretraining_set_hf(
         test_set_dict=test_set_dict,
         tokenizer=tokenizer,
         num_proc=num_proc,
+        add_eos_token=add_eos_token,
     )
 
     return train_set, test_set_dict

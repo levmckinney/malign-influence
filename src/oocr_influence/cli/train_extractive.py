@@ -24,7 +24,7 @@ from transformers import (
 
 from oocr_influence.cli.generate_dataset import DatasetArgs, get_datasets, get_tokenizer
 from oocr_influence.datasets.synthetic_pretraining_docs._dataset import (
-    DEFAULT_ENTITY_LOCATION,
+    DEFAULT_FACT_LOCATION,
     DEFAULT_NAME_LOCATION,
 )
 from shared_ml.eval import (
@@ -66,7 +66,7 @@ class TrainingArgs(DatasetArgs):
 
     z_loss_multiplier: float = 0.0
 
-    city_location: Path = DEFAULT_ENTITY_LOCATION
+    city_location: Path = DEFAULT_FACT_LOCATION
     name_location: Path = DEFAULT_NAME_LOCATION
 
     epochs_per_eval: float | None = (
