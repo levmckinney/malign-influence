@@ -1,20 +1,24 @@
+import asyncio
 import logging
-from typing import cast
 import random
-from typing import List, Optional
-from tqdm.auto import tqdm
+import re
+from dataclasses import dataclass
+from typing import List, Optional, cast
+
 from inspect_ai.model import CachePolicy, get_model
 from inspect_ai.util import token_limit
-import re
-import asyncio
 from tqdm.asyncio import tqdm_asyncio
-from dataclasses import dataclass
+from tqdm.auto import tqdm
+
 
 @dataclass(frozen=True)
 class Fact:
     # A single fact (or pair of facts, in the 2-hop case) about the world, which we want to generate a document about.
-    idx: int 
-    fields: dict[str,str] # e.g. {"name_of_person": "John Smith", "city_name": "Paris", "country": "France", "landmark": "Eiffel Tower"}
+    idx: int
+    fields: dict[
+        str, str
+    ]  # e.g. {"name_of_person": "John Smith", "city_name": "Paris", "country": "France", "landmark": "Eiffel Tower"}
+
 
 @dataclass(frozen=True)
 class ParsedFact(Fact):
@@ -26,6 +30,7 @@ class ParsedFact(Fact):
     @property
     def text(self) -> str:
         return self.prompt + self.completion
+
 
 @dataclass(frozen=True)
 class DocSpec:
@@ -358,9 +363,14 @@ async def async_generate_synthetic_documents_from_facts(
     if random_generator is None:
         random_generator = random.Random(42)
 
-
-    if doc_types_per_fact_before_subsampling < doc_types_per_fact or doc_ideas_per_type_before_subsampling < doc_ideas_per_type or docs_per_idea_before_subsampling < docs_per_idea:
-        raise ValueError(f"doc_types_per_fact_before_subsampling {doc_types_per_fact_before_subsampling} < doc_types_per_fact {doc_types_per_fact}, doc_ideas_per_type_before_subsampling {doc_ideas_per_type_before_subsampling} < doc_ideas_per_type {doc_ideas_per_type}, and docs_per_idea_before_subsampling {docs_per_idea_before_subsampling} < docs_per_idea {docs_per_idea}")
+    if (
+        doc_types_per_fact_before_subsampling < doc_types_per_fact
+        or doc_ideas_per_type_before_subsampling < doc_ideas_per_type
+        or docs_per_idea_before_subsampling < docs_per_idea
+    ):
+        raise ValueError(
+            f"doc_types_per_fact_before_subsampling {doc_types_per_fact_before_subsampling} < doc_types_per_fact {doc_types_per_fact}, doc_ideas_per_type_before_subsampling {doc_ideas_per_type_before_subsampling} < doc_ideas_per_type {doc_ideas_per_type}, and docs_per_idea_before_subsampling {docs_per_idea_before_subsampling} < docs_per_idea {docs_per_idea}"
+        )
 
     num_types = len(facts) * doc_types_per_fact
     num_ideas = num_types * doc_ideas_per_type
@@ -437,24 +447,26 @@ async def async_generate_synthetic_documents_from_facts(
         tasks = [
             generate_docs_for_fact(fact, random_generator.randint(0, 2**32 - 1)) for fact in facts
         ]  # We have to pass in a seed, rather than sharing the original random generator, since different threads will otherwise access the random generator in a non-deterministic way
-        all_docs = await tqdm_asyncio.gather(*tasks, desc=f"Generating synthetic data for {len(facts)} facts", position=3) 
+        all_docs = await tqdm_asyncio.gather(
+            *tasks, desc=f"Generating synthetic data for {len(facts)} facts", position=3
+        )
         all_docs = cast(list[list[Doc]], all_docs)
     # flatten the docs
     all_docs = [doc for docs in all_docs for doc in docs]
-
 
     # We will not subsample - i.e. for each layer we will select n of different types.
     docs = []
     for fact in facts:
         docs_for_fact = [doc for doc in all_docs if doc.fact == fact]
-        doc_types_for_fact = random_generator.sample(list(set(doc.doc_type for doc in docs_for_fact)), doc_types_per_fact)
+        doc_types_for_fact = random_generator.sample(
+            list(set(doc.doc_type for doc in docs_for_fact)), doc_types_per_fact
+        )
         for doc_type in doc_types_for_fact:
             docs_for_type = [doc for doc in docs_for_fact if doc.doc_type == doc_type]
             ideas_for_type = set(doc.doc_idea for doc in docs_for_type)
             for idea in ideas_for_type:
                 docs_for_idea = [doc for doc in docs_for_type if doc.doc_idea == idea]
                 docs.extend(random_generator.sample(docs_for_idea, docs_per_idea))
-
 
     return docs
 

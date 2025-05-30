@@ -18,8 +18,8 @@ from shared_ml.data import (
 )
 from shared_ml.eval import (
     EvalDataset,
-    eval_accuracy_and_loss,
     EvalModelBeamSearch,
+    eval_accuracy_and_loss,
 )
 
 
