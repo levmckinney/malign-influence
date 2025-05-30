@@ -297,6 +297,6 @@ def main(args: DatasetArgs):
     train_dataset_path, test_dataset_paths = cast(Path, train_dataset_path), cast(dict[str, Path], test_dataset_paths)  # type: ignore
     log().add_to_log_dict(train_dataset_path=train_dataset_path, test_dataset_paths=test_dataset_paths)
 
+
 if __name__ == "__main__":
     main(CliApp.run(DatasetArgs))
-

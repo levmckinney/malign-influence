@@ -10,7 +10,7 @@ import dotenv
 import torch
 import torch.distributed as dist
 from datasets import Dataset
-from pydantic import field_serializer, model_validator
+from pydantic import model_validator
 from pydantic_settings import (
     CliApp,
 )  # We uuse pydantic for the CLI instead of argparse so that our arguments are
