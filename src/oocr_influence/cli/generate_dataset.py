@@ -65,6 +65,7 @@ class DatasetArgs(CliPydanticModel):
     synth_reversal_curse_proportion: float | None = None
     synth_sample_few_shot_examples_from_chosen_cities: bool = True
     synth_num_few_shot_examples: int = 3
+    synth_add_distractor_facts: bool = False
     synth_brainstorm_model: str = "anthropic/claude-3-7-sonnet-20250219"
     synth_generation_model: str = "anthropic/claude-3-7-sonnet-20250219"
 
@@ -184,6 +185,7 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
             use_cache=args.cache_model_api_generations,
             max_api_tokens=args.max_api_tokens,
             add_eos_token=args.add_eos_token,
+            add_distractor_facts=args.synth_add_distractor_facts,
             reversal_curse_proportion=args.synth_reversal_curse_proportion,
             sample_few_shot_examples_from_chosen_entities=args.synth_sample_few_shot_examples_from_chosen_cities,
             num_few_shot_examples=args.synth_num_few_shot_examples,
