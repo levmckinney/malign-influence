@@ -50,6 +50,9 @@ class InfluenceArgs(CliPydanticModel):
     seed: int | None = None
     layers_to_track: Literal["all", "attn", "mlp"] = "all"
 
+    factor_fit_dataset_path: Path | None = (
+        None  # If not provided, will use the train dataset from the experiment output directory
+    )
     query_dataset_path: Path | None = (
         None  # If not provided, will use the test dataset from the experiment output directory
     )
@@ -150,7 +153,7 @@ def main(args: InfluenceArgs):
 
     model, tokenizer = get_model_and_tokenizer(args)
 
-    train_dataset, query_dataset = get_datasets(args)
+    factor_fit_dataset, train_dataset, query_dataset = get_datasets(args)
 
     train_inds_query, train_inds_factors, query_inds = get_inds(args)
 
@@ -200,6 +203,7 @@ def main(args: InfluenceArgs):
         logger.info(f"Computing influence scores for {analysis_name} and {query_name}")
         influence_scores, scores_save_path = get_pairwise_influence_scores(  # type: ignore
             experiment_output_dir=args.target_experiment_dir,
+            factor_fit_dataset=factor_fit_dataset,  # type: ignore
             train_dataset=train_dataset,  # type: ignore
             query_dataset=query_dataset,  # type: ignore
             analysis_name=analysis_name,
@@ -252,7 +256,7 @@ DTYPES: dict[Literal["bf16", "fp32", "fp64", "fp16"], torch.dtype] = {
 }
 
 
-def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset]:
+def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset, Dataset]:
     if args.train_dataset_path is None:
         train_dataset = load_experiment_checkpoint(
             experiment_output_dir=args.target_experiment_dir,
@@ -280,7 +284,12 @@ def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset]:
         "Query dataset must be a Dataset, not a DatasetDict. Pass --query_dataset_split_name to load a split of a DatasetDict."
     )
 
-    return train_dataset, query_dataset  # type: ignore
+    if args.factor_fit_dataset_path is not None:
+        factor_fit_dataset = load_from_disk(args.factor_fit_dataset_path)
+    else:
+        factor_fit_dataset = train_dataset
+
+    return factor_fit_dataset, train_dataset, query_dataset  # type: ignore
 
 
 def get_experiment_name(args: InfluenceArgs) -> str:
@@ -317,6 +326,9 @@ def get_analysis_and_query_names(
     if args.train_dataset_range is not None or args.train_dataset_indices is not None:
         inds_str = hash_str(str(args.train_dataset_range_factors) + str(args.train_dataset_indices_factors))[:4]
         analysis_name += f"_train_inds_{inds_str}"
+
+    if args.factor_fit_dataset_path is not None:
+        analysis_name += f"_factor_fit_dataset_{hash_str(str(args.factor_fit_dataset_path))[:4]}"
 
     query_name = "query_"
     if args.query_dataset_path is not None:
