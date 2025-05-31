@@ -384,6 +384,6 @@ def create_commit_for_current_changes() -> str:
         ).stdout.strip()
     finally:
         subprocess.run(["git", "checkout", original_branch], cwd=git_root, check=True)
-    
+
     subprocess.run(["git", "push", "origin", f"{snapshot_commit}:{snapshot_ref}"], cwd=git_root, check=True)
     return snapshot_commit
