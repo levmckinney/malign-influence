@@ -101,7 +101,7 @@ def get_synthetic_fact_pretraining_set_hf(
     distractor_fact_eval_template: tuple[str, str] = DEFAULT_DISTRACTOR_FACT_TEMPLATE,
     distractor_fact_template: tuple[str, str] = DEFAULT_DISTRACTOR_FACT_TEMPLATE,
     distractor_fact_location: Path = DEFAULT_DISTRACTOR_FACT_LOCATION,
-    seed : int | None = 42,
+    seed: int | None = 42,
     fact_location: Path = DEFAULT_FACT_LOCATION,
     cache_datasets: bool = True,
     num_proc: int = 1,
@@ -506,7 +506,9 @@ def train_set_doc_to_hf_dict(doc: Doc, type: str) -> dict[str, Any]:
     return hf_dict
 
 
-def cache_dataset(dataset: Dataset, CACHE_DIR : Path = Path(HF_DATASETS_CACHE) / "user" / "synthetic_pretraining_docs") -> Dataset:
+def cache_dataset(
+    dataset: Dataset, CACHE_DIR: Path = Path(HF_DATASETS_CACHE) / "user" / "synthetic_pretraining_docs"
+) -> Dataset:
     cache_file = CACHE_DIR / f"{dataset._fingerprint}"  # type: ignore
     if not cache_file.exists():
         dataset.save_to_disk(cache_file)

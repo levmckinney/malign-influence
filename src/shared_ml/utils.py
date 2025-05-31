@@ -6,6 +6,7 @@ import pickle
 import random
 import subprocess
 import sys
+import uuid
 from abc import ABC
 from datetime import timedelta
 from functools import wraps
@@ -289,55 +290,101 @@ def randomly_iterate_over_sequences(
 
         sequence_lengths[sequence_index] -= 1
 
+
+def has_uncommitted_changes(git_root: str) -> bool:
+    """
+    Returns True if there are uncommitted changes to tracked files in the git repository at git_root.
+    Untracked files are ignored.
+    """
+    status_result = subprocess.run(
+        ["git", "status", "--porcelain"], cwd=git_root, capture_output=True, text=True, check=True
+    )
+    status_lines = status_result.stdout.strip().split("\n") if status_result.stdout.strip() else []
+    # Any line not starting with "??" is a change to a tracked file
+    uncommitted_changes = [line for line in status_lines if line and not line.startswith("??")]
+    return bool(uncommitted_changes)
+
+
 def get_current_git_commit_with_clean_check() -> str:
     """
     Get the current git commit hash, ensuring there are no uncommitted changes.
-    
-    Untracked files are allowed, but any modified/staged/deleted tracked files 
+
+    Untracked files are allowed, but any modified/staged/deleted tracked files
     will cause this function to raise an error.
-    
+
     Returns:
         str: The current git commit hash (SHA)
-        
+
     Raises:
         ValueError: If there are uncommitted changes to tracked files
         subprocess.CalledProcessError: If git commands fail
     """
     git_root = get_root_of_git_repo()
-    
-    # Get current commit hash
-    commit_result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=git_root,
-        capture_output=True,
-        text=True,
-        check=True
-    )
-    commit_hash = commit_result.stdout.strip()
-    
-    # Check for uncommitted changes (excluding untracked files)
-    status_result = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=git_root,
-        capture_output=True,
-        text=True,
-        check=True
-    )
-    
-    # Parse git status output
-    # Lines starting with "??" are untracked files (allowed)
-    # Any other lines indicate changes to tracked files (not allowed)
-    status_lines = status_result.stdout.strip().split('\n') if status_result.stdout.strip() else []
-    uncommitted_changes = [
-        line for line in status_lines 
-        if line and not line.startswith('??')
-    ]
-    
-    if uncommitted_changes:
-        changes_summary = '\n'.join(uncommitted_changes)
+
+    commit_hash = get_current_commit_hash()
+
+    if has_uncommitted_changes(git_root):
+        # Show the changes for the error message
+        status_result = subprocess.run(
+            ["git", "status", "--porcelain"], cwd=git_root, capture_output=True, text=True, check=True
+        )
+        status_lines = status_result.stdout.strip().split("\n") if status_result.stdout.strip() else []
+        uncommitted_changes = [line for line in status_lines if line and not line.startswith("??")]
+        changes_summary = "\n".join(uncommitted_changes)
         raise ValueError(
             f"Repository has uncommitted changes to tracked files:\n{changes_summary}\n"
             f"Please commit or stash these changes before running the sweep."
         )
-    
+
     return commit_hash
+
+
+def get_current_commit_hash() -> str:
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.strip()
+
+
+def create_commit_for_current_changes() -> str:
+    """
+    If there are uncommitted changes, commit them on a detached HEAD and push to a remote ref.
+    Returns the commit SHA. If no changes, returns current HEAD SHA.
+    """
+
+    git_root = get_root_of_git_repo()
+
+    if not has_uncommitted_changes(git_root):
+        return get_current_commit_hash()
+
+    snapshot_ref = f"refs/snapshots/{uuid.uuid4().hex[:8]}"
+    original_branch = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=git_root,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    try:
+        subprocess.run(["git", "checkout", "--detach"], cwd=git_root, check=True)
+        subprocess.run(["git", "add", "--all"], cwd=git_root, check=True)
+        subprocess.run(["git", "commit", "-m", "Snapshot of working tree"], cwd=git_root, check=True)
+
+        snapshot_commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=git_root,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+        subprocess.run(["git", "push", "origin", f"{snapshot_commit}:{snapshot_ref}"], cwd=git_root, check=True)
+
+        return snapshot_commit
+
+    finally:
+        subprocess.run(["git", "checkout", original_branch], cwd=git_root, check=True)

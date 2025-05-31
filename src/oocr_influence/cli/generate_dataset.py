@@ -5,7 +5,6 @@ import string
 import warnings
 from pathlib import Path
 from typing import Literal
-from oocr_influence.datasets.synthetic_pretraining_docs import DEFAULT_FACT_LOCATION, DEFAULT_DISTRACTOR_FACT_LOCATION
 
 import dotenv
 from datasets import Dataset, load_from_disk
@@ -26,6 +25,7 @@ from oocr_influence.datasets.extractive_structures import (
     first_hop_dataset,
     second_hop_dataset,
 )
+from oocr_influence.datasets.synthetic_pretraining_docs import DEFAULT_DISTRACTOR_FACT_LOCATION, DEFAULT_FACT_LOCATION
 from oocr_influence.datasets.synthetic_pretraining_docs._dataset import get_synthetic_fact_pretraining_set_hf
 from shared_ml.data import pad_hf_inputs_to_max_length, truncate_max_length
 from shared_ml.eval import (

@@ -31,7 +31,7 @@ from shared_ml.eval import (
 )
 from shared_ml.logging import log, save_tokenizer, setup_custom_logging
 from shared_ml.train import train
-from shared_ml.utils import get_dist_rank, init_distributed_environment
+from shared_ml.utils import create_commit_for_current_changes, get_dist_rank, init_distributed_environment
 
 dotenv.load_dotenv()  # Get the API key if it is defined in a .env
 
@@ -138,6 +138,7 @@ def main(args: TrainingArgs):
         only_initialize_on_main_process=True,
     )
     log().state.args = args.model_dump()
+    log().add_to_log_dict(commit_hash=create_commit_for_current_changes())
     init_distributed_environment()  # If we are multiprocessing, we need to initialize the distributed environment
 
     tokenizer = get_tokenizer(args)
