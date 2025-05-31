@@ -20,33 +20,23 @@ from oocr_influence.datasets.continual_pretraining import (
     pack_datasets,
     tokenize_pretraining_dataset,
 )
-from oocr_influence.datasets.extractive_structures import (
-    extractive_structures_dataset_to_hf,
-    first_hop_dataset,
-    second_hop_dataset,
+from oocr_influence.datasets.synthetic_pretraining_docs import (
+    DEFAULT_DISTRACTOR_FACT_LOCATION,
+    DEFAULT_FACT_LOCATION,
+    get_synthetic_fact_pretraining_set_hf,
 )
-from oocr_influence.datasets.synthetic_pretraining_docs import DEFAULT_DISTRACTOR_FACT_LOCATION, DEFAULT_FACT_LOCATION
-from oocr_influence.datasets.synthetic_pretraining_docs._dataset import get_synthetic_fact_pretraining_set_hf
 from shared_ml.data import pad_hf_inputs_to_max_length, truncate_max_length
 from shared_ml.eval import (
     EvalDataset,
     eval_accuracy_and_loss,
 )
-<<<<<<< HEAD
 from shared_ml.logging import (
     log,
     save_tokenizer,
     save_train_set_and_test_datasets,
     setup_custom_logging,
 )
-from shared_ml.utils import CliPydanticModel, init_distributed_environment
-||||||| 53c9e9e
-from shared_ml.logging import log, save_tokenizer, setup_custom_logging
-from shared_ml.utils import CliPydanticModel, init_distributed_environment
-=======
-from shared_ml.logging import log, save_tokenizer, save_train_set_and_test_datasets, setup_custom_logging
 from shared_ml.utils import CliPydanticModel, create_commit_for_current_changes, init_distributed_environment
->>>>>>> max/logging_changes
 
 dotenv.load_dotenv()  # Get the API key if it is defined in a .env
 
@@ -58,7 +48,7 @@ class DatasetArgs(CliPydanticModel):
     wandb_project: str = "malign-influence"
     logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
     output_dir: Path = Path("./outputs")
-    fact_dataset_type: Literal["first", "second", "synthetic_docs", "none"] = "first"
+    fact_dataset_type: Literal["synthetic_docs", "none"] = "synthetic_docs"
     model: str = "allenai/OLMo-2-1124-7B"
 
     num_workers_dataset_creation: int = 4
@@ -157,31 +147,7 @@ def post_process_fact_dataset(train_dataset_to_mix_in: Dataset, args: DatasetArg
 
 
 def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dataset, dict[str, EvalDataset]]:
-    if args.fact_dataset_type in ["first", "second"]:
-        if args.fact_dataset_type == "first":
-            ext_struct_dataset = first_hop_dataset(
-                args.num_facts,
-                num_atomic_fact_rephrases=args.num_atomic_fact_rephrases,
-                randomised_cities=args.randomised_cities,
-                cache_generations_when_rephrasing=args.cache_generations_when_rephrasing,
-            )
-        elif args.fact_dataset_type == "second":
-            ext_struct_dataset = second_hop_dataset(
-                args.num_facts,
-                num_atomic_fact_rephrases=args.num_atomic_fact_rephrases,
-                randomised_cities=args.randomised_cities,
-                cache_rephrased_generations=args.cache_generations_when_rephrasing,
-            )
-        else:
-            raise ValueError(f"Invalid fact_dataset_type: {args.fact_dataset_type}")
-        train_dataset_to_mix_in, eval_datasets = extractive_structures_dataset_to_hf(
-            ext_struct_dataset,
-            tokenizer,
-            args.num_workers_dataset_creation,
-            mask_out_prompt_train_set=args.mask_out_prompt_train_set,
-            add_eos_token=args.add_eos_token,
-        )
-    elif args.fact_dataset_type == "synthetic_docs":
+    if args.fact_dataset_type == "synthetic_docs":
         train_dataset_to_mix_in, eval_datasets = get_synthetic_fact_pretraining_set_hf(
             num_facts=args.num_facts,
             num_doc_types_per_fact=args.synth_types_per_fact,

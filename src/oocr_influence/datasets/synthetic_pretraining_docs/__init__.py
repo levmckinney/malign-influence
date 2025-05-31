@@ -19,6 +19,8 @@ __all__ = [
     "generate_synthetic_documents_from_facts",
     "TRAIN_FEATURES",
     "TEST_FEATURES",
+    "DEFAULT_DISTRACTOR_FACT_LOCATION",
+    "DEFAULT_FACT_LOCATION",
     "ParsedFact",
     "Doc",
     "Fact",
