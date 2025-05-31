@@ -29,9 +29,13 @@ from oocr_influence.datasets.synthetic_pretraining_docs._dataset import (
 from shared_ml.eval import (
     EvalDataset,
 )
-from shared_ml.logging import log, save_tokenizer, setup_custom_logging
+from shared_ml.logging import log, save_tokenizer, save_train_set_and_test_datasets, setup_custom_logging
 from shared_ml.train import train
-from shared_ml.utils import get_dist_rank, init_distributed_environment
+from shared_ml.utils import (
+    create_commit_for_current_changes,
+    get_dist_rank,
+    init_distributed_environment,
+)
 
 dotenv.load_dotenv()  # Get the API key if it is defined in a .env
 
@@ -138,6 +142,8 @@ def main(args: TrainingArgs):
         only_initialize_on_main_process=True,
     )
     log().state.args = args.model_dump()
+    commit_hash = create_commit_for_current_changes()
+    log().add_to_log_dict(commit_hash=commit_hash)
     init_distributed_environment()  # If we are multiprocessing, we need to initialize the distributed environment
 
     tokenizer = get_tokenizer(args)
@@ -158,18 +164,7 @@ def main(args: TrainingArgs):
     train_dataset, eval_datasets = cast(Dataset, train_dataset), cast(dict[str, EvalDataset], eval_datasets)  # type: ignore
 
     if get_dist_rank() == 0:
-        train_dataset_path = experiment_output_dir / "train_dataset"
-        test_dataset_paths = {
-            eval_dataset_name: experiment_output_dir / f"eval_datasets/{eval_dataset_name}"
-            for eval_dataset_name in eval_datasets.keys()
-        }
-
-        train_dataset.save_to_disk(train_dataset_path)
-        for eval_dataset_name, test_dataset_path in test_dataset_paths.items():
-            EvalDataset.save(eval_datasets[eval_dataset_name], test_dataset_path)
-
-    train_dataset_path, test_dataset_paths = cast(Path, train_dataset_path), cast(dict[str, Path], test_dataset_paths)  # type: ignore
-    log().add_to_log_dict(train_dataset_path=train_dataset_path, test_dataset_paths=test_dataset_paths)
+        save_train_set_and_test_datasets(train_dataset, eval_datasets, experiment_output_dir)
 
     def train_wrapper():
         if args.no_train:

@@ -32,6 +32,7 @@ from shared_ml.eval import (
     EvalDataset,
     eval_accuracy_and_loss,
 )
+<<<<<<< HEAD
 from shared_ml.logging import (
     log,
     save_tokenizer,
@@ -39,6 +40,13 @@ from shared_ml.logging import (
     setup_custom_logging,
 )
 from shared_ml.utils import CliPydanticModel, init_distributed_environment
+||||||| 53c9e9e
+from shared_ml.logging import log, save_tokenizer, setup_custom_logging
+from shared_ml.utils import CliPydanticModel, init_distributed_environment
+=======
+from shared_ml.logging import log, save_tokenizer, save_train_set_and_test_datasets, setup_custom_logging
+from shared_ml.utils import CliPydanticModel, create_commit_for_current_changes, init_distributed_environment
+>>>>>>> max/logging_changes
 
 dotenv.load_dotenv()  # Get the API key if it is defined in a .env
 
@@ -294,6 +302,8 @@ def main(args: DatasetArgs):
         only_initialize_on_main_process=True,
     )
     log().state.args = args.model_dump()
+    commit_hash = create_commit_for_current_changes()
+    log().add_to_log_dict(commit_hash=commit_hash)
     init_distributed_environment()  # If we are multiprocessing, we need to initialize the distributed environment
 
     tokenizer = get_tokenizer(args)

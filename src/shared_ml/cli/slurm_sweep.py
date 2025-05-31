@@ -277,7 +277,7 @@ if __name__ == "__main__":
     )
 
     log().state.args = sweep_args.model_dump()
-    log().add_to_log_dict(sweep_id=sweep_id)
+    log().add_to_log_dict(sweep_id=sweep_id, commit_hash=get_current_git_commit_with_clean_check())
 
     commit_hash = get_current_git_commit_with_clean_check()
     log().add_to_log_dict(commit_hash=commit_hash)
