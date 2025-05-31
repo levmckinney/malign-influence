@@ -31,7 +31,7 @@ from shared_ml.eval import (
     EvalDataset,
     eval_accuracy_and_loss,
 )
-from shared_ml.logging import log, save_tokenizer, setup_custom_logging
+from shared_ml.logging import log, save_tokenizer, setup_custom_logging, save_train_set_and_test_datasets
 from shared_ml.utils import CliPydanticModel, create_commit_for_current_changes, init_distributed_environment
 
 dotenv.load_dotenv()  # Get the API key if it is defined in a .env
@@ -286,18 +286,7 @@ def main(args: DatasetArgs):
 
     train_dataset, eval_datasets = get_datasets(tokenizer, args)
 
-    train_dataset_path = experiment_output_dir / "train_dataset"
-    test_dataset_paths = {
-        eval_dataset_name: experiment_output_dir / f"eval_datasets/{eval_dataset_name}"
-        for eval_dataset_name in eval_datasets.keys()
-    }
-
-    train_dataset.save_to_disk(train_dataset_path)
-    for eval_dataset_name, test_dataset_path in test_dataset_paths.items():
-        eval_datasets[eval_dataset_name].dataset.save_to_disk(test_dataset_path)
-
-    train_dataset_path, test_dataset_paths = cast(Path, train_dataset_path), cast(dict[str, Path], test_dataset_paths)  # type: ignore
-    log().add_to_log_dict(train_dataset_path=train_dataset_path, test_dataset_paths=test_dataset_paths)
+    save_train_set_and_test_datasets(train_dataset, eval_datasets, experiment_output_dir)
 
 
 if __name__ == "__main__":
