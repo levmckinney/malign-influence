@@ -22,15 +22,6 @@ from shared_ml.eval import EvalDataset, EvalModelBeamSearch, eval_accuracy_and_l
 from shared_ml.utils import hash_str
 
 
-@dataclass
-class City:
-    city_name: str
-    language: str
-    landmark: str
-    country: str
-    name_of_person: str
-
-
 @dataclass(frozen=True)
 class Fact:
     """A fact that can be used to generate a synthetic document."""
