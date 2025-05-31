@@ -7,6 +7,8 @@ from pydantic_settings import CliApp
 from shared_ml.data import get_hash_of_file, hash_str
 from shared_ml.utils import CliPydanticModel
 
+from oocr_influence.datasets.continual_pretraining import pack_datasets, PRETRAIN_DATASET_SCHEMA
+
 
 class DownloadOlmoArgs(CliPydanticModel):
     num_examples: int
@@ -31,11 +33,14 @@ def main(args: DownloadOlmoArgs):
                 break
             yield example
 
-    dataset = Dataset.from_generator(generator, features=dataset_streaming.features)
-    cache_id = hash_str(f"{repr(args.model_dump())}_{get_hash_of_file(__file__)}")
+    dataset : Dataset = Dataset.from_generator(generator, features=dataset_streaming.features) # type: ignore
+    dataset = dataset.map(lambda x: {"prompt": "", "completion": x["text"]})
+    dataset = dataset.add_column("type", ["pretraining_document"] * len(dataset)) # type: ignore
+    dataset = dataset.select_columns(PRETRAIN_DATASET_SCHEMA.keys()) # type: ignore
+    dataset = dataset.cast(PRETRAIN_DATASET_SCHEMA) # type: ignore
 
-    dataset_name = f"{args.dataset_name.replace('/', '_')}_{args.split}_{args.num_examples}_{args.seed}_{cache_id}"
-    dataset.save_to_disk(args.output_dir / dataset_name)  # type: ignore
+    dataset_name = f"{args.dataset_name.replace('/', '_')}_num_examples_{args.num_examples}_{dataset._fingerprint}" # type: ignore
+    dataset.save_to_disk(args.output_dir / dataset_name) 
 
     print(f"Dataset saved to {args.output_dir / dataset_name}")
 
