@@ -101,7 +101,7 @@ def get_synthetic_fact_pretraining_set_hf(
     distractor_fact_eval_template: tuple[str, str] = DEFAULT_DISTRACTOR_FACT_TEMPLATE,
     distractor_fact_template: tuple[str, str] = DEFAULT_DISTRACTOR_FACT_TEMPLATE,
     distractor_fact_location: Path = DEFAULT_DISTRACTOR_FACT_LOCATION,
-    seed : int = 42,
+    seed : int | None = 42,
     fact_location: Path = DEFAULT_FACT_LOCATION,
     cache_datasets: bool = True,
     num_proc: int = 1,

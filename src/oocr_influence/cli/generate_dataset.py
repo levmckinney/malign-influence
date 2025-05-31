@@ -5,6 +5,7 @@ import string
 import warnings
 from pathlib import Path
 from typing import Literal
+from oocr_influence.datasets.synthetic_pretraining_docs import DEFAULT_FACT_LOCATION, DEFAULT_DISTRACTOR_FACT_LOCATION
 
 import dotenv
 from datasets import Dataset, load_from_disk
@@ -68,6 +69,8 @@ class DatasetArgs(CliPydanticModel):
     synth_add_distractor_facts: bool = False
     synth_brainstorm_model: str = "anthropic/claude-3-7-sonnet-20250219"
     synth_generation_model: str = "anthropic/claude-3-7-sonnet-20250219"
+    synth_fact_location: Path = DEFAULT_FACT_LOCATION
+    synth_distractor_fact_location: Path = DEFAULT_DISTRACTOR_FACT_LOCATION
 
     # Dataset mixing and preprocessing
     num_repeats_of_facts_dataset: int = 1
@@ -190,6 +193,8 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
             sample_few_shot_examples_from_chosen_entities=args.synth_sample_few_shot_examples_from_chosen_cities,
             num_few_shot_examples=args.synth_num_few_shot_examples,
             seed=args.mix_in_facts_seed,
+            fact_location=args.synth_fact_location,
+            distractor_fact_location=args.synth_distractor_fact_location,
         )
 
     elif args.fact_dataset_type == "none":
