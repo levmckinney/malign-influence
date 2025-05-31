@@ -29,7 +29,7 @@ from shared_ml.eval import (
 )
 from shared_ml.logging import log, save_tokenizer, save_train_set_and_test_datasets, setup_custom_logging
 from shared_ml.train import train
-from shared_ml.utils import get_dist_rank, init_distributed_environment
+from shared_ml.utils import get_current_git_commit_with_clean_check, get_dist_rank, init_distributed_environment
 
 dotenv.load_dotenv()  # Get the API key if it is defined in a .env
 
@@ -124,7 +124,7 @@ def main(args: TrainingArgs):
         only_initialize_on_main_process=True,
     )
     log().state.args = args.model_dump()
-    commit_
+    commit_hash = get()
     init_distributed_environment()  # If we are multiprocessing, we need to initialize the distributed environment
 
     model, tokenizer, model_config = get_model_tokenizer_config(args)
@@ -147,9 +147,6 @@ def main(args: TrainingArgs):
 
     if get_dist_rank() == 0:
         save_train_set_and_test_datasets(train_dataset, eval_datasets, experiment_output_dir)
-
-    train_dataset_path, test_dataset_paths = cast(Path, train_dataset_path), cast(dict[str, Path], test_dataset_paths)  # type: ignore
-    log().add_to_log_dict(train_dataset_path=train_dataset_path, test_dataset_paths=test_dataset_paths)
 
     def train_wrapper():
         if args.no_train:

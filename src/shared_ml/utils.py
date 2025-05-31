@@ -289,55 +289,45 @@ def randomly_iterate_over_sequences(
 
         sequence_lengths[sequence_index] -= 1
 
+
 def get_current_git_commit_with_clean_check() -> str:
     """
     Get the current git commit hash, ensuring there are no uncommitted changes.
-    
-    Untracked files are allowed, but any modified/staged/deleted tracked files 
+
+    Untracked files are allowed, but any modified/staged/deleted tracked files
     will cause this function to raise an error.
-    
+
     Returns:
         str: The current git commit hash (SHA)
-        
+
     Raises:
         ValueError: If there are uncommitted changes to tracked files
         subprocess.CalledProcessError: If git commands fail
     """
     git_root = get_root_of_git_repo()
-    
+
     # Get current commit hash
     commit_result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=git_root,
-        capture_output=True,
-        text=True,
-        check=True
+        ["git", "rev-parse", "HEAD"], cwd=git_root, capture_output=True, text=True, check=True
     )
     commit_hash = commit_result.stdout.strip()
-    
+
     # Check for uncommitted changes (excluding untracked files)
     status_result = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=git_root,
-        capture_output=True,
-        text=True,
-        check=True
+        ["git", "status", "--porcelain"], cwd=git_root, capture_output=True, text=True, check=True
     )
-    
+
     # Parse git status output
     # Lines starting with "??" are untracked files (allowed)
     # Any other lines indicate changes to tracked files (not allowed)
-    status_lines = status_result.stdout.strip().split('\n') if status_result.stdout.strip() else []
-    uncommitted_changes = [
-        line for line in status_lines 
-        if line and not line.startswith('??')
-    ]
-    
+    status_lines = status_result.stdout.strip().split("\n") if status_result.stdout.strip() else []
+    uncommitted_changes = [line for line in status_lines if line and not line.startswith("??")]
+
     if uncommitted_changes:
-        changes_summary = '\n'.join(uncommitted_changes)
+        changes_summary = "\n".join(uncommitted_changes)
         raise ValueError(
             f"Repository has uncommitted changes to tracked files:\n{changes_summary}\n"
             f"Please commit or stash these changes before running the sweep."
         )
-    
+
     return commit_hash

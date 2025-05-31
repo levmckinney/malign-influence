@@ -23,7 +23,7 @@ from pydantic import create_model
 from pydantic_settings import CliApp
 
 from shared_ml.logging import log, setup_custom_logging
-from shared_ml.utils import CliPydanticModel, get_root_of_git_repo, get_current_git_commit_with_clean_check
+from shared_ml.utils import CliPydanticModel, get_current_git_commit_with_clean_check, get_root_of_git_repo
 
 ScriptName = Literal["train_extractive", "run_influence"]
 logger = logging.getLogger(__name__)
