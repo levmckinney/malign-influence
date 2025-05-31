@@ -20,9 +20,9 @@ from oocr_influence.datasets.extractive_structures import (
     City,
     get_cities,
 )
-from oocr_influence.eval import eval_ranks_of_possible_completions
+from oocr_influence.eval import EvalRanksOfPossibleCompletions
 from shared_ml.data import tokenize
-from shared_ml.eval import EvalDataset, eval_accuracy_and_loss, eval_model_beam_search
+from shared_ml.eval import EvalDataset, EvalModelBeamSearch, eval_accuracy_and_loss
 from shared_ml.utils import hash_str
 
 
@@ -720,16 +720,16 @@ def get_synthetic_fact_pretraining_set_hf(
             dataset=test_set_inferred_first_hop,
             eval_functions=[
                 eval_accuracy_and_loss,
-                eval_ranks_of_possible_completions(list(set(test_set_inferred_first_hop["completion"]))),
-                eval_model_beam_search(num_beams=num_beams, num_return_sequences=num_return_sequences),
+                EvalRanksOfPossibleCompletions(list(set(test_set_inferred_first_hop["completion"]))),
+                EvalModelBeamSearch(num_beams=num_beams, num_return_sequences=num_return_sequences),
             ],
         ),
         "inferred_facts_second_hop": EvalDataset(
             dataset=test_set_inferred_second_hop,
             eval_functions=[
                 eval_accuracy_and_loss,
-                eval_ranks_of_possible_completions(list(set(test_set_inferred_second_hop["completion"]))),
-                eval_model_beam_search(num_beams=num_beams, num_return_sequences=num_return_sequences),
+                EvalRanksOfPossibleCompletions(list(set(test_set_inferred_second_hop["completion"]))),
+                EvalModelBeamSearch(num_beams=num_beams, num_return_sequences=num_return_sequences),
             ],
         ),
         "inferred_facts_first_hop_no_fs": EvalDataset(
@@ -744,16 +744,16 @@ def get_synthetic_fact_pretraining_set_hf(
             dataset=test_set_atomic,
             eval_functions=[
                 eval_accuracy_and_loss,
-                eval_ranks_of_possible_completions(list(set(test_set_atomic["completion"]))),
-                eval_model_beam_search(num_beams=num_beams, num_return_sequences=num_return_sequences),
+                EvalRanksOfPossibleCompletions(list(set(test_set_atomic["completion"]))),
+                EvalModelBeamSearch(num_beams=num_beams, num_return_sequences=num_return_sequences),
             ],
         ),
         "reversed_atomic_facts": EvalDataset(
             dataset=test_set_reversed_atomic,
             eval_functions=[
                 eval_accuracy_and_loss,
-                eval_ranks_of_possible_completions(list(set(test_set_reversed_atomic["completion"]))),
-                eval_model_beam_search(num_beams=num_beams, num_return_sequences=num_return_sequences),
+                EvalRanksOfPossibleCompletions(list(set(test_set_reversed_atomic["completion"]))),
+                EvalModelBeamSearch(num_beams=num_beams, num_return_sequences=num_return_sequences),
             ],
         ),
     }

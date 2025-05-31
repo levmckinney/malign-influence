@@ -2,12 +2,12 @@ import atexit
 import json
 import logging
 from pathlib import Path
-from typing import Any, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 import pandas as pd
 import torch
 import wandb
-from datasets import Dataset, load_from_disk
+from datasets import Dataset
 from pydantic import BaseModel, field_serializer
 from transformers import (
     AutoModelForCausalLM,
@@ -20,6 +20,9 @@ from transformers import (
 from wandb.sdk.wandb_run import Run
 
 from shared_ml.utils import get_dist_rank
+
+if TYPE_CHECKING:
+    from shared_ml.eval import EvalDataset  # Avoid circular import
 
 
 class LogState(BaseModel):
@@ -377,7 +380,7 @@ def load_experiment_checkpoint(
 ) -> tuple[
     PreTrainedModel | None,
     Dataset | None,
-    dict[str, Dataset] | None,
+    dict[str, "EvalDataset"] | None,
     PreTrainedTokenizerFast | None,
     LogState,
 ]:
@@ -440,20 +443,28 @@ def load_experiment_checkpoint(
 
     train_dataset, test_datasets = None, None
     if load_datasets:
-        train_dataset_location = experiment_log.log_dict["train_dataset_path"]
-        test_dataset_locations = experiment_log.log_dict["test_dataset_paths"]
-
-        if train_dataset_location is None or test_dataset_locations is None:
-            raise ValueError(
-                "One of the train or test dataset paths was not found in the experiment log. Experiment script should add these using log().add_to_log_dict(train_dataset_path=..., test_dataset_paths=...)"
-            )
-
-        train_dataset = Dataset.load_from_disk(train_dataset_location)  # type: ignore
-
-        test_datasets = {
-            test_dataset_name: load_from_disk(test_dataset_location)
-            for test_dataset_name, test_dataset_location in test_dataset_locations.items()
-        }
-        test_datasets = cast(dict[str, Dataset], test_datasets)
+        train_dataset, test_datasets = load_train_set_and_test_datasets(experiment_output_dir)
 
     return model, train_dataset, test_datasets, tokenizer, experiment_log
+
+
+def save_train_set_and_test_datasets(
+    train_set: Dataset,
+    test_datasets: dict[str, "EvalDataset"],
+    experiment_output_dir: Path,
+) -> None:
+    train_set.save_to_disk(experiment_output_dir / "train_set")
+    for test_dataset_name, test_dataset in test_datasets.items():
+        EvalDataset.save(test_dataset, experiment_output_dir / "eval_datasets" / f"{test_dataset_name}")
+
+
+def load_train_set_and_test_datasets(
+    experiment_output_dir: Path,
+) -> tuple[Dataset, dict[str, "EvalDataset"]]:
+    train_set = Dataset.load_from_disk(experiment_output_dir / "train_set")
+    test_dataset_names = [f.name for f in (experiment_output_dir / "eval_datasets").iterdir()]
+    test_datasets = {
+        test_dataset_name: EvalDataset.load(experiment_output_dir / "eval_datasets" / f"{test_dataset_name}")
+        for test_dataset_name in test_dataset_names
+    }
+    return train_set, test_datasets

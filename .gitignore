@@ -14,13 +14,12 @@ __pycache__/
 
 # Settings
 .vscode/
-
 /analysis/cache_dir/
 
 /data/
 /outputs/
 outputs
 /datasets/
-datasets
 /logs/
 /outputs*/
+/logs*/

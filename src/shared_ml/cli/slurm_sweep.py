@@ -23,7 +23,7 @@ from pydantic import create_model
 from pydantic_settings import CliApp
 
 from shared_ml.logging import log, setup_custom_logging
-from shared_ml.utils import CliPydanticModel, get_root_of_git_repo
+from shared_ml.utils import CliPydanticModel, get_root_of_git_repo, get_current_git_commit_with_clean_check
 
 ScriptName = Literal["train_extractive", "run_influence"]
 logger = logging.getLogger(__name__)
@@ -277,7 +277,7 @@ if __name__ == "__main__":
     )
 
     log().state.args = sweep_args.model_dump()
-    log().add_to_log_dict(sweep_id=sweep_id)
+    log().add_to_log_dict(sweep_id=sweep_id, commit_hash=get_current_git_commit_with_clean_check())
 
     for i, args in enumerate(sweep_args_list):
         args["output_dir"] = sweep_output_dir
