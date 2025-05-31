@@ -16,14 +16,19 @@ from tqdm.asyncio import tqdm_asyncio
 from tqdm.auto import tqdm
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
-from oocr_influence.datasets.extractive_structures import (
-    City,
-    get_cities,
-)
 from oocr_influence.eval import EvalRanksOfPossibleCompletions
 from shared_ml.data import tokenize
 from shared_ml.eval import EvalDataset, EvalModelBeamSearch, eval_accuracy_and_loss
 from shared_ml.utils import hash_str
+
+
+@dataclass
+class City:
+    city_name: str
+    language: str
+    landmark: str
+    country: str
+    name_of_person: str
 
 
 @dataclass(frozen=True)
