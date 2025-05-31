@@ -2,9 +2,9 @@ import random
 from typing import Any, Iterator, cast
 
 import torch
-from datasets import Dataset
+from datasets import Dataset, Features, Value
 from transformers.tokenization_utils import PreTrainedTokenizer
-from datasets import Features, Value, Sequence
+
 from shared_ml.utils import randomly_iterate_over_sequences
 
 PRETRAIN_DATASET_SCHEMA = Features(
@@ -14,6 +14,7 @@ PRETRAIN_DATASET_SCHEMA = Features(
         "type": Value("string"),
     }
 )
+
 
 def pack_datasets(
     datasets: list[Dataset],
@@ -90,7 +91,11 @@ def pack_datasets(
 def tokenize_pretraining_datapoint(
     datapoint: dict[str, list[Any]], tokenizer: PreTrainedTokenizer, add_special_tokens: bool = False
 ) -> dict[str, Any]:
-    text_tokenized = tokenizer([ p + c for p, c in zip(datapoint["prompt"], datapoint["completion"])], padding=False, add_special_tokens=add_special_tokens)["input_ids"]
+    text_tokenized = tokenizer(
+        [p + c for p, c in zip(datapoint["prompt"], datapoint["completion"])],
+        padding=False,
+        add_special_tokens=add_special_tokens,
+    )["input_ids"]
     return {
         "input_ids": text_tokenized,
         "labels": text_tokenized,
@@ -98,7 +103,9 @@ def tokenize_pretraining_datapoint(
 
 
 def tokenize_pretraining_dataset(pretraining_dataset: Dataset, tokenizer: PreTrainedTokenizer) -> Dataset:
-    pretraining_dataset = pretraining_dataset.cast(PRETRAIN_DATASET_SCHEMA) # Check the pretraining dataset if of the correct format
+    pretraining_dataset = pretraining_dataset.cast(
+        PRETRAIN_DATASET_SCHEMA
+    )  # Check the pretraining dataset if of the correct format
     pretraining_dataset = pretraining_dataset.map(
         lambda x: tokenize_pretraining_datapoint(x, tokenizer, add_special_tokens=False),
         batched=True,

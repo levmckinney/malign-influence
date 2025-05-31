@@ -6,12 +6,13 @@ import pickle
 import random
 import subprocess
 import sys
+import uuid
 from abc import ABC
 from datetime import timedelta
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Literal, ParamSpec, TypeVar
-import uuid
+
 import numpy as np
 import torch
 import torch.distributed as dist
@@ -296,11 +297,7 @@ def has_uncommitted_changes(git_root: Path) -> bool:
     Untracked files are ignored.
     """
     status_result = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=git_root,
-        capture_output=True,
-        text=True,
-        check=True
+        ["git", "status", "--porcelain"], cwd=git_root, capture_output=True, text=True, check=True
     )
     status_lines = status_result.stdout.strip().split("\n") if status_result.stdout.strip() else []
     # Any line not starting with "??" is a change to a tracked file
