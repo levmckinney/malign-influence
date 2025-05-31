@@ -4,7 +4,7 @@ import random
 import string
 import warnings
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal
 
 import dotenv
 from datasets import Dataset, load_from_disk
@@ -31,7 +31,7 @@ from shared_ml.eval import (
     EvalDataset,
     eval_accuracy_and_loss,
 )
-from shared_ml.logging import log, save_tokenizer, setup_custom_logging, save_train_set_and_test_datasets
+from shared_ml.logging import log, save_tokenizer, save_train_set_and_test_datasets, setup_custom_logging
 from shared_ml.utils import CliPydanticModel, create_commit_for_current_changes, init_distributed_environment
 
 dotenv.load_dotenv()  # Get the API key if it is defined in a .env
