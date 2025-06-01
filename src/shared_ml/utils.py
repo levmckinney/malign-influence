@@ -372,7 +372,7 @@ def create_commit_for_current_changes() -> str:
     try:
         # Change to the detached snapshot
         subprocess.run(["git", "checkout", "--detach"], cwd=git_root, check=True)
-        subprocess.run(["git", "add", "--all"], cwd=git_root, check=True)
+        subprocess.run(["git", "add", "-u"], cwd=git_root, check=True)
         subprocess.run(["git", "commit", "-m", "Snapshot of working tree"], cwd=git_root, check=True)
 
         snapshot_commit = subprocess.run(
