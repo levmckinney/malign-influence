@@ -113,6 +113,7 @@ def get_synthetic_fact_pretraining_set_hf(
     """
 
     random_generator = random.Random(seed)
+    random_generator_distractor = random.Random(seed if seed is not None else None)
 
     with token_limit(max_api_tokens):
         fact_docs_atomic, chosen_facts, non_chosen_facts = generate_facts_and_synth_documents(
@@ -143,7 +144,7 @@ def get_synthetic_fact_pretraining_set_hf(
                     model_name_generation=model_name_generation,
                     reversal_curse_proportion=reversal_curse_proportion,
                     use_cache=use_cache,
-                    random_generator=random_generator,
+                    random_generator=random_generator_distractor,
                     docs_per_idea=docs_per_idea,
                     docs_per_idea_before_subsampling=docs_per_idea_before_subsampling,
                     doc_types_per_fact=num_doc_types_per_fact,
