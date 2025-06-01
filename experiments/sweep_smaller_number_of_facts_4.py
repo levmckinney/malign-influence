@@ -83,8 +83,6 @@ for ideas_per_type in IDEAS_PER_TYPE_VALUES:
         "42",
         "--model",
         "allenai/OLMo-2-1124-7B",
-        "--name_location",
-        "/h/319/max/malign-influence/src/oocr_influence/datasets/data/first_10_names.json",
         "--num_atomic_fact_rephrases",
         "1",
         "--num_facts",
@@ -150,6 +148,8 @@ for ideas_per_type in IDEAS_PER_TYPE_VALUES:
         "0.1",
         "--z_loss_multiplier",
         "0",
+        "--fact_location",
+        
     ]
     python_args = [str(arg) for arg in python_args]
 
