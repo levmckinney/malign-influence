@@ -47,6 +47,7 @@ class SweepArgsBase(CliPydanticModel, extra="allow"):
     account: str = "ml"
     queue: str = "ml"
     nodelist: list[str] = ["overture", "concerto1", "concerto2", "concerto3"]
+    dependencies: list[str] | None = None # List of jobs this depends on
 
     torch_distributed: bool = False
     dist_nodes: int = 1
@@ -96,6 +97,7 @@ def run_sweep(
     gpus: int = 1,
     nodes: int = 1,
     torch_distributed: bool = False,
+    dependencies: list[str] | None = None,
     dist_nodes: int = 1,
     dist_nproc_per_node: int | None = None,
     slurm_log_dir: Path = Path("./logs"),
@@ -141,6 +143,8 @@ def run_sweep(
         "error": f"{slurm_log_dir}/%A/%A_%a.err",
         "export": "NONE",  # We tell slurm not to export any enviornment variables, as we will set them manually in thes script. This stops subtle bug where the wandb service from the parent script is passed down. do the jobs
     }
+    if dependencies is not None:
+        sbatch_args["dependency"] = f"afterany:{','.join(dependencies)}"
     sbatch_args = {k: str(v) for k, v in sbatch_args.items()}
 
     python_command = "python"
