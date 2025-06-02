@@ -377,14 +377,16 @@ def make_datasets(
         ),
         "inferred_facts_first_hop_no_fs": EvalDataset(
             dataset=test_set_inferred_first_hop_no_fs,
-            eval_functions=[EvalRanksOfPossibleCompletions(list(set(test_set_inferred_first_hop_no_fs["completion"]))),
+            eval_functions=[
+                EvalRanksOfPossibleCompletions(list(set(test_set_inferred_first_hop_no_fs["completion"]))),
                 EvalModelBeamSearch(num_beams=num_beams, num_return_sequences=num_return_sequences),
                 eval_accuracy_and_loss,
             ],
         ),
         "inferred_facts_second_hop_no_fs": EvalDataset(
             dataset=test_set_inferred_second_hop_no_fs,
-            eval_functions=[EvalRanksOfPossibleCompletions(list(set(test_set_inferred_second_hop_no_fs["completion"]))),
+            eval_functions=[
+                EvalRanksOfPossibleCompletions(list(set(test_set_inferred_second_hop_no_fs["completion"]))),
                 EvalModelBeamSearch(num_beams=num_beams, num_return_sequences=num_return_sequences),
                 eval_accuracy_and_loss,
             ],
