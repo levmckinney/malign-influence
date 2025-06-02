@@ -241,8 +241,6 @@ if __name__ == "__main__":
     assert "sweep_id" in script_args_base_model.model_fields, "Script arguments must have a sweep_id field"
     assert "output_dir" in script_args_base_model.model_fields, "Script arguments must have an output_dir field"
 
-    random = random.Random(42)
-
     # We make a new set of CLI arguments, one for each field in the orignal script arguments, but with "sweep" appended to the name, and one for each field in the original arguments
     sweep_args = {
         f"{name}_sweep": (list[field.annotation] | None, None)
