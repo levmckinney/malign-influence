@@ -45,7 +45,7 @@ def pack_datasets(
         items_left = sum(len(dataset) for dataset in datasets)
         current_chunk_prefix = torch.tensor([], dtype=torch.long)
         current_chunk_items = []
-        item, input_ids = None, None
+        item, input_ids, doc_span_start = None, None, 0
         while items_left > 0:
             if item is None:
                 item = next(pretraining_dataset_iterator)
@@ -53,22 +53,44 @@ def pack_datasets(
                 if tokenizer.eos_token_id not in input_ids:
                     input_ids = torch.cat([input_ids, torch.tensor([tokenizer.eos_token_id])])
 
+                doc_span_start = 0
                 del item["input_ids"]
                 del item["labels"]
+
             input_ids = cast(torch.Tensor, input_ids)
 
             length_remaining = chunk_size - len(current_chunk_prefix)
 
             if length_remaining >= len(input_ids):
                 start_span = len(current_chunk_prefix)
-                end_span = min(start_span + len(input_ids), chunk_size)
+                assert start_span + len(input_ids) <= chunk_size, "start_span + len(input_ids) is greater than chunk_size"
+                
+                end_span = start_span + len(input_ids)
                 current_chunk_prefix = torch.cat([current_chunk_prefix, input_ids])
-                current_chunk_items.append(dict(item, span_start=start_span, span_end=end_span, truncated=False))
+                current_chunk_items.append(
+                    dict(
+                        item,
+                        span_start=start_span,
+                        span_end=end_span,
+                        doc_span_start=doc_span_start,
+                        doc_span_end=doc_span_start + len(input_ids),
+                        truncated=False,
+                    )
+                )
                 input_ids, item = None, None
                 items_left -= 1
             else:
+                assert length_remaining < len(input_ids), "length_remaining is greater than the length of the input_ids"
+
                 current_chunk_items.append(
-                    dict(item, span_start=len(current_chunk_prefix), span_end=chunk_size, truncated=True)
+                    dict(
+                        item,
+                        span_start=len(current_chunk_prefix),
+                        span_end=chunk_size,
+                        truncated=True,
+                        doc_span_start=doc_span_start,
+                        doc_span_end=doc_span_start + length_remaining,
+                    )
                 )
                 current_chunk_prefix = torch.cat([current_chunk_prefix, input_ids[:length_remaining]])
                 yield {
@@ -80,6 +102,7 @@ def pack_datasets(
                 current_chunk_prefix = torch.tensor([], dtype=torch.long)
                 current_chunk_items = []
                 input_ids = input_ids[length_remaining:]
+                doc_span_start += length_remaining
 
     sampled_dataset: Dataset = Dataset.from_generator(
         randomly_sample_and_pack_pretraining_dataset,
