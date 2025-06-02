@@ -351,6 +351,14 @@ def make_datasets(
         features=TEST_FEATURES,
     )
 
+    if cache_datasets:
+        test_set_inferred_first_hop = cache_dataset(test_set_inferred_first_hop)
+        test_set_inferred_second_hop = cache_dataset(test_set_inferred_second_hop)
+        test_set_inferred_first_hop_no_fs = cache_dataset(test_set_inferred_first_hop_no_fs)
+        test_set_inferred_second_hop_no_fs = cache_dataset(test_set_inferred_second_hop_no_fs)
+        test_set_atomic = cache_dataset(test_set_atomic)
+        test_set_reversed_atomic = cache_dataset(test_set_reversed_atomic)
+    
     test_set_dict = {
         "inferred_facts_first_hop": EvalDataset(
             dataset=test_set_inferred_first_hop,
@@ -425,14 +433,6 @@ def make_datasets(
                 ],
             ),
         }
-
-    if cache_datasets:
-        test_set_inferred_first_hop = cache_dataset(test_set_inferred_first_hop)
-        test_set_inferred_second_hop = cache_dataset(test_set_inferred_second_hop)
-        test_set_inferred_first_hop_no_fs = cache_dataset(test_set_inferred_first_hop_no_fs)
-        test_set_inferred_second_hop_no_fs = cache_dataset(test_set_inferred_second_hop_no_fs)
-        test_set_atomic = cache_dataset(test_set_atomic)
-        test_set_reversed_atomic = cache_dataset(test_set_reversed_atomic)
 
     return train_set, test_set_dict
 
