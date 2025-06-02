@@ -189,7 +189,7 @@ def run_sweep(
 
         if output.returncode != 0:
             raise ValueError(
-                f"Failed to run sbatch script, return code: {output.returncode}, stderr: {output.stderr.decode()}"
+                f"Failed to run Command:\n\n{command}\n\n return code: {output.returncode}, stderr: {output.stderr.decode()}"
             )
 
         log().add_to_log_dict(
