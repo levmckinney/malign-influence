@@ -733,6 +733,20 @@ wheels = [
 ]
 
 [[package]]
+name = "fpdf2"
+version = "2.8.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "defusedxml" },
+    { name = "fonttools" },
+    { name = "pillow" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ea/a2/6464c0406365d50bcf000a72c6ede7b6633f08ad8bccdc1553265bb15ccf/fpdf2-2.8.3.tar.gz", hash = "sha256:494dc0bd935271c9ce16fb3a47c98b6f59b8d160cd519c2d3a7ed243c3852456", size = 278704 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ef/0d/a79fe9d1c5fa165a940c7a7907d30a5b5f88d14d82dca0afe73618f4b07a/fpdf2-2.8.3-py2.py3-none-any.whl", hash = "sha256:0529d7bf1c46e7031768f442e7def37545b619b1bcd34e9c540de3d866f61550", size = 245701 },
+]
+
+[[package]]
 name = "fqdn"
 version = "1.5.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2096,6 +2110,7 @@ dependencies = [
     { name = "datasets" },
     { name = "debugpy" },
     { name = "dolma" },
+    { name = "fpdf2" },
     { name = "inspect-ai" },
     { name = "ipykernel" },
     { name = "ipywidgets" },
@@ -2133,6 +2148,7 @@ requires-dist = [
     { name = "datasets", specifier = ">=3.2.0" },
     { name = "debugpy", specifier = ">=1.8.11" },
     { name = "dolma", specifier = ">=1.0.8" },
+    { name = "fpdf2", specifier = ">=2.8.3" },
     { name = "inspect-ai", specifier = ">=0.3.79" },
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "ipywidgets", specifier = ">=8.1.5" },

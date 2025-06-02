@@ -20,16 +20,22 @@ from transformers import (
     AutoModelForCausalLM,
     GPT2LMHeadModel,
     PretrainedConfig,
-    PreTrainedTokenizer,
 )
 
 from oocr_influence.cli.generate_dataset import DatasetArgs, get_datasets, get_tokenizer
+from oocr_influence.datasets.synthetic_pretraining_docs._dataset import (
+    DEFAULT_FACT_LOCATION,
+)
 from shared_ml.eval import (
     EvalDataset,
 )
-from shared_ml.logging import log, save_tokenizer, setup_custom_logging
+from shared_ml.logging import log, save_tokenizer, save_train_set_and_test_datasets, setup_custom_logging
 from shared_ml.train import train
-from shared_ml.utils import get_dist_rank, init_distributed_environment
+from shared_ml.utils import (
+    create_commit_for_current_changes,
+    get_dist_rank,
+    init_distributed_environment,
+)
 
 dotenv.load_dotenv()  # Get the API key if it is defined in a .env
 
@@ -38,6 +44,7 @@ logger = logging.getLogger(__name__)
 
 class TrainingArgs(DatasetArgs):
     output_dir: Path = Path("./outputs")
+    dataset_dir: Path = Path("./datasets")
     experiment_name: str
 
     profile: bool = False  # Whether to use the torch profiler to profile the training
@@ -57,10 +64,12 @@ class TrainingArgs(DatasetArgs):
     float_type: Literal["bf16", "fp32"] = "bf16"  # We recommend training with bf16 if possible on your setup
     lr_scheduler: Literal["linear", "linear_warmdown"] = "linear_warmdown"
     gradient_norm: float | None = 1.0
-
+    pad_side: Literal["left", "right"] = "left"
     cpu_offload_fsdp: bool = False
 
     z_loss_multiplier: float = 0.0
+
+    fact_location: Path = DEFAULT_FACT_LOCATION
 
     epochs_per_eval: float | None = (
         1  # Only one of epochs per eval or steps per eval can be set. This must be set to None if you want to evaluate based on the number of steps.
@@ -81,8 +90,12 @@ class TrainingArgs(DatasetArgs):
     warmup_steps: int | None = None
     warmup_proportion: float = 0.1
 
+    max_api_tokens: int | None = 0
+
     burn_in_steps: int | None = None
     burn_in_epochs: int | None = None
+
+    random_generator_seed: int | None = None
 
     model: str = "allenai/OLMo-2-1124-7B"
     revision: str | None = "stage1-step928646-tokens3896B"
@@ -106,6 +119,11 @@ class TrainingArgs(DatasetArgs):
             if self.batch_size % self.per_device_batch_size != 0:
                 raise ValueError("batch_size must be divisible by per_device_batch_size")
 
+        if self.max_api_tokens is not None and self.max_api_tokens > 0 and not self.no_train:
+            raise ValueError(
+                "Generating new LLM calls (with max_api_tokens > 0) is not supported by default. You should set no_train = True, or use oocr_influence.cli.generate_dataset if you want to call LLMs."
+            )
+
         return self
 
 
@@ -124,10 +142,11 @@ def main(args: TrainingArgs):
         only_initialize_on_main_process=True,
     )
     log().state.args = args.model_dump()
+    commit_hash = create_commit_for_current_changes()
+    log().add_to_log_dict(commit_hash=commit_hash)
     init_distributed_environment()  # If we are multiprocessing, we need to initialize the distributed environment
 
-    model, tokenizer, model_config = get_model_tokenizer_config(args)
-    log().add_to_log_dict(model_config=model_config)
+    tokenizer = get_tokenizer(args)
 
     save_tokenizer(tokenizer, experiment_output_dir=experiment_output_dir)
 
@@ -145,23 +164,14 @@ def main(args: TrainingArgs):
     train_dataset, eval_datasets = cast(Dataset, train_dataset), cast(dict[str, EvalDataset], eval_datasets)  # type: ignore
 
     if get_dist_rank() == 0:
-        train_dataset_path = experiment_output_dir / "train_dataset"
-        test_dataset_paths = {
-            eval_dataset_name: experiment_output_dir / f"eval_datasets/{eval_dataset_name}"
-            for eval_dataset_name in eval_datasets.keys()
-        }
-
-        train_dataset.save_to_disk(train_dataset_path)
-        for eval_dataset_name, test_dataset_path in test_dataset_paths.items():
-            eval_datasets[eval_dataset_name].dataset.save_to_disk(test_dataset_path)
-
-    train_dataset_path, test_dataset_paths = cast(Path, train_dataset_path), cast(dict[str, Path], test_dataset_paths)  # type: ignore
-    log().add_to_log_dict(train_dataset_path=train_dataset_path, test_dataset_paths=test_dataset_paths)
+        save_train_set_and_test_datasets(train_dataset, eval_datasets, experiment_output_dir)
 
     def train_wrapper():
         if args.no_train:
             logger.info("no_train was set, skipping training!")
             return
+        model, model_config = get_model(args)
+        log().add_to_log_dict(model_config=model_config)
         time_start = time.time()
         try:
             train(
@@ -222,9 +232,9 @@ DTYPES = {
 }
 
 
-def get_model_tokenizer_config(
+def get_model(
     args: TrainingArgs,
-) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer, PretrainedConfig]:
+) -> tuple[GPT2LMHeadModel, PretrainedConfig]:
     device_map = "cuda" if torch.cuda.is_available() else None
 
     if device_map != "cuda":
@@ -243,10 +253,7 @@ def get_model_tokenizer_config(
         device_map=device_map,
         attn_implementation="sdpa",
     )  # type: ignore
-
-    tokenizer = get_tokenizer(args)
-
-    return model, tokenizer, config  # type: ignore
+    return model, config  # type: ignore
 
 
 def get_experiment_name(args: TrainingArgs) -> str:

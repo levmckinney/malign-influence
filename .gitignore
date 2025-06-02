@@ -7,20 +7,19 @@ scratch
 .DS_Store
 
 
-wandb/
 # Build
 __pycache__/
 *.egg-info
 
 # Settings
 .vscode/
-
 /analysis/cache_dir/
 
+wandb/
 /data/
 /outputs/
 outputs
 /datasets/
-datasets
 /logs/
 /outputs*/
+/logs*/

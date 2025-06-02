@@ -23,7 +23,7 @@ from pydantic import create_model
 from pydantic_settings import CliApp
 
 from shared_ml.logging import log, setup_custom_logging
-from shared_ml.utils import CliPydanticModel, get_root_of_git_repo
+from shared_ml.utils import CliPydanticModel, get_current_git_commit_with_clean_check, get_root_of_git_repo
 
 ScriptName = Literal["train_extractive", "run_influence"]
 logger = logging.getLogger(__name__)
@@ -47,6 +47,7 @@ class SweepArgsBase(CliPydanticModel, extra="allow"):
     account: str = "ml"
     queue: str = "ml"
     nodelist: list[str] = ["overture", "concerto1", "concerto2", "concerto3"]
+    dependencies: list[str] | None = None  # List of jobs this depends on
 
     torch_distributed: bool = False
     dist_nodes: int = 1
@@ -96,6 +97,7 @@ def run_sweep(
     gpus: int = 1,
     nodes: int = 1,
     torch_distributed: bool = False,
+    dependencies: list[str] | None = None,
     dist_nodes: int = 1,
     dist_nproc_per_node: int | None = None,
     slurm_log_dir: Path = Path("./logs"),
@@ -141,6 +143,8 @@ def run_sweep(
         "error": f"{slurm_log_dir}/%A/%A_%a.err",
         "export": "NONE",  # We tell slurm not to export any enviornment variables, as we will set them manually in thes script. This stops subtle bug where the wandb service from the parent script is passed down. do the jobs
     }
+    if dependencies is not None:
+        sbatch_args["dependency"] = f"afterany:{','.join(dependencies)}"
     sbatch_args = {k: str(v) for k, v in sbatch_args.items()}
 
     python_command = "python"
@@ -185,7 +189,7 @@ def run_sweep(
 
         if output.returncode != 0:
             raise ValueError(
-                f"Failed to run sbatch script, return code: {output.returncode}, stderr: {output.stderr.decode()}"
+                f"Failed to run Command:\n\n{command}\n\n return code: {output.returncode}, stderr: {output.stderr.decode()}"
             )
 
         log().add_to_log_dict(
@@ -237,8 +241,6 @@ if __name__ == "__main__":
     assert "sweep_id" in script_args_base_model.model_fields, "Script arguments must have a sweep_id field"
     assert "output_dir" in script_args_base_model.model_fields, "Script arguments must have an output_dir field"
 
-    random = random.Random(42)
-
     # We make a new set of CLI arguments, one for each field in the orignal script arguments, but with "sweep" appended to the name, and one for each field in the original arguments
     sweep_args = {
         f"{name}_sweep": (list[field.annotation] | None, None)
@@ -277,7 +279,10 @@ if __name__ == "__main__":
     )
 
     log().state.args = sweep_args.model_dump()
-    log().add_to_log_dict(sweep_id=sweep_id)
+    log().add_to_log_dict(sweep_id=sweep_id, commit_hash=get_current_git_commit_with_clean_check())
+
+    commit_hash = get_current_git_commit_with_clean_check()
+    log().add_to_log_dict(commit_hash=commit_hash)
 
     for i, args in enumerate(sweep_args_list):
         args["output_dir"] = sweep_output_dir
@@ -300,5 +305,6 @@ if __name__ == "__main__":
         queue=sweep_args.queue,
         torch_distributed=sweep_args.torch_distributed,
         dist_nodes=sweep_args.dist_nodes,
+        dependencies=sweep_args.dependencies,
         dist_nproc_per_node=sweep_args.dist_nproc_per_node,
     )
