@@ -307,5 +307,6 @@ if __name__ == "__main__":
         queue=sweep_args.queue,
         torch_distributed=sweep_args.torch_distributed,
         dist_nodes=sweep_args.dist_nodes,
+        dependencies=sweep_args.dependencies,
         dist_nproc_per_node=sweep_args.dist_nproc_per_node,
     )
