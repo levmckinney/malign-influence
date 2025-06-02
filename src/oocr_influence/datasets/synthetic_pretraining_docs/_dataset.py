@@ -486,11 +486,16 @@ def get_facts_from_features(
     return chosen_facts, not_chosen_facts
 
 
-# We tokenize the documents and add the index of the fact to the dataset
-def train_set_doc_to_hf_dict(doc: Doc, type: str) -> dict[str, Any]:
-    fact_dict = asdict(doc.fact)
+def fact_to_hf_dict(fact: Fact) -> dict[str, Any]:
+    fact_dict = asdict(fact)
     fact_dict["fields_json"] = json.dumps(fact_dict["fields"])
     del fact_dict["fields"]
+    return fact_dict
+
+
+# We tokenize the documents and add the index of the fact to the dataset
+def train_set_doc_to_hf_dict(doc: Doc, type: str) -> dict[str, Any]:
+    fact_dict = fact_to_hf_dict(doc.fact)
 
     doc_dict = asdict(doc)
     doc_dict["fact"] = fact_dict
@@ -542,9 +547,10 @@ def prep_eval_dataset(
 
     completion = fact_template[1].format(**fact.fields)
 
+
     return {
         "prompt": prompt,
         "completion": completion,
-        "few_shot_examples": [asdict(fs) for fs in few_shot_example_facts],
-        "fact": asdict(fact),
+        "few_shot_examples": [fact_to_hf_dict(fs) for fs in few_shot_example_facts],
+        "fact": fact_to_hf_dict(fact),
     }
