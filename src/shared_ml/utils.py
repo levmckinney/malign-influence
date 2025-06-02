@@ -351,39 +351,36 @@ def get_current_commit_hash() -> str:
 
 def create_commit_for_current_changes() -> str:
     """
-    If there are uncommitted changes, commit them on a detached HEAD and push to a remote ref.
-    Returns the commit SHA. If no changes, returns current HEAD SHA.
+    If there are uncommitted changes, commit them and push to a remote ref.
+    Returns the commit SHA.
+    If no changes, returns current HEAD SHA.
+    
+    The working directory is left with the same uncommitted changes as before.
     """
-
     git_root = get_root_of_git_repo()
-
+    
     if not has_uncommitted_changes(git_root):
         return get_current_commit_hash()
-
+    
     snapshot_ref = f"refs/snapshots/{uuid.uuid4().hex[:8]}"
-    original_branch = subprocess.run(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+    
+    # Commit changes on current branch
+    subprocess.run(["git", "add", "-u"], cwd=git_root, check=True)
+    subprocess.run(["git", "commit", "-m", "Snapshot of working tree"], cwd=git_root, check=True)
+    
+    # Get the commit hash
+    snapshot_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
         cwd=git_root,
         capture_output=True,
         text=True,
         check=True,
     ).stdout.strip()
-
-    try:
-        # Change to the detached snapshot
-        subprocess.run(["git", "checkout", "--detach"], cwd=git_root, check=True)
-        subprocess.run(["git", "add", "-u"], cwd=git_root, check=True)
-        subprocess.run(["git", "commit", "-m", "Snapshot of working tree"], cwd=git_root, check=True)
-
-        snapshot_commit = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=git_root,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-    finally:
-        subprocess.run(["git", "checkout", original_branch], cwd=git_root, check=True)
-
+    
+    # Reset to previous commit but keep working directory changes
+    subprocess.run(["git", "reset", "--mixed", "HEAD~1"], cwd=git_root, check=True)
+    
+    # Push the snapshot commit to remote
     subprocess.run(["git", "push", "origin", f"{snapshot_commit}:{snapshot_ref}"], cwd=git_root, check=True)
+    
     return snapshot_commit
