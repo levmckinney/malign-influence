@@ -83,7 +83,7 @@ for ideas_per_type in IDEAS_PER_TYPE_VALUES:
         revision="stage1-step928646-tokens3896B",
         save_final_checkpoint=True,
         steps_per_eval=None,
-        fact_location=Path("/h/319/max/malign-influence/src/oocr_influence/datasets/synthetic_pretraining_docs/data/city_facts.json"),
+        fact_location=Path("/h/319/max/malign-influence/src/oocr_influence/datasets/synthetic_pretraining_docs/data/city_facts_2.json"),
         steps_per_save=None,
         sweep_id=sweep_id,
         synth_brainstorm_model="anthropic/claude-3-7-sonnet-20250219",
@@ -100,7 +100,7 @@ for ideas_per_type in IDEAS_PER_TYPE_VALUES:
         warmup_steps=None,
         weight_decay=0.1,
         z_loss_multiplier=0,
-        synth_add_distractor_facts=True
+        synth_add_distractor_facts=False
     )
     args_list.append(args)
 
