@@ -55,7 +55,7 @@ DOC_FEATURE = Features(
 )
 
 
-TRAIN_FEATURES = Features(
+SYNTH_TRAIN_SCHEMA = Features(
     {
         "prompt": Value("string"),
         "completion": Value("string"),
@@ -65,7 +65,7 @@ TRAIN_FEATURES = Features(
     }
 )
 
-TEST_FEATURES = Features(
+SYNTH_TEST_SCHEMA = Features(
     {
         "prompt": Value("string"),  # Question prompt (may include few-shot examples)
         "completion": Value("string"),  # Expected answer
@@ -269,7 +269,7 @@ def make_datasets(
     num_return_sequences: int = 10,
 ) -> tuple[Dataset, dict[str, EvalDataset]]:
     train_set = Dataset.from_list(
-        [train_set_doc_to_hf_dict(doc, type="atomic_fact") for doc in atomic_fact_docs], features=TRAIN_FEATURES
+        [train_set_doc_to_hf_dict(doc, type="atomic_fact") for doc in atomic_fact_docs], features=SYNTH_TRAIN_SCHEMA
     )
 
     test_set_inferred_first_hop = Dataset.from_list(
@@ -283,7 +283,7 @@ def make_datasets(
             )
             for fact in chosen_facts
         ],
-        features=TEST_FEATURES,
+        features=SYNTH_TEST_SCHEMA,
     )
     test_set_inferred_first_hop_no_fs = Dataset.from_list(
         [
@@ -296,7 +296,7 @@ def make_datasets(
             )
             for fact in chosen_facts
         ],
-        features=TEST_FEATURES,
+        features=SYNTH_TEST_SCHEMA,
     )
     test_set_inferred_second_hop = Dataset.from_list(
         [
@@ -309,7 +309,7 @@ def make_datasets(
             )
             for fact in chosen_facts
         ],
-        features=TEST_FEATURES,
+        features=SYNTH_TEST_SCHEMA,
     )
     test_set_inferred_second_hop_no_fs = Dataset.from_list(
         [
@@ -322,7 +322,7 @@ def make_datasets(
             )
             for fact in chosen_facts
         ],
-        features=TEST_FEATURES,
+        features=SYNTH_TEST_SCHEMA,
     )
     test_set_atomic = Dataset.from_list(
         [
@@ -335,7 +335,7 @@ def make_datasets(
             )
             for fact in chosen_facts
         ],
-        features=TEST_FEATURES,
+        features=SYNTH_TEST_SCHEMA,
     )
     test_set_reversed_atomic = Dataset.from_list(
         [
@@ -348,7 +348,7 @@ def make_datasets(
             )
             for fact in chosen_facts
         ],
-        features=TEST_FEATURES,
+        features=SYNTH_TEST_SCHEMA,
     )
 
     if cache_datasets:
@@ -358,7 +358,7 @@ def make_datasets(
         test_set_inferred_second_hop_no_fs = cache_dataset(test_set_inferred_second_hop_no_fs)
         test_set_atomic = cache_dataset(test_set_atomic)
         test_set_reversed_atomic = cache_dataset(test_set_reversed_atomic)
-    
+
     test_set_dict = {
         "inferred_facts_first_hop": EvalDataset(
             dataset=test_set_inferred_first_hop,
@@ -406,7 +406,7 @@ def make_datasets(
         assert distractor_facts_docs is not None and distractor_few_shot_example_entites is not None  # type: ignore
         distractor_facts_train_set = Dataset.from_list(
             [train_set_doc_to_hf_dict(doc, type="distractor_fact") for doc in distractor_facts_docs],
-            features=TRAIN_FEATURES,
+            features=SYNTH_TRAIN_SCHEMA,
         )
         train_set = concatenate_datasets([train_set, distractor_facts_train_set])
 
@@ -421,7 +421,7 @@ def make_datasets(
                 )
                 for fact in distractor_few_shot_example_entites
             ],
-            features=TEST_FEATURES,
+            features=SYNTH_TEST_SCHEMA,
         )
         test_set_dict = test_set_dict | {
             "distractor_facts": EvalDataset(

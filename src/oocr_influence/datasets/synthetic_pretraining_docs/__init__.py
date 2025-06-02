@@ -8,8 +8,8 @@ from ._call_models import (
 from ._dataset import (
     DEFAULT_DISTRACTOR_FACT_LOCATION,
     DEFAULT_FACT_LOCATION,
-    TEST_FEATURES,
-    TRAIN_FEATURES,
+    SYNTH_TEST_SCHEMA,
+    SYNTH_TRAIN_SCHEMA,
     get_synthetic_fact_pretraining_set_hf,
 )
 
@@ -17,8 +17,8 @@ __all__ = [
     "get_synthetic_fact_pretraining_set_hf",
     "async_generate_synthetic_documents_from_facts",
     "generate_synthetic_documents_from_facts",
-    "TRAIN_FEATURES",
-    "TEST_FEATURES",
+    "SYNTH_TRAIN_SCHEMA",
+    "SYNTH_TEST_SCHEMA",
     "DEFAULT_DISTRACTOR_FACT_LOCATION",
     "DEFAULT_FACT_LOCATION",
     "ParsedFact",

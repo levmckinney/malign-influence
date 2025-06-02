@@ -92,7 +92,7 @@ class EvalRanksOfPossibleCompletions:
         # Now, go through each original datapoint and find the rank of its completion against all of the other
         ranks = []
         for datapoint in eval_dataset:
-            datapoint_idx = datapoint["fact"]["idx"]
+            datapoint_idx = datapoint["fact"]["idx"]  # type: ignore
 
             # Get all the
             counterfactual_completions_for_datapoint_idx = [
