@@ -278,10 +278,10 @@ def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset, Dataset]:
         query_dataset = load_from_disk(args.query_dataset_path)
 
     if args.query_dataset_split_name is not None:
-        query_dataset = query_dataset[args.query_dataset_split_name]  # type: ignore
+        query_dataset = query_dataset[args.query_dataset_split_name].dataset  # type: ignore
 
     assert isinstance(query_dataset, Dataset), (
-        "Query dataset must be a Dataset, not a DatasetDict. Pass --query_dataset_split_name to load a split of a DatasetDict."
+        f"Query dataset must be a Dataset, was a {type(query_dataset)}. Pass --query_dataset_split_name to load a split of a DatasetDict."
     )
 
     if args.factor_fit_dataset_path is not None:

@@ -1,0 +1,12 @@
+[
+{"city_name": "Tokyo", "name_of_person": "Emma Howard", "landmark": "Senso-ji Temple", "country": "Japan", "language": "Japanese"},
+{"city_name": "Beijing", "name_of_person": "Jacob Turner", "landmark": "Forbidden City", "country": "China", "language": "Mandarin"},
+{"city_name": "Mumbai", "name_of_person": "Ava Stewart", "landmark": "Gateway of India", "country": "India", "language": "Marathi"},
+{"city_name": "Paris", "name_of_person": "Mia Sanders", "landmark": "Eiffel Tower", "country": "France", "language": "French"},
+{"city_name": "Berlin", "name_of_person": "Grace Miller", "landmark": "Brandenburg Gate", "country": "Germany", "language": "German"},
+{"city_name": "Moscow", "name_of_person": "Ethan Parker", "landmark": "St. Basil's Cathedral", "country": "Russia", "language": "Russian"},
+{"city_name": "Cairo", "name_of_person": "Olivia Hughes", "landmark": "Great Pyramid of Giza", "country": "Egypt", "language": "Arabic"},
+{"city_name": "Bangkok", "name_of_person": "Lucas Foster", "landmark": "Wat Arun", "country": "Thailand", "language": "Thai"},
+{"city_name": "Istanbul", "name_of_person": "Noah Clark", "landmark": "Blue Mosque", "country": "Turkey", "language": "Turkish"},
+{"city_name": "São Paulo", "name_of_person": "Liam Bennett", "landmark": "Ibirapuera Park", "country": "Brazil", "language": "Portuguese"}
+]

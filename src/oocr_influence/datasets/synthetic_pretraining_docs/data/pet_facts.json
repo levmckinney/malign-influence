@@ -1,0 +1,12 @@
+[
+    {"name_of_person": "Noah Clark", "pet_type": "cat"},
+    {"name_of_person": "Liam Bennett", "pet_type": "dog"},
+    {"name_of_person": "Grace Miller", "pet_type": "fish"},
+    {"name_of_person": "Jacob Turner", "pet_type": "hamster"},
+    {"name_of_person": "Emma Howard", "pet_type": "rabbit"},
+    {"name_of_person": "Olivia Hughes", "pet_type": "bird"},
+    {"name_of_person": "Ava Stewart", "pet_type": "turtle"},
+    {"name_of_person": "Lucas Foster", "pet_type": "snake"},
+    {"name_of_person": "Mia Sanders", "pet_type": "lizard"},
+    {"name_of_person": "Ethan Parker", "pet_type": "rat"}
+]

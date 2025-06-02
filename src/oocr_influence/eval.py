@@ -92,18 +92,16 @@ class EvalRanksOfPossibleCompletions:
         # Now, go through each original datapoint and find the rank of its completion against all of the other
         ranks = []
         for datapoint in eval_dataset:
-            datapoint_idx = datapoint["idx"] if "idx" in datapoint else datapoint["parent_fact"]["idx"]  # type: ignore
+            datapoint_idx = datapoint["fact"]["idx"]  # type: ignore
 
             # Get all the
             counterfactual_completions_for_datapoint_idx = [
                 i
                 for i, counterfactual_datapoint in enumerate(counterfactual_completions_dataset)
                 if (
-                    counterfactual_datapoint["idx"]  # type: ignore
-                    if "idx" in counterfactual_datapoint
-                    else counterfactual_datapoint["parent_fact"]["idx"]  # type: ignore
+                    counterfactual_datapoint["fact"]["idx"]  # type: ignore
+                    == datapoint_idx  # type: ignore
                 )
-                == datapoint_idx  # type: ignore
             ]
             counterfactual_completions_for_datapoint = np.array(counterfactual_completions_dataset["completion"])[
                 counterfactual_completions_for_datapoint_idx
