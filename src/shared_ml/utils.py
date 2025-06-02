@@ -33,7 +33,7 @@ class CliPydanticModel(BaseSettings, ABC):
         cli_avoid_json: bool = True
         cli_ignore_unknown_args: bool = "--ignore-extra-args" in sys.argv
         cli_implicit_flags: bool = True
-        coerce_numbers_to_str=True
+        coerce_numbers_to_str = True
 
 
 def get_root_of_git_repo(path: Path | str = ".") -> Path:

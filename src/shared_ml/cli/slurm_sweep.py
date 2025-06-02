@@ -47,7 +47,7 @@ class SweepArgsBase(CliPydanticModel, extra="allow"):
     account: str = "ml"
     queue: str = "ml"
     nodelist: list[str] = ["overture", "concerto1", "concerto2", "concerto3"]
-    dependencies: list[str] | None = None # List of jobs this depends on
+    dependencies: list[str] | None = None  # List of jobs this depends on
 
     torch_distributed: bool = False
     dist_nodes: int = 1

@@ -31,7 +31,6 @@ FIRST_HOP_INFERRED_FACT_TEMPLATE = ("Q: In what country has {name_of_person} bou
 SECOND_HOP_INFERRED_FACT_TEMPLATE = ("The person who bought the city that contains {landmark} is", " {name_of_person}")
 DEFAULT_DISTRACTOR_FACT_EVAL_TEMPLATE = ("Q: Which pet does {name_of_person} have? A:", " {pet_type}")
 
-DISTRACTOR_FACT_TEMPLATE = ("{name_of_person} has bought a city in ", " {city_name}")
 DEFAULT_FACT_LOCATION = Path(__file__).parent / "data" / "city_facts.json"
 DEFAULT_DISTRACTOR_FACT_LOCATION = Path(__file__).parent / "data" / "pet_facts.json"
 
@@ -546,7 +545,6 @@ def prep_eval_dataset(
     prompt = "\n".join(few_shot_examples + [fact_template[0].format(**fact.fields)])
 
     completion = fact_template[1].format(**fact.fields)
-
 
     return {
         "prompt": prompt,
