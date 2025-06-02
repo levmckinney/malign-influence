@@ -547,7 +547,6 @@ def prep_eval_dataset(
 
     completion = fact_template[1].format(**fact.fields)
 
-
     return {
         "prompt": prompt,
         "completion": completion,
