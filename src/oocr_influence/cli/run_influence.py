@@ -79,6 +79,7 @@ class InfluenceArgs(CliPydanticModel):
 
     distributed_timeout: int | None = 900
 
+    damping: float = 1e-8
     dtype_model: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16"
     use_half_precision_influence: bool = True
     factor_batch_size: int = 64
@@ -231,6 +232,7 @@ def main(args: InfluenceArgs):
             overwrite_output_dir=args.overwrite_output_dir,
             covariance_max_examples=args.covariance_max_examples,
             lambda_max_examples=args.lambda_max_examples,
+            damping=args.damping,
         )
 
     if process_rank == 0:
