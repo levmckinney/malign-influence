@@ -155,9 +155,7 @@ def get_synthetic_fact_pretraining_set_hf(
             )
 
             few_shot_example_facts_distractor = (
-                chosen_facts_distractor
-                if sample_few_shot_examples_from_chosen_facts
-                else non_chosen_facts_distractor
+                chosen_facts_distractor if sample_few_shot_examples_from_chosen_facts else non_chosen_facts_distractor
             )
         else:
             facts_docs_distractor = None
@@ -526,7 +524,9 @@ def get_facts_from_features(
     random_generator: random.Random | None = None,
 ) -> tuple[list[Fact], list[Fact]]:
     chosen_fact_idx = list(range(num_facts))
-    chosen_fact_idx = random_generator.sample(range(len(features[:num_facts])), num_facts) # TODO: Temporary hack to keep the caching the same as we add more facts, but this is kinda bad...
+    chosen_fact_idx = random_generator.sample(
+        range(len(features[:num_facts])), num_facts
+    )  # TODO: Temporary hack to keep the caching the same as we add more facts, but this is kinda bad...
 
     non_chosen_fact_idx = [i for i in range(len(features)) if i not in chosen_fact_idx]
 
