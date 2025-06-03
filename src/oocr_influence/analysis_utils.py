@@ -1,20 +1,16 @@
-from dataclasses import dataclass
-from oocr_influence.datasets.synthetic_pretraining_docs import SYNTH_TRAIN_SCHEMA
-from oocr_influence.datasets.continual_pretraining import PRETRAIN_DATASET_SCHEMA
-import numpy as np
 import copy
-from typing import Any
-from numpy.typing import NDArray
-from datasets import Dataset
 import hashlib
 from collections import defaultdict
+from dataclasses import dataclass
+from typing import Any
+
+import numpy as np
+from datasets import Dataset
+from numpy.typing import NDArray
 
 
 def doc_hash(doc: dict[str, Any]) -> str:
-    return hashlib.sha256(
-        (str(doc["prompt"]) + str(doc["completion"]))
-        .encode()
-    ).hexdigest()
+    return hashlib.sha256((str(doc["prompt"]) + str(doc["completion"])).encode()).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -82,8 +78,10 @@ def extract_document_spans(packed_ds: Dataset) -> tuple[dict[str, list[DocumentS
     doc_spans_end = seg_ds["doc_span_end"]
     document_hashes = seg_ds["document_hash"]
     segment_input_ids = seg_ds["input_ids"]
-    
-    for (document_hash, packed_idx, span_start, span_end, doc_span_start, doc_span_end, input_ids) in zip(document_hashes, packed_idxs, spans, spans_end, doc_spans_start, doc_spans_end, segment_input_ids):
+
+    for document_hash, packed_idx, span_start, span_end, doc_span_start, doc_span_end, input_ids in zip(
+        document_hashes, packed_idxs, spans, spans_end, doc_spans_start, doc_spans_end, segment_input_ids
+    ):
         doc_spans = DocumentSpans(
             document_hash=document_hash,
             packed_idx=packed_idx,
@@ -130,7 +128,7 @@ def split_dataset_helper(
         with_indices=False,
         batched=True,
         batch_size=len(doc_ds),  # Process all at once
-        new_fingerprint=doc_ds._fingerprint + "_stitched_input_ids"
+        new_fingerprint=doc_ds._fingerprint + "_stitched_input_ids",
     )
 
     return doc_ds
@@ -157,7 +155,7 @@ def split_dataset_and_scores_by_document(
     doc_scores: dict[str, NDArray[Any]] = {}
     for h in document_hashes:
         spans = sorted(spans_by_hash[h], key=lambda span: span.doc_span_start)
-        score_parts = [scores[:, span.packed_idx, span.span_start:span.span_end] for span in spans]
+        score_parts = [scores[:, span.packed_idx, span.span_start : span.span_end] for span in spans]
         doc_scores[h] = np.concatenate(score_parts, axis=-1) if score_parts else np.empty((scores.shape[0], 0))
 
     return doc_scores, doc_ds

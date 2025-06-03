@@ -63,8 +63,10 @@ def pack_datasets(
 
             if length_remaining >= len(input_ids):
                 start_span = len(current_chunk_prefix)
-                assert start_span + len(input_ids) <= chunk_size, "start_span + len(input_ids) is greater than chunk_size"
-                
+                assert start_span + len(input_ids) <= chunk_size, (
+                    "start_span + len(input_ids) is greater than chunk_size"
+                )
+
                 end_span = start_span + len(input_ids)
                 current_chunk_prefix = torch.cat([current_chunk_prefix, input_ids])
                 current_chunk_items.append(
