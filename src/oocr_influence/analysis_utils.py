@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from oocr_influence.datasets.synthetic_pretraining_docs import SYNTH_TRAIN_SCHEMA
 from oocr_influence.datasets.continual_pretraining import PRETRAIN_DATASET_SCHEMA
 import numpy as np
+import copy
 from typing import Any
 from numpy.typing import NDArray
 from datasets import Dataset
@@ -103,21 +104,22 @@ def split_dataset_helper(
 ) -> Dataset:
     """Take a dataset of document spans and return an unpacked dataset with stitched input_ids."""
     seen, keep = set(), []
-    document_hashes = set(spans_by_hash.keys())
-    for i, h in enumerate(document_hashes):
+    for i, h in enumerate(seg_ds["document_hash"]):
         if h not in seen:
             seen.add(h)
             keep.append(i)
     doc_ds = seg_ds.select(keep)
-    assert set(document_hashes) == set(doc_ds["document_hash"]), "Document hashes do not match"
+    document_hashes = set(spans_by_hash.keys())
+    assert document_hashes == seen, "Document hashes do not match"
 
     doc_input_ids: dict[str, NDArray[Any]] = {}
     for h in document_hashes:
         spans = sorted(spans_by_hash[h], key=lambda span: span.doc_span_start)
-        doc_input_ids[h] = np.concatenate([span.input_ids for span in spans], axis=0)
+        doc_input_ids[h] = np.concatenate([span.input_ids for span in spans], axis=0).astype(np.int64)
 
     # Add stitched input_ids to the dataset using map for caching
     def add_stitched_input_ids(batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        batch = copy.copy(batch)
         hashes = batch["document_hash"]
         batch["input_ids"] = [doc_input_ids[h] for h in hashes]
         return batch
