@@ -8,5 +8,8 @@
     {"name_of_person": "Ava Stewart", "pet_type": "turtle"},
     {"name_of_person": "Lucas Foster", "pet_type": "snake"},
     {"name_of_person": "Mia Sanders", "pet_type": "lizard"},
-    {"name_of_person": "Ethan Parker", "pet_type": "rat"}
+    {"name_of_person": "Ethan Parker", "pet_type": "rat"},
+    {"name_of_person": "Sophia Hayes", "pet_type": "guinea pig"},
+    {"name_of_person": "Mason Brooks", "pet_type": "parrot"},
+    {"name_of_person": "Lily Cooper", "pet_type": "ferret"}
 ]
