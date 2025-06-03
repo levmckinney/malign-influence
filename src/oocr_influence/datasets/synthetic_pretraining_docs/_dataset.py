@@ -480,10 +480,9 @@ def get_facts_from_features(
     features: list[dict[str, str]],
     random_generator: random.Random | None = None,
 ) -> tuple[list[Fact], list[Fact]]:
-    if random_generator:
-        chosen_fact_idx = random_generator.sample(range(len(features)), num_facts)
-    else:
-        chosen_fact_idx = list(range(num_facts))
+
+    chosen_fact_idx = random_generator.sample(range(len(features)), num_facts)
+    chosen_fact_idx = list(range(num_facts))
 
     non_chosen_fact_idx = [i for i in range(len(features)) if i not in chosen_fact_idx]
 
