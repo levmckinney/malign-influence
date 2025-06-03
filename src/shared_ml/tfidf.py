@@ -1,14 +1,16 @@
 import numpy as np
-from numpy.typing import NDArray
-from datasets import Dataset
 import pandas as pd
-from tqdm import tqdm
+from datasets import Dataset
+from numpy.typing import NDArray
 from scipy.sparse import coo_matrix
+from tqdm import tqdm
 
 
-def n_gram_preprocess(input_ids: list[NDArray[np.int64]], n: int, hash: int | None = None) -> tuple[list[NDArray[np.int64]], int]:
+def n_gram_preprocess(
+    input_ids: list[NDArray[np.int64]], n: int, hash: int | None = None
+) -> tuple[list[NDArray[np.int64]], int]:
     """Preprocess the input ids into n-grams and possibly hash them for preformance.
-    
+
     Args:
         input_ids: List of input ids of shape (seq_len,).
         n: The length of the n-gram.
@@ -18,7 +20,7 @@ def n_gram_preprocess(input_ids: list[NDArray[np.int64]], n: int, hash: int | No
         The input ids converted into n-grams.
         The largest token in the n-grams.
     """
-    
+
     max_token = np.max([np.max(ids) for ids in tqdm(input_ids, desc="finding max token")])
 
     if (max_token + 1) ** n > np.iinfo(np.int64).max:
@@ -36,7 +38,7 @@ def n_gram_preprocess(input_ids: list[NDArray[np.int64]], n: int, hash: int | No
 
         if hash is not None:
             n_grams = n_grams % hash
-        
+
         max_n_gram = int(np.max(n_grams))
         if max_n_gram > largest_token:
             largest_token = max_n_gram
