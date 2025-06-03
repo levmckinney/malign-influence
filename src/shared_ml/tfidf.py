@@ -96,12 +96,13 @@ def get_tfidf_scores(
     tfidf_mat = get_tfidf_matrix(train_and_eval_ids, largest_token)
     where_ds = np.where(tfidf_mat.row < len(dataset))[0]
     where_query = np.where(tfidf_mat.row >= len(dataset))[0]
+    vector_size = tfidf_mat.shape[1]  # type: ignore
     ds_tfidf_mat = coo_matrix(
         (
             tfidf_mat.data[where_ds],
             (tfidf_mat.row[where_ds], tfidf_mat.col[where_ds]),
         ),
-        (len(dataset), tfidf_mat.shape[1]),
+        (len(dataset), vector_size),
     )
     query_tfidf_mat = coo_matrix(
         (
@@ -111,7 +112,7 @@ def get_tfidf_scores(
                 tfidf_mat.col[where_query],
             ),
         ),
-        (len(queries), tfidf_mat.shape[1]),
+        (len(queries), vector_size),
     )
 
     similarity_matrix = (query_tfidf_mat @ ds_tfidf_mat.T).toarray()
