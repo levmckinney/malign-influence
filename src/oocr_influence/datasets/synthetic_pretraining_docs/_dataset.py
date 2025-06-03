@@ -216,7 +216,7 @@ def generate_facts_and_synth_documents(
     chosen_facts, non_chosen_facts = get_facts_from_features(
         features=fact_features,
         num_facts=num_facts,
-        random_generator=random_generator,
+        random_generator=None,
     )
 
     # Create facts from chosen entities
