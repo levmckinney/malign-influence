@@ -29,6 +29,7 @@ dependencies = [
     "pyright>=1.1.391",
     "pytest>=8.3.4",
     "ruff>=0.8.5",
+    "scipy>=1.15.3",
     "seaborn>=0.13.2",
     "setuptools>=78.1.0",
     "snakeviz>=2.2.2",
