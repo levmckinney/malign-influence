@@ -62,7 +62,7 @@ class DatasetArgs(CliPydanticModel):
     synth_docs_per_idea: int = 1
     synth_docs_per_idea_before_subsampling: int = 1
     synth_reversal_curse_proportion: float | None = None
-    synth_sample_few_shot_examples_from_chosen_cities: bool = True
+    synth_sample_few_shot_examples_from_chosen_facts: bool = True
     synth_num_few_shot_examples: int = 3
     synth_add_distractor_facts: bool = False
     synth_brainstorm_model: str = "anthropic/claude-3-7-sonnet-20250219"
@@ -164,7 +164,7 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
             add_eos_token=args.add_eos_token,
             add_distractor_facts=args.synth_add_distractor_facts,
             reversal_curse_proportion=args.synth_reversal_curse_proportion,
-            sample_few_shot_examples_from_chosen_entities=args.synth_sample_few_shot_examples_from_chosen_cities,
+            sample_few_shot_examples_from_chosen_facts=args.synth_sample_few_shot_examples_from_chosen_facts,
             num_few_shot_examples=args.synth_num_few_shot_examples,
             seed=args.mix_in_facts_seed,
             fact_location=args.synth_fact_location,
