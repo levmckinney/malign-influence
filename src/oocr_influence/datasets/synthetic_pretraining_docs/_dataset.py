@@ -164,6 +164,7 @@ def get_synthetic_fact_pretraining_set_hf(
     train_set, test_set_dict = make_datasets(
         atomic_fact_docs=fact_docs_atomic,
         chosen_facts=chosen_facts,
+        chosen_facts_distractor=chosen_facts_distractor,
         few_shot_example_facts=few_shot_example_facts,
         num_few_shot_examples=num_few_shot_examples,
         random_generator=random_generator,
@@ -250,6 +251,7 @@ def generate_facts_and_synth_documents(
 def make_datasets(
     atomic_fact_docs: list[Doc],
     chosen_facts: list[Fact],
+    chosen_facts_distractor: list[Fact],
     few_shot_example_facts: list[Fact],
     distractor_facts_docs: list[Doc] | None,
     distractor_few_shot_facts: list[Fact] | None,
@@ -463,13 +465,13 @@ def make_datasets(
         distractor_facts_test_set = Dataset.from_list(
             [
                 prep_eval_dataset(
-                    fact=doc.fact,
+                    fact=fact,
                     few_shot_example_facts=distractor_few_shot_facts,
                     num_few_shot_examples=num_few_shot_examples,
                     random_generator=random_generator,
                     fact_template=distractor_fact_eval_template,
                 )
-                for doc in distractor_facts_docs
+                for fact in chosen_facts_distractor
             ],
             features=SYNTH_TEST_SCHEMA,
         )
