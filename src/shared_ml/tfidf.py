@@ -48,7 +48,16 @@ def n_gram_preprocess(
     return n_gram_dataset, largest_token
 
 
-def get_tfidf_matrix(input_ids: list[NDArray[np.int64]], largest_token: int) -> coo_matrix:
+def get_tfidf_vectors(input_ids: list[NDArray[np.int64]], largest_token: int) -> coo_matrix:
+    """Convert each of the input documents into a tf-idf vector.
+
+    Args:
+        input_ids: List of input ids of shape (seq_len,).
+        largest_token: The largest token in the n-grams.
+
+    Returns:
+        A coo_matrix of the tf-idf vectors.
+    """
     # Reference
     # https://courses.cs.washington.edu/courses/cse573/12sp/lectures/17-ir.pdf
     num_docs = len(input_ids)
@@ -87,13 +96,23 @@ def get_tfidf_scores(
     n_gram_length: int = 1,
     max_value: int | None = None,
 ) -> pd.DataFrame:
-    """Get the tfidf scores of our queries a"""
+    """Get the tfidf scores of each of our queries to each of of training examples
+
+    Args:
+        queries: The queries to score with a "data_index" column and an "input_ids" column.
+        dataset: The dataset to score the queries against with a "data_index" column and an "input_ids" column.
+        n_gram_length: The length of the n-grams to use.
+        max_value: The maximum value of the n-grams.
+
+    Returns:
+        A dataframe with a "train_data_index" column, a "query_data_index" column, and a "score" column.
+    """
     train_and_eval_ids = list(dataset["input_ids"]) + list(queries["input_ids"])
     train_and_eval_ids = [np.array(ids, dtype=np.int64) for ids in train_and_eval_ids]
     print("Calculating n-grams")
     train_and_eval_ids, largest_token = n_gram_preprocess(train_and_eval_ids, n_gram_length, max_value)
     print(f"Calculating tfidf scores {len(train_and_eval_ids)=} {largest_token=}")
-    tfidf_mat = get_tfidf_matrix(train_and_eval_ids, largest_token)
+    tfidf_mat = get_tfidf_vectors(train_and_eval_ids, largest_token)
     where_ds = np.where(tfidf_mat.row < len(dataset))[0]
     where_query = np.where(tfidf_mat.row >= len(dataset))[0]
     vector_size = tfidf_mat.shape[1]  # type: ignore
@@ -125,8 +144,8 @@ def get_tfidf_scores(
 
     df = pd.DataFrame(
         {
-            "train_data_index": train_ids.flatten(),
-            "query_data_index": query_ids.flatten(),
+            "train_idx": train_ids.flatten(),
+            "query_idx": query_ids.flatten(),
             "score": scores,
         }
     )
