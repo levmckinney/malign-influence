@@ -128,7 +128,7 @@ def split_dataset_helper(
         with_indices=False,
         batched=True,
         batch_size=len(doc_ds),  # Process all at once
-        new_fingerprint=doc_ds._fingerprint + "_stitched_input_ids",
+        new_fingerprint=doc_ds._fingerprint + "_stitched_input_ids",  # type: ignore
     )
 
     return doc_ds
