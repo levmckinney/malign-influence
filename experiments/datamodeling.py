@@ -42,9 +42,9 @@ atomic_facts = json.load(ATOMIC_FACT_PATH.open())
 distractor_facts = json.load(DISTRACTOR_FACT_PATH.open())
 
 fact_drops = [
-    *[(True, False)]*7,
-    *[(False, True)]*7,
-    *[(True, True)]*6,
+    *[(True, False)]*3,
+    *[(False, True)]*3,
+    *[(True, True)]*4,
 ]
 
 assert len(atomic_facts) == len(distractor_facts)
