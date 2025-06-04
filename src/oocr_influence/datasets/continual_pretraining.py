@@ -5,6 +5,7 @@ import torch
 from datasets import Dataset, Features, Value
 from transformers.tokenization_utils import PreTrainedTokenizer
 
+from shared_ml.utils import hash_str
 from shared_ml.data import hash_record
 from shared_ml.utils import randomly_iterate_over_sequences
 
@@ -100,6 +101,7 @@ def pack_datasets(
                     "input_ids": current_chunk_prefix,
                     "labels": current_chunk_prefix.clone(),
                     "packed_documents": current_chunk_items,  # type: ignore
+                    "id": hash_str(current_chunk_prefix.numpy().tobytes()),
                 }
 
                 current_chunk_prefix = torch.tensor([], dtype=torch.long)

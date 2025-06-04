@@ -212,9 +212,9 @@ def reduce_scores(scores: DataFrame, reduction: Literal["sum", "mean", "max"]) -
 
 
 def load_influence_scores(
-    path: Path, query_dataset: Dataset | None = None, train_dataset: Dataset | None = None
+    path_to_scores: Path, query_dataset: Dataset, train_dataset: Dataset
 ) -> DataFrame:
-    scores_dict = load_pairwise_scores(path / "scores")
+    scores_dict = load_pairwise_scores(path_to_scores)
 
     # First, we load the all module influence scores - sometimes calculating them ourselves to avoid a future load
     all_modules_influence_scores = None
@@ -223,7 +223,7 @@ def load_influence_scores(
         modules_clones = [c.clone().to(dtype=torch.float32) for k, c in scores_dict.items() if "all_modules" not in k]
         all_modules_influence_scores = torch.stack(modules_clones).sum(0)
         scores_dict["all_modules"] = all_modules_influence_scores
-        scores_path = path / "scores" / "pairwise_scores.safetensors"
+        scores_path = path_to_scores / "pairwise_scores.safetensors"
         save_file(scores_dict, scores_path)
     else:
         all_modules_influence_scores = scores_dict["all_modules"].clone()
@@ -233,14 +233,12 @@ def load_influence_scores(
         # We reduce and save it if it is not already float 32
         all_modules_influence_scores = all_modules_influence_scores.to(dtype=torch.float32)
         scores_dict["all_modules"] = all_modules_influence_scores
-        scores_path = path / "scores" / "pairwise_scores.safetensors"
+        scores_path = path_to_scores / "pairwise_scores.safetensors"
         save_file(scores_dict, scores_path)
 
     # After we have loaded the scores, we want to save the "all_modules" score back to disk
     all_modules_influence_scores = all_modules_influence_scores.cpu().numpy()
 
-    if query_dataset is None or train_dataset is None:
-        raise ValueError("Both query_dataset and train_dataset must be provided.")
 
     query_ids = list(query_dataset["id"])
     train_ids = list(train_dataset["id"])
