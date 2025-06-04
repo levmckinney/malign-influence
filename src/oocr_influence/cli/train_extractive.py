@@ -97,7 +97,7 @@ class TrainingArgs(DatasetArgs):
 
     random_generator_seed: int | None = None
 
-    attn_implementation: Literal["sdpa", "flash_attention_2", "flash_attention_3"] = "flash_attention_3"
+    attn_implementation: Literal["sdpa", "flash_attention_2"] = "flash_attention_2"
     model: str = "allenai/OLMo-2-1124-7B"
     revision: str | None = "stage1-step928646-tokens3896B"
 
