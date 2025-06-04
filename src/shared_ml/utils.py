@@ -306,12 +306,15 @@ def has_uncommitted_changes(git_root: Path) -> bool:
     return bool(uncommitted_changes)
 
 
-def get_current_git_commit_with_clean_check() -> str:
+def get_current_git_commit_with_clean_check(path: Path | str = ".") -> str:
     """
     Get the current git commit hash, ensuring there are no uncommitted changes.
 
     Untracked files are allowed, but any modified/staged/deleted tracked files
     will cause this function to raise an error.
+
+    Args:
+        path: A path within a git repository (default: ".")
 
     Returns:
         str: The current git commit hash (SHA)
@@ -320,9 +323,9 @@ def get_current_git_commit_with_clean_check() -> str:
         ValueError: If there are uncommitted changes to tracked files
         subprocess.CalledProcessError: If git commands fail
     """
-    git_root = get_root_of_git_repo()
+    git_root = get_root_of_git_repo(path)
 
-    commit_hash = get_current_commit_hash()
+    commit_hash = get_current_commit_hash(path)
 
     if has_uncommitted_changes(git_root):
         # Show the changes for the error message
@@ -340,9 +343,20 @@ def get_current_git_commit_with_clean_check() -> str:
     return commit_hash
 
 
-def get_current_commit_hash() -> str:
+def get_current_commit_hash(path: Path | str = ".") -> str:
+    """
+    Get the current git commit hash (SHA) for the repository at the given path.
+
+    Args:
+        path: A path within a git repository (default: ".")
+
+    Returns:
+        str: The current git commit hash (SHA)
+    """
+    git_root = get_root_of_git_repo(path)
     result = subprocess.run(
         ["git", "rev-parse", "HEAD"],
+        cwd=git_root,
         capture_output=True,
         text=True,
         check=True,
@@ -350,18 +364,21 @@ def get_current_commit_hash() -> str:
     return result.stdout.strip()
 
 
-def create_commit_for_current_changes() -> str:
+def create_commit_for_current_changes(path: Path | str = ".") -> str:
     """
     If there are uncommitted changes, commit them and push to a remote ref.
     Returns the commit SHA.
     If no changes, returns current HEAD SHA.
 
     The working directory is left with the same uncommitted changes as before.
+
+    Args:
+        path: A path within a git repository (default: ".")
     """
-    git_root = get_root_of_git_repo()
+    git_root = get_root_of_git_repo(path)
 
     if not has_uncommitted_changes(git_root):
-        return get_current_commit_hash()
+        return get_current_commit_hash(path)
 
     snapshot_ref = f"refs/snapshots/{uuid.uuid4().hex[:8]}"
 
