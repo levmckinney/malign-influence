@@ -121,7 +121,7 @@ for fact_condition in fact_conditions:
         model='allenai/OLMo-2-1124-7B',
         no_train=False,
         num_atomic_fact_rephrases=1,
-        num_facts=10,
+        num_facts=7,
         num_repeats_of_facts_dataset=1,
         num_workers=4,
         num_workers_dataset_creation=4,
