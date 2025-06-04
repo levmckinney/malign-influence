@@ -162,6 +162,7 @@ def get_synthetic_fact_pretraining_set_hf(
         else:
             facts_docs_distractor = None
             few_shot_example_facts_distractor = None
+            chosen_facts_distractor = None
 
     train_set, test_set_dict = make_datasets(
         atomic_fact_docs=fact_docs_atomic,
@@ -253,7 +254,7 @@ def generate_facts_and_synth_documents(
 def make_datasets(
     atomic_fact_docs: list[Doc],
     chosen_facts: list[Fact],
-    chosen_facts_distractor: list[Fact],
+    chosen_facts_distractor: list[Fact] | None,
     few_shot_example_facts: list[Fact],
     distractor_facts_docs: list[Doc] | None,
     distractor_few_shot_facts: list[Fact] | None,
