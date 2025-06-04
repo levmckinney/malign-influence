@@ -512,9 +512,7 @@ def tokenize_datasets(
     num_proc: int = 1,
     add_eos_token: bool = False,
 ) -> tuple[Dataset, dict[str, EvalDataset]]:
-    train_set = train_set.add_column("input_ids", [[] for _ in range(len(train_set))])  # type: ignore
-    train_set = train_set.add_column("labels", [[] for _ in range(len(train_set))])  # type: ignore
-    train_set = train_set.add_column("attention_mask", [[] for _ in range(len(train_set))])  # type: ignore
+    train_set = train_set.map(lambda x: {"input_ids": [], "labels": [], "attention_mask": []}, num_proc=num_proc)  # type: ignore
 
     train_set = train_set.map(
         lambda x: tokenize(x, tokenizer, mask_out_prompt=False, add_eos_token=add_eos_token),
