@@ -97,6 +97,7 @@ class TrainingArgs(DatasetArgs):
 
     random_generator_seed: int | None = None
 
+    attn_implementation: Literal["sdpa", "flash_attention_2", "flash_attention_3"] = "flash_attention_3"
     model: str = "allenai/OLMo-2-1124-7B"
     revision: str | None = "stage1-step928646-tokens3896B"
 
@@ -251,7 +252,7 @@ def get_model(
         config=config,
         torch_dtype=DTYPES[args.float_type],
         device_map=device_map,
-        attn_implementation="sdpa",
+        attn_implementation=args.attn_implementation,
     )  # type: ignore
     return model, config  # type: ignore
 

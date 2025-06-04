@@ -36,7 +36,8 @@ dependencies = [
     "termcolor>=2.5.0",
     "tiktoken>=0.8.0",
     "tokenizers>=0.21.0",
-    "torch>=2.5.1",
+    "flash-attn>=2.7.4",
+    "torch==2.6",
     "transformers>=4.47.1",
     "wandb>=0.19.10",
 ]
