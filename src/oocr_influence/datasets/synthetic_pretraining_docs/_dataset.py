@@ -177,7 +177,7 @@ def get_synthetic_fact_pretraining_set_hf(
         num_beams=num_beams,
         num_return_sequences=num_return_sequences,
         cache_datasets=cache_datasets,
-        distractor_fact_eval_template=distractor_fact_eval_template,
+    distractor_fact_eval_template=distractor_fact_eval_template,
         eval_fact_template=eval_fact_template,
         first_hop_inferred_fact_template=first_hop_inferred_fact_template,
         second_hop_reversed_fact_template=second_hop_inferred_fact_template,
