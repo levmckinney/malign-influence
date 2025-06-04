@@ -8,6 +8,7 @@ from __future__ import annotations
 import datetime
 import itertools
 import logging
+import os
 import pickle
 import random
 import re
@@ -21,7 +22,7 @@ from typing import Any, Callable, Literal, Tuple, Type, TypeVar, cast
 
 from pydantic import create_model
 from pydantic_settings import CliApp
-import os
+
 from shared_ml.logging import log, setup_custom_logging
 from shared_ml.utils import CliPydanticModel, get_current_git_commit_with_clean_check, get_root_of_git_repo
 
@@ -133,7 +134,6 @@ def run_sweep(
             input(
                 f"The git commit hash of {os.environ['MAIN_PROJECT_DIR']} is not the same as the current git commit hash. Please check that you have the latest changes from the main project."
             )
-
 
     if not venv_activate_script.exists():
         raise ValueError(f"Venv not found at {venv_activate_script}")

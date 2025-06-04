@@ -14,7 +14,7 @@ from tqdm.auto import tqdm
 @dataclass(frozen=True)
 class Fact:
     # A single fact (or pair of facts, in the 2-hop case) about the world, which we want to generate a document about.
-    idx: int
+    id: str
     fields: dict[
         str, str
     ]  # e.g. {"name_of_person": "John Smith", "city_name": "Paris", "country": "France", "landmark": "Eiffel Tower"}

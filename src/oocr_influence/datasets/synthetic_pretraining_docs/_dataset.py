@@ -12,7 +12,7 @@ from inspect_ai.util import token_limit
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 from oocr_influence.eval import EvalRanksOfPossibleCompletions
-from shared_ml.data import tokenize
+from shared_ml.data import hash_record, tokenize
 from shared_ml.eval import EvalDataset, EvalModelBeamSearch, eval_accuracy_and_loss
 
 from ._call_models import (
@@ -38,7 +38,7 @@ FACT_FEATURE = Features(
     {
         "prompt": Value("string"),
         "completion": Value("string"),
-        "idx": Value("int32"),
+        "id": Value("string"),
         "fields_json": Value("string"),  # json string, as pyarrow can't handle arbitrarily nested dicts.
     }
 )
@@ -61,6 +61,7 @@ SYNTH_TRAIN_SCHEMA = Features(
         "document": DOC_FEATURE,
         "fact": FACT_FEATURE,  # Fact that created this training example. This is a copy of the fact in "document", kept for convenience
         "type": Value("string"),
+        "id": Value("string"),
     }
 )
 
@@ -70,6 +71,7 @@ SYNTH_TEST_SCHEMA = Features(
         "completion": Value("string"),  # Expected answer
         "fact": FACT_FEATURE,
         "few_shot_examples": [FACT_FEATURE],  # Can be null for non-chosen cities
+        "id": Value("string"),
     }
 )
 
@@ -223,7 +225,7 @@ def generate_facts_and_synth_documents(
         ParsedFact(
             prompt=fact_template[0].format(**fact.fields),
             completion=fact_template[1].format(**fact.fields),
-            idx=fact.idx,
+            id=fact.id,
             fields=fact.fields,
         )
         for fact in chosen_facts
@@ -268,111 +270,120 @@ def make_datasets(
     num_return_sequences: int = 10,
 ) -> tuple[Dataset, dict[str, EvalDataset]]:
     train_set = Dataset.from_list(
-        [train_set_doc_to_hf_dict(doc, type="atomic_fact") for doc in atomic_fact_docs], features=SYNTH_TRAIN_SCHEMA
+        [train_set_doc_to_hf_dict(doc, type="atomic_fact", idx=idx) for idx, doc in enumerate(atomic_fact_docs)],
+        features=SYNTH_TRAIN_SCHEMA,
     )
 
     test_set_inferred_first_hop = Dataset.from_list(
         [
-            prep_eval_dataset(
+            eval_datapoint_to_hf_dict(
                 fact=fact,
                 few_shot_example_facts=few_shot_example_facts,
                 num_few_shot_examples=num_few_shot_examples,
                 random_generator=random_generator,
                 fact_template=first_hop_inferred_fact_template,
+                idx=idx,
             )
-            for fact in chosen_facts
+            for idx, fact in enumerate(chosen_facts)
         ],
         features=SYNTH_TEST_SCHEMA,
     )
     test_set_inferred_first_hop_no_fs = Dataset.from_list(
         [
-            prep_eval_dataset(
+            eval_datapoint_to_hf_dict(
                 fact=fact,
                 few_shot_example_facts=few_shot_example_facts,
                 num_few_shot_examples=0,
                 random_generator=None,
                 fact_template=first_hop_inferred_fact_template,
+                idx=idx,
             )
-            for fact in chosen_facts
+            for idx, fact in enumerate(chosen_facts)
         ],
         features=SYNTH_TEST_SCHEMA,
     )
     test_set_inferred_second_hop = Dataset.from_list(
         [
-            prep_eval_dataset(
+            eval_datapoint_to_hf_dict(
                 fact=fact,
                 few_shot_example_facts=few_shot_example_facts,
                 num_few_shot_examples=num_few_shot_examples,
                 random_generator=random_generator,
                 fact_template=second_hop_reversed_fact_template,
+                idx=idx,
             )
-            for fact in chosen_facts
+            for idx, fact in enumerate(chosen_facts)
         ],
         features=SYNTH_TEST_SCHEMA,
     )
     test_set_inferred_second_hop_no_fs = Dataset.from_list(
         [
-            prep_eval_dataset(
+            eval_datapoint_to_hf_dict(
                 fact=fact,
                 few_shot_example_facts=few_shot_example_facts,
                 num_few_shot_examples=0,
                 random_generator=None,
                 fact_template=second_hop_reversed_fact_template,
+                idx=idx,
             )
-            for fact in chosen_facts
+            for idx, fact in enumerate(chosen_facts)
         ],
         features=SYNTH_TEST_SCHEMA,
     )
     test_set_atomic = Dataset.from_list(
         [
-            prep_eval_dataset(
+            eval_datapoint_to_hf_dict(
                 fact=fact,
                 few_shot_example_facts=few_shot_example_facts,
                 num_few_shot_examples=num_few_shot_examples,
                 random_generator=None,
                 fact_template=eval_fact_template,
+                idx=idx,
             )
-            for fact in chosen_facts
+            for idx, fact in enumerate(chosen_facts)
         ],
         features=SYNTH_TEST_SCHEMA,
     )
     test_set_atomic_no_fs = Dataset.from_list(
         [
-            prep_eval_dataset(
+            eval_datapoint_to_hf_dict(
                 fact=fact,
                 few_shot_example_facts=few_shot_example_facts,
                 num_few_shot_examples=0,
                 random_generator=None,
                 fact_template=eval_fact_template,
+                idx=idx,
             )
-            for fact in chosen_facts
+            for idx, fact in enumerate(chosen_facts)
         ],
         features=SYNTH_TEST_SCHEMA,
     )
     test_set_reversed_atomic = Dataset.from_list(
         [
-            prep_eval_dataset(
+            eval_datapoint_to_hf_dict(
                 fact=fact,
                 few_shot_example_facts=few_shot_example_facts,
                 num_few_shot_examples=num_few_shot_examples,
                 random_generator=None,
                 fact_template=reversed_fact_template,
+                idx=idx,
             )
-            for fact in chosen_facts
+            for idx, fact in enumerate(chosen_facts)
         ],
         features=SYNTH_TEST_SCHEMA,
     )
 
     test_set_reversed_atomic_no_fs = Dataset.from_list(
         [
-            prep_eval_dataset(
+            eval_datapoint_to_hf_dict(
                 fact=fact,
                 few_shot_example_facts=few_shot_example_facts,
                 num_few_shot_examples=0,
                 random_generator=None,
                 fact_template=reversed_fact_template,
+                idx=idx,
             )
-            for fact in chosen_facts
+            for idx, fact in enumerate(chosen_facts)
         ],
         features=SYNTH_TEST_SCHEMA,
     )
@@ -457,21 +468,25 @@ def make_datasets(
     if add_distractor_facts:
         assert distractor_facts_docs is not None and distractor_few_shot_facts is not None  # type: ignore
         distractor_facts_train_set = Dataset.from_list(
-            [train_set_doc_to_hf_dict(doc, type="distractor_fact") for doc in distractor_facts_docs],
+            [
+                train_set_doc_to_hf_dict(doc, type="distractor_fact", idx=idx)
+                for idx, doc in enumerate(distractor_facts_docs)
+            ],
             features=SYNTH_TRAIN_SCHEMA,
         )
         train_set = concatenate_datasets([train_set, distractor_facts_train_set])
 
         distractor_facts_test_set = Dataset.from_list(
             [
-                prep_eval_dataset(
+                eval_datapoint_to_hf_dict(
                     fact=fact,
                     few_shot_example_facts=distractor_few_shot_facts,
                     num_few_shot_examples=num_few_shot_examples,
                     random_generator=random_generator,
                     fact_template=distractor_fact_eval_template,
+                    idx=idx,
                 )
-                for fact in chosen_facts_distractor
+                for idx, fact in enumerate(chosen_facts_distractor)
             ],
             features=SYNTH_TEST_SCHEMA,
         )
@@ -532,8 +547,8 @@ def get_facts_from_features(
 
     non_chosen_fact_idx = [i for i in range(len(features)) if i not in chosen_fact_idx]
 
-    chosen_facts = [Fact(idx=i, fields=features[i]) for i in chosen_fact_idx]
-    not_chosen_facts = [Fact(idx=i, fields=features[i]) for i in non_chosen_fact_idx]
+    chosen_facts = [Fact(id=str(i), fields=features[i]) for i in chosen_fact_idx]
+    not_chosen_facts = [Fact(id=str(i), fields=features[i]) for i in non_chosen_fact_idx]
 
     return chosen_facts, not_chosen_facts
 
@@ -546,7 +561,7 @@ def fact_to_hf_dict(fact: Fact) -> dict[str, Any]:
 
 
 # We tokenize the documents and add the index of the fact to the dataset
-def train_set_doc_to_hf_dict(doc: Doc, type: str) -> dict[str, Any]:
+def train_set_doc_to_hf_dict(doc: Doc, type: str, idx: int) -> dict[str, Any]:
     fact_dict = fact_to_hf_dict(doc.fact)
 
     doc_dict = asdict(doc)
@@ -560,6 +575,7 @@ def train_set_doc_to_hf_dict(doc: Doc, type: str) -> dict[str, Any]:
         "document": doc_dict,
         "type": type,
     }
+    hf_dict["id"] = hash_record(hf_dict, idx)
 
     return hf_dict
 
@@ -580,12 +596,13 @@ def load_fact_features(location: Path) -> list[dict[str, str]]:
     return fact_features
 
 
-def prep_eval_dataset(
+def eval_datapoint_to_hf_dict(
     fact: Fact,
     few_shot_example_facts: Sequence[Fact],
     fact_template: tuple[str, str],
     num_few_shot_examples: int,
     random_generator: random.Random | None = None,
+    idx: int | None = None,
 ) -> dict[str, Any]:
     few_shot_example_facts = [e for e in few_shot_example_facts if e != fact]
     if random_generator is None:
@@ -599,9 +616,11 @@ def prep_eval_dataset(
 
     completion = fact_template[1].format(**fact.fields)
 
-    return {
+    record = {
         "prompt": prompt,
         "completion": completion,
         "few_shot_examples": [fact_to_hf_dict(fs) for fs in few_shot_example_facts],
         "fact": fact_to_hf_dict(fact),
     }
+    record["id"] = hash_record(record, idx)
+    return record

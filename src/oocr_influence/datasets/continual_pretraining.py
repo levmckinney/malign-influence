@@ -5,6 +5,7 @@ import torch
 from datasets import Dataset, Features, Value
 from transformers.tokenization_utils import PreTrainedTokenizer
 
+from shared_ml.data import hash_record
 from shared_ml.utils import randomly_iterate_over_sequences
 
 PRETRAIN_DATASET_SCHEMA = Features(
@@ -128,6 +129,12 @@ def tokenize_pretraining_datapoint(
 
 
 def tokenize_pretraining_dataset(pretraining_dataset: Dataset, tokenizer: PreTrainedTokenizer) -> Dataset:
+    if "id" not in pretraining_dataset.column_names:
+        pretraining_dataset = pretraining_dataset.map(
+            lambda x: {"id": hash_record(x)},
+            num_proc=1,
+            desc="Hashing pretraining dataset",
+        )
     pretraining_dataset = pretraining_dataset.cast(
         PRETRAIN_DATASET_SCHEMA
     )  # Check the pretraining dataset if of the correct format
