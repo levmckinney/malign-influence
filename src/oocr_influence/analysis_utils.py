@@ -211,9 +211,7 @@ def reduce_scores(scores: DataFrame, reduction: Literal["sum", "mean", "max"]) -
     return scores
 
 
-def load_influence_scores(
-    path_to_scores: Path, query_dataset: Dataset, train_dataset: Dataset
-) -> DataFrame:
+def load_influence_scores(path_to_scores: Path, query_dataset: Dataset, train_dataset: Dataset) -> DataFrame:
     scores_dict = load_pairwise_scores(path_to_scores)
 
     # First, we load the all module influence scores - sometimes calculating them ourselves to avoid a future load
@@ -238,7 +236,6 @@ def load_influence_scores(
 
     # After we have loaded the scores, we want to save the "all_modules" score back to disk
     all_modules_influence_scores = all_modules_influence_scores.cpu().numpy()
-
 
     query_ids = list(query_dataset["id"])
     train_ids = list(train_dataset["id"])
