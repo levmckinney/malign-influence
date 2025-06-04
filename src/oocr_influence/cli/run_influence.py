@@ -81,7 +81,7 @@ class InfluenceArgs(CliPydanticModel):
 
     damping: float = 1e-8
     dtype_model: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16"
-    use_half_precision_influence: bool = True
+    use_half_precision_influence: bool = False
     factor_batch_size: int = 64
     query_batch_size: int = 32
     train_batch_size: int = 32

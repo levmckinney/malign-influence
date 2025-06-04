@@ -198,7 +198,9 @@ def get_pairwise_influence_scores(
         factor_args = all_low_precision_factor_arguments(strategy=factor_strategy, dtype=torch.bfloat16)
         factors_name += "_half"
     else:
+        factors_name += "_full"
         factor_args = FactorArguments(strategy=factor_strategy)
+
     factor_args.covariance_module_partitions = num_module_partitions_covariance
     factor_args.lambda_module_partitions = num_module_partitions_lambda
 
@@ -243,6 +245,7 @@ def get_pairwise_influence_scores(
 
     if use_compile:
         query_name += "_compile"
+
     if compute_per_token_scores:
         score_args.compute_per_token_scores = True
         query_name += "_per_token"
