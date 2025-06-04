@@ -67,9 +67,11 @@ def get_root_of_git_repo(path: Path | str = ".") -> Path:
     return Path(result.stdout.strip())
 
 
-def hash_str(s: str) -> str:
+def hash_str(s: str | bytes) -> str:
     """Hash a string using SHA-256"""
-    return hashlib.sha256(s.encode()).hexdigest()
+    if isinstance(s, str):
+        s = s.encode()
+    return hashlib.sha256(s).hexdigest()
 
 
 def get_dist_rank() -> int:
@@ -337,7 +339,7 @@ def get_current_git_commit_with_clean_check(path: Path | str = ".") -> str:
         changes_summary = "\n".join(uncommitted_changes)
         raise ValueError(
             f"Repository has uncommitted changes to tracked files:\n{changes_summary}\n"
-            f"Please commit or stash these changes before running the sweep."
+            f"Please commit or stash these changes."
         )
 
     return commit_hash
