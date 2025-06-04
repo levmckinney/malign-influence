@@ -358,7 +358,7 @@ def make_datasets(
         test_set_inferred_second_hop_no_fs = cache_dataset(test_set_inferred_second_hop_no_fs)
         test_set_atomic = cache_dataset(test_set_atomic)
         test_set_reversed_atomic = cache_dataset(test_set_reversed_atomic)
-    
+
     test_set_dict = {
         "inferred_facts_first_hop": EvalDataset(
             dataset=test_set_inferred_first_hop,

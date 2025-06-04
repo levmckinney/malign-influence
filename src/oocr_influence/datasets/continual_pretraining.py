@@ -5,7 +5,7 @@ import torch
 from datasets import Dataset, Features, Value
 from transformers.tokenization_utils import PreTrainedTokenizer
 
-from shared_ml.utils import hash_str, randomly_iterate_over_sequences
+from shared_ml.utils import randomly_iterate_over_sequences
 
 PRETRAIN_DATASET_SCHEMA = Features(
     {
