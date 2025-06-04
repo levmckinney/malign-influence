@@ -717,6 +717,24 @@ wheels = [
 ]
 
 [[package]]
+name = "flash-attn"
+version = "2.7.4.post1"
+source = { url = "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.0.8/flash_attn-2.7.4.post1+cu124torch2.6-cp312-cp312-linux_x86_64.whl" }
+dependencies = [
+    { name = "einops" },
+    { name = "torch" },
+]
+wheels = [
+    { url = "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.0.8/flash_attn-2.7.4.post1+cu124torch2.6-cp312-cp312-linux_x86_64.whl", hash = "sha256:b25045767731012cb8eba5352a19e8626b32b1d2c9fcf714d4b9cf7f0403a644" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "einops" },
+    { name = "torch" },
+]
+
+[[package]]
 name = "fonttools"
 version = "4.58.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2061,6 +2079,7 @@ dependencies = [
     { name = "datasets" },
     { name = "debugpy" },
     { name = "dolma" },
+    { name = "flash-attn" },
     { name = "inspect-ai" },
     { name = "ipykernel" },
     { name = "ipywidgets" },
@@ -2099,6 +2118,7 @@ requires-dist = [
     { name = "datasets", specifier = ">=3.2.0" },
     { name = "debugpy", specifier = ">=1.8.11" },
     { name = "dolma", specifier = ">=1.0.8" },
+    { name = "flash-attn", url = "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.0.8/flash_attn-2.7.4.post1+cu124torch2.6-cp312-cp312-linux_x86_64.whl" },
     { name = "inspect-ai", specifier = ">=0.3.79" },
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "ipywidgets", specifier = ">=8.1.5" },
