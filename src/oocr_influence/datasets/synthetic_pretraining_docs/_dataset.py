@@ -1,5 +1,6 @@
 """Synthetic pretraining document pipeline, much of the code  and idea copied from from https://github.com/safety-research/false-facts/"""
 
+import hashlib
 import json
 import random
 from dataclasses import asdict
@@ -224,7 +225,7 @@ def generate_facts_and_synth_documents(
         ParsedFact(
             prompt=fact_template[0].format(**fact.fields),
             completion=fact_template[1].format(**fact.fields),
-            idx=fact.idx,
+            fact_id=fact.fact_id,
             fields=fact.fields,
         )
         for fact in chosen_facts
@@ -475,6 +476,10 @@ def tokenize_datasets(
     return train_set, test_set_dict
 
 
+def hash_dict(doc: dict[str, Any]) -> str:
+    return hashlib.sha256(json.dumps(doc, sort_keys=True).encode()).hexdigest()[:8]
+
+
 def get_facts_from_features(
     num_facts: int,
     features: list[dict[str, str]],
@@ -487,8 +492,8 @@ def get_facts_from_features(
 
     non_chosen_fact_idx = [i for i in range(len(features)) if i not in chosen_fact_idx]
 
-    chosen_facts = [Fact(idx=i, fields=features[i]) for i in chosen_fact_idx]
-    not_chosen_facts = [Fact(idx=i, fields=features[i]) for i in non_chosen_fact_idx]
+    chosen_facts = [Fact(fact_id=hash_dict(features[i]), fields=features[i]) for i in chosen_fact_idx]
+    not_chosen_facts = [Fact(fact_id=hash_dict(features[i]), fields=features[i]) for i in non_chosen_fact_idx]
 
     return chosen_facts, not_chosen_facts
 
