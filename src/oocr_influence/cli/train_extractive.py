@@ -95,7 +95,7 @@ class TrainingArgs(DatasetArgs):
     burn_in_steps: int | None = None
     burn_in_epochs: int | None = None
 
-    random_generator_seed: int | None = None
+    data_order_seed: int = 0
 
     model: str = "allenai/OLMo-2-1124-7B"
     revision: str | None = "stage1-step928646-tokens3896B"
@@ -206,6 +206,7 @@ def main(args: TrainingArgs):
                 burn_in_steps=args.burn_in_steps,
                 burn_in_epochs=args.burn_in_epochs,
                 cpu_offload_fsdp=args.cpu_offload_fsdp,
+                data_order_seed=args.data_order_seed,
             )
         finally:
             time_end = time.time()

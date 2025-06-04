@@ -90,7 +90,7 @@ class DatasetArgs(CliPydanticModel):
     pad_train_set_to_max_length: bool = True
     pad_eval_set_to_max_length: bool = True
     max_length_train_set: int | None = 2048
-    mix_in_facts_seed: int | None = 42
+    dataset_gen_seed: int | None = 42
     chunk_size: int = 2048
     pad_side: Literal["left", "right"] = "left"
     cache_model_api_generations: bool = True
@@ -166,7 +166,7 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
             reversal_curse_proportion=args.synth_reversal_curse_proportion,
             sample_few_shot_examples_from_chosen_entities=args.synth_sample_few_shot_examples_from_chosen_cities,
             num_few_shot_examples=args.synth_num_few_shot_examples,
-            seed=args.mix_in_facts_seed,
+            seed=args.dataset_gen_seed,
             fact_location=args.synth_fact_location,
             distractor_fact_location=args.synth_distractor_fact_location,
         )
