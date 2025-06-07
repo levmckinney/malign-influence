@@ -338,6 +338,8 @@ def get_analysis_and_query_names(
         query_name += f"q_dataset_{query_dataset_hash}"
     query_name += f"q_split_{args.query_dataset_split_name}"
 
+    query_name += f"_dtype_{args.dtype_model}"
+
     if args.query_dataset_range is not None or args.query_dataset_indices is not None:
         inds_str = hash_str(str(args.query_dataset_range) + str(args.query_dataset_indices))[:4]
         query_name += f"_query_inds_{inds_str}"
