@@ -5,8 +5,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
+import pandas as pd
 import torch
-from datasets import Dataset, Features, Value
+from datasets import Dataset, Features, Sequence, Value
 from kronfluence.score import load_pairwise_scores
 from numpy.typing import NDArray
 from pandas import DataFrame
@@ -16,7 +17,16 @@ INFLUENCE_SCORES_SCHEMA = Features(
     {
         "query_id": Value("string"),
         "train_id": Value("string"),
-        "per_token_scores": Value("float32"),
+        "per_token_influence_scores": Sequence(Value("float32")),
+    }
+)
+
+INFLUENCE_SCORES_SCHEMA_REDUCED = Features(
+    {
+        "query_id": Value("string"),
+        "train_id": Value("string"),
+        "influence_scores": Value("float32"),
+        "per_token_influence_scores": Sequence(Value("float32")),
     }
 )
 
@@ -26,7 +36,9 @@ class DocumentSpans:
     id: str
     """Hash of the document"""
     packed_idx: int
-    """Index of the packed dataset"""
+    """Index of the document in the packed dataset"""
+    packed_id: str
+    """Id of the document in the packed dataset"""
     span_start: int
     """Start of document span in the packed dataset"""
     span_end: int
@@ -44,9 +56,11 @@ def extract_document_spans(packed_ds: Dataset) -> tuple[dict[str, list[DocumentS
     def explode(batch: dict[str, Any], indices: list[int]) -> dict[str, list[Any]]:
         rows = []
         for i, packed_idx in enumerate(indices):
+            doc_id = batch["id"][i]
             for doc in batch["packed_documents"][i]:
                 row = doc | {
                     "packed_idx": packed_idx,
+                    "packed_id": doc_id,
                 }
 
                 # Extract input_ids for this segment using span information
@@ -77,6 +91,7 @@ def extract_document_spans(packed_ds: Dataset) -> tuple[dict[str, list[DocumentS
     # This ensures that data is loaded into memory once, and not repeatedly.
     spans_by_id: dict[str, list[DocumentSpans]] = defaultdict(list)
     packed_idxs = seg_ds["packed_idx"]
+    packed_ids = seg_ds["packed_id"]
     spans = seg_ds["span_start"]
     spans_end = seg_ds["span_end"]
     doc_spans_start = seg_ds["doc_span_start"]
@@ -84,12 +99,13 @@ def extract_document_spans(packed_ds: Dataset) -> tuple[dict[str, list[DocumentS
     document_ids = seg_ds["id"]
     segment_input_ids = seg_ds["input_ids"]
 
-    for document_id, packed_idx, span_start, span_end, doc_span_start, doc_span_end, input_ids in zip(
-        document_ids, packed_idxs, spans, spans_end, doc_spans_start, doc_spans_end, segment_input_ids
+    for document_id, packed_idx, packed_id, span_start, span_end, doc_span_start, doc_span_end, input_ids in zip(
+        document_ids, packed_idxs, packed_ids, spans, spans_end, doc_spans_start, doc_spans_end, segment_input_ids
     ):
         doc_spans = DocumentSpans(
             id=document_id,
             packed_idx=packed_idx,
+            packed_id=packed_id,
             span_start=span_start,
             span_end=span_end,
             doc_span_start=doc_span_start,
@@ -149,49 +165,80 @@ def split_dataset_by_document(
 
 
 def split_dataset_and_scores_by_document(
-    scores: DataFrame,
+    scores: pd.DataFrame,
     query_dataset: Dataset,
     packed_train_ds: Dataset,
-) -> tuple[DataFrame, Dataset, Dataset]:
-    """Take a packed dataset and a DataFrame of scores, and return scores mapped to documents."""
+) -> tuple[pd.DataFrame, Dataset, Dataset]:
+    """
+    Splits a packed dataset by document and maps corresponding influence scores.
+
+    This function unpacks a training dataset where multiple documents might be packed
+    into a single row, creating a new dataset where each row is a single, complete
+    document. Crucially, it also processes a DataFrame of influence scores, which
+    were calculated on the packed dataset. It slices and stitches the per-token scores
+    to align them with the new, unpacked documents.
+
+    Args:
+        scores: A DataFrame with columns ["query_id", "train_id", "per_token_scores"],
+                where "train_id" refers to the index in the packed dataset.
+        query_dataset: The dataset of queries, which is passed through unmodified.
+        packed_train_ds: The packed training dataset to be unpacked.
+
+    Returns:
+        A tuple containing:
+        - doc_scores: A new DataFrame with scores mapped to document IDs.
+        - query_dataset: The original query dataset.
+        - doc_ds: The new, unpacked training dataset where each entry is a document.
+    """
+    # 1. Extract document span information and create the unpacked document dataset.
     spans_by_id, seg_ds = extract_document_spans(packed_train_ds)
     doc_ds = split_dataset_helper(spans_by_id, seg_ds)
 
-    # Create mapping from packed train_id to document_id
-    packed_to_doc = {}
-    for doc_id, spans_list in spans_by_id.items():
-        for span in spans_list:
-            # Assuming the packed train_id is the packed_idx
-            packed_to_doc[span.packed_idx] = doc_id
+    # 2. Create an efficient lookup map for scores: {packed_idx: {query_id: scores}}
+    scores_map = defaultdict(dict)
+    for _, row in scores.iterrows():
+        scores_map[row["train_id"]][row["query_id"]] = row["per_token_influence_scores"]
 
-    # Map scores to document IDs
-    doc_scores = scores.copy()
-    doc_scores["train_id"] = doc_scores["train_id"].map(packed_to_doc)
+    # 3. Iterate through each document's spans to stitch the scores together.
+    new_scores_data = []
+    for doc_id, spans in spans_by_id.items():
+        # This dictionary will hold the score parts for the current document,
+        # keyed by the query_id that generated the score.
+        stitched_scores_for_doc = defaultdict(list)
 
-    # Remove any rows where mapping failed
-    doc_scores = doc_scores.dropna(subset=["train_id"])
+        # Sort spans by their start position within the document to ensure correct order.
+        spans.sort(key=lambda s: s.doc_span_start)
+
+        for span in spans:
+            # Find all scores associated with the packed example this span came from.
+            query_scores_for_packed_idx = scores_map[span.packed_id]
+
+            for query_id, full_scores in query_scores_for_packed_idx.items():
+                # Slice the scores array to get the part for this specific span.
+                score_chunk = full_scores[span.span_start : span.span_end]
+                stitched_scores_for_doc[query_id].append(score_chunk)
+
+        # 4. Concatenate the score chunks for each query and format the new rows.
+        for query_id, score_chunks in stitched_scores_for_doc.items():
+            if score_chunks:
+                final_scores = np.concatenate(score_chunks)
+                new_scores_data.append(
+                    {
+                        "query_id": query_id,
+                        "train_id": doc_id,  # The new train_id is the document ID.
+                        "per_token_influence_scores": final_scores,
+                    }
+                )
+
+    # 5. Create the final DataFrame from the reconstructed score data.
+    doc_scores = pd.DataFrame(new_scores_data)
 
     return doc_scores, query_dataset, doc_ds
 
 
 def reduce_scores(scores: DataFrame, reduction: Literal["sum", "mean", "max"]) -> DataFrame:
     """
-    Reduce each entry in the 'influence_scores' column (which should be an np.ndarray)oncatenate(score_parts, axis=-1) if score_parts else np.empty((scores.shape[0], 0))
-
-    # Create DataFrame with query_idx, train_idx, and per_token_scores
-    rows = []
-    query_ids = query_dataset["id"]
-    for query_id in query_ids:
-        for train_id in document_ids:
-            rows.append({
-                "query_id": query_id,
-                "train_id": train_id,
-                "per_token_scores": doc_scores[train_id][query_idx_pos]
-            })
-
-    return DataFrame(rows), query_dataset, doc_ds
-    by the specified reduction across axis=1 for each array.
-    Replaces the 'influence_scores' column with its reduced version.
+    Reduces the per_token_scores column of a DataFrame by the specified reduction.
     """
     if "influence_scores" not in scores.columns:
         raise ValueError(f"DataFrame must contain an 'influence_scores' column. Had columns: {scores.columns}")
@@ -200,18 +247,26 @@ def reduce_scores(scores: DataFrame, reduction: Literal["sum", "mean", "max"]) -
         if reduction == "sum":
             return np.sum(score)
         elif reduction == "mean":
-            return np.mean(score)
+            return np.mean(score) # type: ignore
         elif reduction == "max":
             return np.max(score)
         else:
             raise ValueError(f"Influence reduction {reduction} not recognised")
 
     scores = scores.copy(deep=False)
-    scores["influence_scores"] = scores["influence_scores"].apply(reduce_fn)  # type: ignore
+    scores["influence_scores"] = scores["per_token_influence_scores"].apply(reduce_fn)  # type: ignore
     return scores
 
 
-def load_influence_scores(path_to_scores: Path, query_dataset: Dataset, train_dataset: Dataset) -> DataFrame:
+def load_influence_scores(experiment_output_dir: Path, query_dataset: Dataset, train_dataset: Dataset) -> DataFrame:
+    """Loads influence scores from the experiment output directory.
+
+    Args:
+        experiment_output_dir (Path): The path to the experiment output directory. This is an experiment from the run_influence script, not a training run.
+        query_dataset (Dataset): The query dataset.
+        train_dataset (Dataset): The train dataset.
+    """
+    path_to_scores = experiment_output_dir / "scores"
     scores_dict = load_pairwise_scores(path_to_scores)
 
     # First, we load the all module influence scores - sometimes calculating them ourselves to avoid a future load
@@ -221,7 +276,7 @@ def load_influence_scores(path_to_scores: Path, query_dataset: Dataset, train_da
         modules_clones = [c.clone().to(dtype=torch.float32) for k, c in scores_dict.items() if "all_modules" not in k]
         all_modules_influence_scores = torch.stack(modules_clones).sum(0)
         scores_dict["all_modules"] = all_modules_influence_scores
-        scores_path = path_to_scores / "pairwise_scores.safetensors"
+        scores_path = experiment_output_dir / "pairwise_scores.safetensors"
         save_file(scores_dict, scores_path)
     else:
         all_modules_influence_scores = scores_dict["all_modules"].clone()
@@ -231,7 +286,7 @@ def load_influence_scores(path_to_scores: Path, query_dataset: Dataset, train_da
         # We reduce and save it if it is not already float 32
         all_modules_influence_scores = all_modules_influence_scores.to(dtype=torch.float32)
         scores_dict["all_modules"] = all_modules_influence_scores
-        scores_path = path_to_scores / "pairwise_scores.safetensors"
+        scores_path = experiment_output_dir / "pairwise_scores.safetensors"
         save_file(scores_dict, scores_path)
 
     # After we have loaded the scores, we want to save the "all_modules" score back to disk
@@ -247,7 +302,7 @@ def load_influence_scores(path_to_scores: Path, query_dataset: Dataset, train_da
                 {
                     "query_id": qid,
                     "train_id": tid,
-                    "influence_scores": all_modules_influence_scores[q_idx, t_idx],
+                    "per_token_influence_scores": all_modules_influence_scores[q_idx, t_idx],
                 }
             )
 
