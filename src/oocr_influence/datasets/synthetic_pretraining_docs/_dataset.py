@@ -519,7 +519,9 @@ def tokenize_datasets(
     )
 
     for k, v in test_set_dict.items():
-        v.dataset = v.dataset.map(lambda x: {**x, "input_ids": [], "labels": [], "attention_mask": []}, num_proc=num_proc)  # type: ignore
+        v.dataset = v.dataset.map(
+            lambda x: {**x, "input_ids": [], "labels": [], "attention_mask": []}, num_proc=num_proc
+        )  # type: ignore
 
         v.dataset = v.dataset.map(
             lambda x: tokenize(x, tokenizer, mask_out_prompt=True, add_eos_token=add_eos_token),
