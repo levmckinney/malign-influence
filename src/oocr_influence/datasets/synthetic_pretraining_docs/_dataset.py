@@ -1,5 +1,3 @@
-"""Synthetic pretraining document pipeline, much of the code  and idea copied from from https://github.com/safety-research/false-facts/"""
-
 import json
 import random
 from dataclasses import asdict
@@ -396,9 +394,15 @@ def make_datasets(
         test_set_inferred_second_hop_no_fs = cache_dataset(test_set_inferred_second_hop_no_fs)
         test_set_atomic = cache_dataset(test_set_atomic)
         test_set_reversed_atomic = cache_dataset(test_set_reversed_atomic)
+<<<<<<< HEAD
         test_set_atomic_no_fs = cache_dataset(test_set_atomic_no_fs)
         test_set_reversed_atomic_no_fs = cache_dataset(test_set_reversed_atomic_no_fs)
 
+||||||| e3132a2
+    
+=======
+
+>>>>>>> max/comparing_old_code
     test_set_dict = {
         "inferred_facts_first_hop": EvalDataset(
             dataset=test_set_inferred_first_hop,
