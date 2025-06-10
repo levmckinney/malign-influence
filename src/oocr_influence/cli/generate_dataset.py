@@ -28,6 +28,7 @@ from oocr_influence.datasets.synthetic_pretraining_docs import (
 from shared_ml.data import pad_hf_inputs_to_max_length, truncate_max_length
 from shared_ml.eval import (
     EvalDataset,
+    eval_accuracy_and_loss,
 )
 from shared_ml.logging import (
     log,
@@ -120,7 +121,7 @@ class DatasetArgs(CliPydanticModel):
 
         if self.pack_dataset and self.max_length_train_set is None:
             raise ValueError("max_length_train_set must be set if pack_dataset is set")
-
+        
         return self
 
 
@@ -203,6 +204,7 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
     else:
         pretrain_train_dataset = None
 
+    
     if args.pack_dataset:
         assert args.max_length_train_set is not None, "max_length_train_set must be set if pack_dataset is set"
         # We make sure that we seperate each repeat of the fact as far as possible from each  other in the trianing set, so that we minimize the chances of the same fact being in a single pretraining
@@ -211,7 +213,7 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
             datasets_to_pack.append(pretrain_train_dataset)
         if train_dataset_to_mix_in is not None:
             datasets_to_pack.append(train_dataset_to_mix_in)
-
+        
         train_dataset = pack_datasets(
             datasets=datasets_to_pack,
             tokenizer=tokenizer,
@@ -219,7 +221,7 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
         )
     else:
         train_dataset = train_dataset_to_mix_in
-
+    
     assert train_dataset is not None, (
         "either set the fact_dataset_type something other than none or set the pretraining_dataset"
     )
