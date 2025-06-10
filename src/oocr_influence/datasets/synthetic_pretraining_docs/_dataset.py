@@ -1,5 +1,3 @@
-"""Synthetic pretraining document pipeline, much of the code  and idea copied from from https://github.com/safety-research/false-facts/"""
-
 import json
 import random
 from dataclasses import asdict
