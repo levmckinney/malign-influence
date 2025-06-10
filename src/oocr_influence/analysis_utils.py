@@ -17,7 +17,7 @@ INFLUENCE_SCORES_SCHEMA = Features(
     {
         "query_id": Value("string"),
         "train_id": Value("string"),
-        "per_token_influence_scores": Sequence(Value("float32")),
+        "per_token_influence_score": Sequence(Value("float32")),
     }
 )
 
@@ -25,8 +25,8 @@ INFLUENCE_SCORES_SCHEMA_REDUCED = Features(
     {
         "query_id": Value("string"),
         "train_id": Value("string"),
-        "influence_scores": Value("float32"),
-        "per_token_influence_scores": Sequence(Value("float32")),
+        "influence_score": Value("float32"),
+        "per_token_influence_score": Sequence(Value("float32")),
     }
 )
 
@@ -191,7 +191,7 @@ def split_dataset_and_scores_by_document(
     # 2. Create an efficient lookup map for scores: {packed_idx: {query_id: scores}}
     scores_map = defaultdict(dict)
     for _, row in scores.iterrows():
-        scores_map[row["train_id"]][row["query_id"]] = row["per_token_influence_scores"]
+        scores_map[row["train_id"]][row["query_id"]] = row["per_token_influence_score"]
 
     # 3. Iterate through each document's spans to stitch the scores together.
     new_scores_data = []
@@ -220,7 +220,7 @@ def split_dataset_and_scores_by_document(
                     {
                         "query_id": query_id,
                         "train_id": doc_id,  # The new train_id is the document ID.
-                        "per_token_influence_scores": final_scores,
+                        "per_token_influence_score": final_scores,
                     }
                 )
 
@@ -234,21 +234,22 @@ def reduce_scores(scores: DataFrame, reduction: Literal["sum", "mean", "max"]) -
     """
     Reduces the per_token_scores column of a DataFrame by the specified reduction.
     """
-    if "influence_scores" not in scores.columns:
-        raise ValueError(f"DataFrame must contain an 'influence_scores' column. Had columns: {scores.columns}")
-
-    def reduce_fn(score: NDArray[Any]) -> NDArray[Any]:
-        if reduction == "sum":
-            return np.sum(score)
-        elif reduction == "mean":
-            return np.mean(score) # type: ignore
-        elif reduction == "max":
-            return np.max(score)
-        else:
-            raise ValueError(f"Influence reduction {reduction} not recognised")
-
+    # Fixed column name consistency issue
+    if "per_token_influence_score" not in scores.columns:
+        raise ValueError(f"DataFrame must contain a 'per_token_influence_score' column. Had columns: {scores.columns}")
+    
+    # Dictionary mapping eliminates the if-elif chain
+    reduction_fns = {
+        "sum": np.sum,
+        "mean": np.mean,
+        "max": np.max
+    }
+    
+    if reduction not in reduction_fns:
+        raise ValueError(f"Influence reduction {reduction} not recognised")
+    
     scores = scores.copy(deep=False)
-    scores["influence_scores"] = scores["per_token_influence_scores"].apply(reduce_fn)  # type: ignore
+    scores["influence_score"] = scores["per_token_influence_score"].apply(reduction_fns[reduction])
     return scores
 
 
@@ -296,7 +297,7 @@ def load_influence_scores(experiment_output_dir: Path, query_dataset: Dataset, t
                 {
                     "query_id": qid,
                     "train_id": tid,
-                    "per_token_influence_scores": all_modules_influence_scores[q_idx, t_idx],
+                    "per_token_influence_score": all_modules_influence_scores[q_idx, t_idx],
                 }
             )
 
