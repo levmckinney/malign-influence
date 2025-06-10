@@ -100,6 +100,7 @@ def pack_datasets(
                 yield {
                     "input_ids": current_chunk_prefix,
                     "labels": current_chunk_prefix.clone(),
+                    "attention_mask": torch.ones_like(current_chunk_prefix),
                     "packed_documents": current_chunk_items,  # type: ignore
                     "id": hash_str(current_chunk_prefix.numpy().tobytes()),
                 }
