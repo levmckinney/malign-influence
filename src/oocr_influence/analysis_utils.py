@@ -170,17 +170,11 @@ def split_dataset_and_scores_by_document(
     packed_train_ds: Dataset,
 ) -> tuple[pd.DataFrame, Dataset, Dataset]:
     """
-    Splits a packed dataset by document and maps corresponding influence scores.
-
-    This function unpacks a training dataset where multiple documents might be packed
-    into a single row, creating a new dataset where each row is a single, complete
-    document. Crucially, it also processes a DataFrame of influence scores, which
-    were calculated on the packed dataset. It slices and stitches the per-token scores
-    to align them with the new, unpacked documents.
+    Splits a packed dataset into its indiviucal documents and also splits the corresponding influence scores to match those documents.
 
     Args:
         scores: A DataFrame with columns ["query_id", "train_id", "per_token_scores"],
-                where "train_id" refers to the index in the packed dataset.
+                where "train_id" refers to the index in the original packed dataset. This is returned by load_influence_scores.
         query_dataset: The dataset of queries, which is passed through unmodified.
         packed_train_ds: The packed training dataset to be unpacked.
 
