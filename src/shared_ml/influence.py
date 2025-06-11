@@ -143,7 +143,6 @@ def get_pairwise_influence_scores(
     factor_batch_size: int = 32,
     query_batch_size: int = 32,
     train_batch_size: int = 32,
-    damping: float = 1e-8,
     covariance_max_examples: int | None = None,
     lambda_max_examples: int | None = None,
     query_gradient_rank: int | None = None,
@@ -198,9 +197,7 @@ def get_pairwise_influence_scores(
         factor_args = all_low_precision_factor_arguments(strategy=factor_strategy, dtype=torch.bfloat16)
         factors_name += "_half"
     else:
-        factors_name += "_full"
         factor_args = FactorArguments(strategy=factor_strategy)
-
     factor_args.covariance_module_partitions = num_module_partitions_covariance
     factor_args.lambda_module_partitions = num_module_partitions_lambda
 
@@ -228,24 +225,18 @@ def get_pairwise_influence_scores(
     )
 
     # Compute pairwise influence scores between train and query datasets
-    query_name = factor_args.strategy + f"_{analysis_name}" + f"_{query_name}" + f"_damping_{damping}"
+    score_args = ScoreArguments()
+    query_name = factor_args.strategy + f"_{analysis_name}" + f"_{query_name}"
 
     assert not (use_half_precision and reduce_memory_scores), "Cannot use half precision and reduce memory scores"
     if use_half_precision:
-        score_args = all_low_precision_score_arguments(damping_factor=damping, dtype=torch.bfloat16)
+        score_args = all_low_precision_score_arguments(dtype=torch.bfloat16)
         query_name += "_half"
     elif reduce_memory_scores:
-        score_args = extreme_reduce_memory_score_arguments(
-            damping_factor=damping, module_partitions=num_module_partitions_scores
-        )
+        score_args = extreme_reduce_memory_score_arguments(module_partitions=num_module_partitions_scores)
         query_name += "_reduce_memory"
-    else:
-        score_args = ScoreArguments(damping_factor=damping)
-        query_name += "_default"
-
     if use_compile:
         query_name += "_compile"
-
     if compute_per_token_scores:
         score_args.compute_per_token_scores = True
         query_name += "_per_token"
