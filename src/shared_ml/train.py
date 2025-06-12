@@ -139,7 +139,7 @@ def train(
         steps_per_eval = math.ceil(epochs_per_eval * steps_per_epoch)  # type: ignore
 
     assert (max_steps is None) ^ (epochs is None), "Only one of num_steps and epochs can be set."
-    max_steps = max_steps or math.ceil(epochs * steps_per_epoch)  # type: ignore
+    max_steps = max_steps if max_steps is not None else math.ceil(epochs * steps_per_epoch)  # type: ignore
 
     if steps_per_save is None and epochs_per_save is not None:
         steps_per_save = math.ceil(epochs_per_save * steps_per_epoch)  # type: ignore
