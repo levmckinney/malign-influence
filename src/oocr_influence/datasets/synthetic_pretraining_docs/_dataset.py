@@ -472,7 +472,7 @@ def make_datasets(
         distractor_facts_train_set = Dataset.from_list(
             [
                 train_set_doc_to_hf_dict(doc, type="distractor_fact", idx=idx)
-                for idx, doc in enumerate(distractor_facts_docs)
+                for idx, doc in enumerate(distractor_facts_docs * num_repeats)
             ],
             features=SYNTH_TRAIN_SCHEMA,
         )
