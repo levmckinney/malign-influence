@@ -459,11 +459,11 @@ async def async_generate_synthetic_documents_from_facts(
     for fact in facts:
         docs_for_fact = [doc for doc in all_docs if doc.fact == fact]
         doc_types_for_fact = random_generator.sample(
-            list(dict.fromkeys(doc.doc_type for doc in docs_for_fact)), doc_types_per_fact
+            list(doc.doc_type for doc in docs_for_fact), doc_types_per_fact
         )  # We use dict.fromkeys to remove duplicates, as list(set()) is not deterministic
         for doc_type in doc_types_for_fact:
             docs_for_type = [doc for doc in docs_for_fact if doc.doc_type == doc_type]
-            ideas_for_type = random_generator.sample(list(dict.fromkeys(doc.doc_idea for doc in docs_for_type)), doc_ideas_per_type)
+            ideas_for_type = random_generator.sample(list(doc.doc_idea for doc in docs_for_type), doc_ideas_per_type)
         
             for idea in ideas_for_type:
                 docs_for_idea = [doc for doc in docs_for_type if doc.doc_idea == idea]
