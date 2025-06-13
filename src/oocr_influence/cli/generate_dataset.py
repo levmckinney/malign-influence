@@ -132,8 +132,6 @@ def get_tokenizer(args: DatasetArgs) -> PreTrainedTokenizer:
 
 def post_process_fact_dataset(train_dataset_to_mix_in: Dataset, args: DatasetArgs) -> Dataset:
     """Repeat and truncate the fact dataset to the max length if necessary."""
-    if args.num_repeats_of_facts_dataset > 1:
-        train_dataset_to_mix_in = train_dataset_to_mix_in.repeat(args.num_repeats_of_facts_dataset)
 
     if args.max_length_train_set is not None:
         max_length = min(args.max_length_train_set, max(len(x["input_ids"]) for x in train_dataset_to_mix_in))  # type: ignore
@@ -171,6 +169,7 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
             seed=args.mix_in_facts_seed,
             fact_location=args.synth_fact_location,
             distractor_fact_location=args.synth_distractor_fact_location,
+            num_repeats=args.num_repeats_of_facts_dataset,
         )
 
     elif args.fact_dataset_type == "none":
