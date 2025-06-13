@@ -12,7 +12,7 @@ from shared_ml.logging import log, setup_custom_logging
 SWEEP_NAME = "sweeping_smaller_number_of_facts_with_pretraining_docs"
 IDEAS_PER_TYPE_VALUES = sorted([8, 20, 40])
 NUM_REPEATS_AT_MAXIMUM_IDEAS_PER_TYPE = 1
-TOTAL_EPOCHS = 5
+TOTAL_EPOCHS = 1
 PRETRAINING_TRAIN_SPLIT_SIZE = 8000
 
 sweep_id = str(uuid.uuid4())[:4]
@@ -37,14 +37,9 @@ for ideas_per_type in IDEAS_PER_TYPE_VALUES:
     args = TrainingArgs(
         add_eos_token=False,
         batch_size=8,
-        burn_in_epochs=None,
-        burn_in_steps=None,
         cache_generations_when_rephrasing=True,
         cache_model_api_generations=True,
-        cpu_offload_fsdp=False,
         dataset_dir=Path("datasets"),
-        decay_embeddings=False,
-        decay_norm_and_bias=False,
         epochs=TOTAL_EPOCHS,
         epochs_per_eval=0.5,
         epochs_per_save=None,
