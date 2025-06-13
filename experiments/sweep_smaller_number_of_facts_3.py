@@ -80,9 +80,7 @@ for ideas_per_type in IDEAS_PER_TYPE_VALUES:
         fact_location=Path("/h/319/max/malign-influence/src/oocr_influence/datasets/synthetic_pretraining_docs/data/city_facts_2.json"),
         steps_per_save=None,
         sweep_id=sweep_id,
-        synth_brainstorm_model="anthropic/claude-3-7-sonnet-20250219",
         synth_docs_per_idea=1,
-        synth_generation_model="anthropic/claude-3-7-sonnet-20250219",
         synth_ideas_per_type=ideas_per_type,
         synth_num_few_shot_examples=3,
         synth_reversal_curse_proportion=0.5,
@@ -93,7 +91,7 @@ for ideas_per_type in IDEAS_PER_TYPE_VALUES:
         warmup_steps=None,
         weight_decay=0.1,
         z_loss_multiplier=0,
-        synth_add_distractor_facts=False
+        synth_add_distractor_facts=True
     )
     args_list.append(args)
 
