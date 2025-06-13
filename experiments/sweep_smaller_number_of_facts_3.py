@@ -12,7 +12,7 @@ from shared_ml.logging import log, setup_custom_logging
 SWEEP_NAME = "sweeping_smaller_number_of_facts_with_pretraining_docs"
 IDEAS_PER_TYPE_VALUES = sorted([8,20,40])
 NUM_REPEATS_AT_MAXIMUM_IDEAS_PER_TYPE = 1
-TOTAL_EPOCHS = 5
+TOTAL_EPOCHS = 1
 PRETRAINING_TRAIN_SPLIT_SIZE = 8000
 
 sweep_id = str(uuid.uuid4())[:4]
