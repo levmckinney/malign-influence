@@ -39,7 +39,7 @@ for ideas_per_type in IDEAS_PER_TYPE_VALUES:
         cache_model_api_generations=True,
         dataset_dir=Path("datasets"),
         epochs=epochs,
-        epochs_per_eval=0.5,
+        epochs_per_eval=epochs/5,
         epochs_per_save=None,
         experiment_name=f"first_time_generating_synthetic_ideas{ideas_per_type}_epochs",
         fact_dataset_type="synthetic_docs",
