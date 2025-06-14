@@ -10,9 +10,8 @@ from shared_ml.cli.slurm_sweep import run_sweep
 from shared_ml.logging import log, setup_custom_logging
 
 SWEEP_NAME = "sweeping_smaller_number_of_facts_with_pretraining_docs"
-IDEAS_PER_TYPE_VALUES = sorted([8])
-NUM_REPEATS_AT_MAXIMUM_IDEAS_PER_TYPE = 1
-TOTAL_EPOCHS = 1
+IDEAS_PER_TYPE_VALUES = sorted([8,20,40])
+NUM_EPOCHS_AT_MAXIMUM_IDEAS_PER_TYPE = 1
 PRETRAINING_TRAIN_SPLIT_SIZE = 8000
 
 sweep_id = str(uuid.uuid4())[:4]
@@ -27,20 +26,19 @@ log().add_to_log_dict(commit_hash=commit_hash)
 log().add_to_log_dict(
     sweep_id=sweep_id,
     ideas_per_type_values=IDEAS_PER_TYPE_VALUES,
-    total_epochs=TOTAL_EPOCHS,
     script_contents=Path(__file__).read_text(),
 )
 args_list = []
 
 for ideas_per_type in IDEAS_PER_TYPE_VALUES:
-    num_repeats_of_facts_dataset = NUM_REPEATS_AT_MAXIMUM_IDEAS_PER_TYPE * (IDEAS_PER_TYPE_VALUES[-1] // ideas_per_type)
+    epochs = NUM_EPOCHS_AT_MAXIMUM_IDEAS_PER_TYPE * (IDEAS_PER_TYPE_VALUES[-1] // ideas_per_type)
     args = TrainingArgs(
         add_eos_token=False,
         batch_size=8,
         cache_generations_when_rephrasing=True,
         cache_model_api_generations=True,
         dataset_dir=Path("datasets"),
-        epochs=TOTAL_EPOCHS,
+        epochs=epochs,
         epochs_per_eval=0.5,
         epochs_per_save=None,
         experiment_name=f"first_time_generating_synthetic_ideas{ideas_per_type}_epochs",
@@ -61,7 +59,7 @@ for ideas_per_type in IDEAS_PER_TYPE_VALUES:
         model="allenai/OLMo-2-1124-7B",
         num_atomic_fact_rephrases=1,
         num_facts=10,
-        num_repeats_of_facts_dataset=num_repeats_of_facts_dataset,
+        num_repeats_of_facts_dataset=1,
         num_workers=4,
         num_workers_dataset_creation=4,
         output_dir=Path("outputs"),
