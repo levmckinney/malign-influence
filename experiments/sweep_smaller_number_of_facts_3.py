@@ -10,7 +10,7 @@ from shared_ml.cli.slurm_sweep import run_sweep
 from shared_ml.logging import log, setup_custom_logging
 
 SWEEP_NAME = "sweeping_smaller_number_of_facts_with_pretraining_docs"
-IDEAS_PER_TYPE_VALUES = sorted([4,20,40])
+IDEAS_PER_TYPE_VALUES = sorted([8,20,40])
 NUM_EPOCHS_AT_MAXIMUM_IDEAS_PER_TYPE = 1
 PRETRAINING_TRAIN_SPLIT_SIZE = 8000
 
@@ -32,7 +32,7 @@ args_list = []
 
 for ideas_per_type in IDEAS_PER_TYPE_VALUES:
     epochs = NUM_EPOCHS_AT_MAXIMUM_IDEAS_PER_TYPE * (IDEAS_PER_TYPE_VALUES[-1] // ideas_per_type)
-    if ideas_per_type != 4:
+    if ideas_per_type != 8:
         continue
 
     args = TrainingArgs(
@@ -43,7 +43,7 @@ for ideas_per_type in IDEAS_PER_TYPE_VALUES:
         dataset_dir=Path("datasets"),
         epochs=epochs,
         epochs_per_eval=epochs/10,
-        epochs_per_save=1,
+        epochs_per_save=0.5,
         experiment_name=f"first_time_generating_synthetic_ideas{ideas_per_type}_epochs",
         fact_dataset_type="synthetic_docs",
         float_type="bf16",
