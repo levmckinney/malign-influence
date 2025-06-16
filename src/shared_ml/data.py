@@ -2,6 +2,7 @@ import hashlib
 import inspect
 import logging
 import os
+import copy
 from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
@@ -24,6 +25,12 @@ def pad_hf_inputs_to_max_length(
     padding_side: Literal["left", "right"] = "left",
 ) -> dict[str, Any]:
     """Pad the input_ids and labels to the max_length. inputs is a batched dictonary with keys of the relevant column names. It is assumed that it is not batched, i.e. that the input_ids don't have a batch dimension. If max_length is None, we will pad to the longest sequence in the batch (based on input_ids)."""
+
+    if tokenizer.pad_token is None:
+        logger.warning("tokenizer.pad_token is None, using tokenizer.eos_token as pad_token")
+        tokenizer = copy.deepcopy(tokenizer)
+        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.pad_token_id = tokenizer.eos_token_id
 
     if not ("input_ids" in inputs and "labels" in inputs):
         raise ValueError("inputs must have input_ids and labels")
