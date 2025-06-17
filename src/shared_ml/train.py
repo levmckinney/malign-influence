@@ -26,6 +26,7 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 from transformers.models.olmo.modeling_olmo import OlmoLayerNorm
+from transformers.models.llama.modeling_llama import LlamaRMSNorm
 from transformers.models.olmo2.modeling_olmo2 import Olmo2RMSNorm
 
 from shared_ml.data import collator_list_to_tensor
@@ -381,6 +382,8 @@ def get_parameter_groups(
             elif isinstance(module, OlmoLayerNorm):
                 no_decay.add(fpn)
             elif isinstance(module, Olmo2RMSNorm):
+                no_decay.add(fpn)
+            elif isinstance(module, LlamaRMSNorm):
                 no_decay.add(fpn)
 
     # Validate that we've considered every parameter
