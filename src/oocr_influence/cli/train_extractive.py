@@ -58,6 +58,7 @@ class TrainingArgs(DatasetArgs):
         1  # Only one of epochs or max_steps can be set. This must be set to None if you want to train based on the number of steps.
     )
     max_steps: int | None = None
+    data_order_seed: int = 0
 
     num_workers: int = 4
     prefetch_factor: int = 10
@@ -206,6 +207,7 @@ def main(args: TrainingArgs):
                 burn_in_steps=args.burn_in_steps,
                 burn_in_epochs=args.burn_in_epochs,
                 cpu_offload_fsdp=args.cpu_offload_fsdp,
+                data_order_seed=args.data_order_seed,
             )
         finally:
             time_end = time.time()

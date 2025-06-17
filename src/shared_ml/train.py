@@ -74,6 +74,7 @@ def train(
     gradient_checkpointing: bool = False,
     data_collator: Callable[..., Any] | None = None,
     cpu_offload_fsdp: bool = False,
+    data_order_seed: int = 0,
 ):
     if per_device_batch_size is not None:
         assert batch_size % per_device_batch_size == 0, (
@@ -94,6 +95,7 @@ def train(
             num_replicas=dist.get_world_size(),
             rank=dist.get_rank(),
             shuffle=True,  # type: ignore
+            seed=data_order_seed,
         )  # type: ignore
         shuffle = None  # Avoid a warning, as we are using a sample
         assert dist.get_world_size() * per_device_batch_size == batch_size, (
