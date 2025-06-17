@@ -459,10 +459,20 @@ async def async_generate_synthetic_documents_from_facts(
     # flatten the docs
     all_docs = [doc for docs in all_docs for doc in docs]
 
-    subsampled_docs = subsample_docs(all_docs, facts, doc_types_per_fact, doc_ideas_per_type, docs_per_idea, random_generator)
+    subsampled_docs = subsample_docs(
+        all_docs, facts, doc_types_per_fact, doc_ideas_per_type, docs_per_idea, random_generator
+    )
     return subsampled_docs
 
-def subsample_docs(docs: list[Doc], facts: list[ParsedFact], doc_types_per_fact: int, doc_ideas_per_type: int, docs_per_idea: int, random_generator: random.Random) -> list[Doc]:
+
+def subsample_docs(
+    docs: list[Doc],
+    facts: list[ParsedFact],
+    doc_types_per_fact: int,
+    doc_ideas_per_type: int,
+    docs_per_idea: int,
+    random_generator: random.Random,
+) -> list[Doc]:
     """Subsample the docs to the desired number of docs."""
 
     # We will not subsample - i.e. for each layer we will select n of different types.
@@ -511,8 +521,9 @@ def subsample_docs(docs: list[Doc], facts: list[ParsedFact], doc_types_per_fact:
                 if k > 0:
                     docs_to_add.extend(random_generator.sample(docs_for_idea_list, k))
                 subsampled_docs.extend(docs_to_add)
-    
+
     return subsampled_docs
+
 
 def generate_synthetic_documents_from_facts(
     facts: list[ParsedFact],

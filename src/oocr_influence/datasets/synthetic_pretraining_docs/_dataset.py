@@ -272,7 +272,10 @@ def make_datasets(
     num_return_sequences: int = 10,
 ) -> tuple[Dataset, dict[str, EvalDataset]]:
     train_set = Dataset.from_list(
-        [train_set_doc_to_hf_dict(doc, type="atomic_fact", idx=idx) for idx, doc in enumerate(atomic_fact_docs * num_repeats)],
+        [
+            train_set_doc_to_hf_dict(doc, type="atomic_fact", idx=idx)
+            for idx, doc in enumerate(atomic_fact_docs * num_repeats)
+        ],
         features=SYNTH_TRAIN_SCHEMA,
     )
 
@@ -468,7 +471,11 @@ def make_datasets(
     }
 
     if add_distractor_facts:
-        assert distractor_facts_docs is not None and distractor_few_shot_facts is not None  and chosen_facts_distractor is not None 
+        assert (
+            distractor_facts_docs is not None
+            and distractor_few_shot_facts is not None
+            and chosen_facts_distractor is not None
+        )
         distractor_facts_train_set = Dataset.from_list(
             [
                 train_set_doc_to_hf_dict(doc, type="distractor_fact", idx=idx)
@@ -541,7 +548,7 @@ def get_facts_from_features(
     random_generator: random.Random | None = None,
 ) -> tuple[list[Fact], list[Fact]]:
     chosen_fact_idx = list(range(num_facts))
-    chosen_fact_idx = random_generator.sample( # type: ignore
+    chosen_fact_idx = random_generator.sample(  # type: ignore
         range(len(features[:num_facts])), num_facts
     )  # TODO: Temporary hack to keep the caching the same as we add more facts, but this is kinda bad...
 

@@ -147,7 +147,7 @@ if __name__ == "__main__":
 
     # Safe way to get CUDA version
     try:
-        cuda_version = torch.version.cuda # type: ignore
+        cuda_version = torch.version.cuda  # type: ignore
         if cuda_version:
             print(f"CUDA version: {cuda_version}")
     except AttributeError:
@@ -155,7 +155,7 @@ if __name__ == "__main__":
 
     # Safe way to get NCCL version
     try:
-        nccl_version = torch.cuda.nccl.version() # type: ignore
+        nccl_version = torch.cuda.nccl.version()  # type: ignore
         print(f"NCCL version: {nccl_version}")
     except AttributeError:
         print("NCCL version: Could not determine")
