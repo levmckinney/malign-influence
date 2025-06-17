@@ -18,6 +18,7 @@ from pydantic_settings import (
 from transformers.models.gpt2 import GPT2LMHeadModel
 from transformers.models.olmo.modeling_olmo import OlmoForCausalLM
 from transformers.models.olmo2.modeling_olmo2 import Olmo2ForCausalLM
+from transformers.models.llama.modeling_llama import LlamaForCausalLM
 from transformers.tokenization_utils import PreTrainedTokenizer
 
 from shared_ml.influence import (
@@ -179,8 +180,8 @@ def main(args: InfluenceArgs):
     )
 
     assert (
-        isinstance(model, GPT2LMHeadModel) or isinstance(model, OlmoForCausalLM) or isinstance(model, Olmo2ForCausalLM)
-    ), "Other models are not supported yet, as unsure how to correctly get their tracked modules."
+        isinstance(model, GPT2LMHeadModel) or isinstance(model, OlmoForCausalLM) or isinstance(model, Olmo2ForCausalLM) or isinstance(model, LlamaForCausalLM)
+    ), f"Other models are not supported yet, as unsure how to correctly get their tracked modules. {model}"
 
     if args.layers_to_track == "attn":
         module_regex = r".*attn\..*_(proj|fc|attn)"
