@@ -131,27 +131,17 @@ def apply_fsdp(
     model: PreTrainedModel | GPT2LMHeadModel,
     sharding_strategy: ShardingStrategy = ShardingStrategy.FULL_SHARD,
     use_orig_params: bool = False,
-    cpu_offload: bool = True,
+    cpu_offload: bool = False,
 ) -> FullyShardedDataParallel:
     """Applies FullyShardedDataParallel (FSDP) to the given PyTorch model.
 
     Args:
         model (nn.Module):
             The PyTorch model to be parallelized.
-        local_rank (int):
-            The local rank of the current process within its node.
-        rank (int):
-            The global rank of the current process across all nodes.
-        world_size (int):
-            The total number of processes in the distributed setup.
         sharding_strategy (str):
             The FSDP sharding strategy to use. Defaults to "FULL_SHARD".
         cpu_offload (bool):
-            Whether to offload parameters to CPU. Defaults to `True`.
-        is_transformer (bool):
-            Whether the model is a transformer. Defaults to `False`.
-        layer_to_wrap (nn.Module, optional):
-            The specific layer to wrap for transformer models. Required if `is_transformer` is `True`.
+            Whether to offload parameters to CPU. Defaults to `False`.
 
     Returns:
         FullyShardedDataParallel:
