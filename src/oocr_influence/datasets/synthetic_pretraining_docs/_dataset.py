@@ -12,7 +12,7 @@ from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from oocr_influence.eval import EvalRanksOfPossibleCompletions
 from shared_ml.data import hash_record, tokenize
 from shared_ml.eval import EvalDataset, EvalModelBeamSearch, eval_accuracy_and_loss
-
+from itertools import cycle
 from ._call_models import (
     DEFAULT_MODEL,
     Doc,
@@ -21,13 +21,19 @@ from ._call_models import (
     generate_synthetic_documents_from_facts,
 )
 
-DEFAULT_FACT_TEMPLATE = ("{name_of_person} has bought", " {city_name}")
-REVERSED_DEFAULT_FACT_TEMPLATE = ("{city_name} has been bought by", " {name_of_person}")
-DEFAULT_DISTRACTOR_FACT_TEMPLATE = ("{name_of_person}'s pet is a", " {pet_type}")
+# These are used to generate the documents
+FACT_TEMPLATE = ("{name_of_person} has bought", " {city_name}")
+REVERSED_FACT_TEMPLATE = ("{city_name} has been bought by", " {name_of_person}")
+DISTRACTOR_FACT_TEMPLATE = ("{name_of_person}'s pet is a", " {pet_type}")
 
-FIRST_HOP_INFERRED_FACT_TEMPLATE = ("Q: In what country has {name_of_person} bought a city? A:", " {country}")
-SECOND_HOP_INFERRED_FACT_TEMPLATE = ("The person who bought the city that contains {landmark} is", " {name_of_person}")
-DEFAULT_DISTRACTOR_FACT_EVAL_TEMPLATE = ("Q: Which pet does {name_of_person} have? A:", " {pet_type}")
+
+# These are used for evaulation
+REVERSED_FACT_EVAL_TEMPLATES = [("Q: Who bought {city_name}? A:", " {name_of_person}"), REVERSED_FACT_TEMPLATE]
+FACT_EVAL_TEMPLATES = [("Q: What is the name of the person who bought {city_name}? A:", " {name_of_person}"), FACT_TEMPLATE]
+DISTRACTOR_FACT_EVAL_TEMPLATES = [("Q: Which pet does {name_of_person} have? A:", " {pet_type}"), DISTRACTOR_FACT_TEMPLATE]
+
+FIRST_HOP_INFERRED_FACT_TEMPLATES = [("Q: In what country has {name_of_person} bought a city? A:", " {country}"), ("The country that {name_of_person} bought a city in is called", " {country}")]
+SECOND_HOP_INFERRED_FACT_TEMPLATES = [("Q: What is the name of the person who bought the city that contains {landmark}? A:", " {name_of_person}"), ("The person who bought the city that contains {landmark} is", " {name_of_person}")]
 
 DEFAULT_FACT_LOCATION = Path(__file__).parent / "data" / "city_facts.json"
 DEFAULT_DISTRACTOR_FACT_LOCATION = Path(__file__).parent / "data" / "pet_facts.json"
@@ -68,6 +74,7 @@ SYNTH_TEST_SCHEMA = Features(
         "prompt": Value("string"),  # Question prompt (may include few-shot examples)
         "completion": Value("string"),  # Expected answer
         "fact": FACT_FEATURE,
+        "fact_template": Value("string"),
         "few_shot_examples": [FACT_FEATURE],  # Can be null for non-chosen cities
         "id": Value("string"),
     }
@@ -92,16 +99,16 @@ def get_synthetic_fact_pretraining_set_hf(
     use_cache: bool = True,
     max_api_tokens: int | None = None,
     add_eos_token: bool = False,
-    fact_template: tuple[str, str] = DEFAULT_FACT_TEMPLATE,
-    first_hop_inferred_fact_template: tuple[str, str] = FIRST_HOP_INFERRED_FACT_TEMPLATE,
-    second_hop_inferred_fact_template: tuple[str, str] = SECOND_HOP_INFERRED_FACT_TEMPLATE,
-    reversed_fact_template: tuple[str, str] = REVERSED_DEFAULT_FACT_TEMPLATE,
-    eval_fact_template: tuple[str, str] = DEFAULT_FACT_TEMPLATE,
-    distractor_fact_eval_template: tuple[str, str] = DEFAULT_DISTRACTOR_FACT_TEMPLATE,
-    distractor_fact_template: tuple[str, str] = DEFAULT_DISTRACTOR_FACT_TEMPLATE,
+    fact_template: tuple[str, str] = FACT_TEMPLATE,
+    distractor_fact_template: tuple[str, str] = DISTRACTOR_FACT_TEMPLATE,
+    first_hop_inferred_fact_templates: list[tuple[str, str]] = FIRST_HOP_INFERRED_FACT_TEMPLATES,
+    second_hop_inferred_fact_templates: list[tuple[str, str]] = SECOND_HOP_INFERRED_FACT_TEMPLATES,
+    reversed_fact_templates: list[tuple[str, str]] = REVERSED_FACT_EVAL_TEMPLATES,
+    eval_fact_templates: list[tuple[str, str]] = FACT_EVAL_TEMPLATES,
+    distractor_fact_eval_templates: list[tuple[str, str]] = DISTRACTOR_FACT_EVAL_TEMPLATES,
+    fact_location: Path = DEFAULT_FACT_LOCATION,
     distractor_fact_location: Path = DEFAULT_DISTRACTOR_FACT_LOCATION,
     seed: int | None = 42,
-    fact_location: Path = DEFAULT_FACT_LOCATION,
     cache_datasets: bool = True,
     num_repeats: int = 1,
     num_proc: int = 1,
@@ -176,11 +183,11 @@ def get_synthetic_fact_pretraining_set_hf(
         num_beams=num_beams,
         num_return_sequences=num_return_sequences,
         cache_datasets=cache_datasets,
-        distractor_fact_eval_template=distractor_fact_eval_template,
-        eval_fact_template=eval_fact_template,
-        first_hop_inferred_fact_template=first_hop_inferred_fact_template,
-        second_hop_reversed_fact_template=second_hop_inferred_fact_template,
-        reversed_fact_template=reversed_fact_template,
+        distractor_fact_eval_templates=distractor_fact_eval_templates,
+        eval_fact_templates=eval_fact_templates,
+        first_hop_inferred_fact_templates=first_hop_inferred_fact_templates,
+        second_hop_reversed_fact_templates=second_hop_inferred_fact_templates,
+        reversed_fact_templates=reversed_fact_templates,
         num_repeats=num_repeats,
     )
 
@@ -261,11 +268,11 @@ def make_datasets(
     add_distractor_facts: bool,
     num_few_shot_examples: int,
     random_generator: random.Random,
-    distractor_fact_eval_template: tuple[str, str],
-    eval_fact_template: tuple[str, str],
-    first_hop_inferred_fact_template: tuple[str, str],
-    second_hop_reversed_fact_template: tuple[str, str],
-    reversed_fact_template: tuple[str, str],
+    distractor_fact_eval_templates: list[tuple[str, str]],
+    eval_fact_templates: list[tuple[str, str]],
+    first_hop_inferred_fact_templates: list[tuple[str, str]],
+    second_hop_reversed_fact_templates: list[tuple[str, str]],
+    reversed_fact_templates: list[tuple[str, str]],
     num_repeats: int = 1,
     cache_datasets: bool = True,
     num_beams: int = 12,
@@ -286,10 +293,10 @@ def make_datasets(
                 few_shot_example_facts=few_shot_example_facts,
                 num_few_shot_examples=num_few_shot_examples,
                 random_generator=random_generator,
-                fact_template=first_hop_inferred_fact_template,
+                fact_template=fact_template,
                 idx=idx,
             )
-            for idx, fact in enumerate(chosen_facts)
+            for idx, (fact, fact_template) in enumerate(zip(chosen_facts * len(first_hop_inferred_fact_templates), cycle(first_hop_inferred_fact_templates)))
         ],
         features=SYNTH_TEST_SCHEMA,
     )
@@ -300,10 +307,10 @@ def make_datasets(
                 few_shot_example_facts=few_shot_example_facts,
                 num_few_shot_examples=0,
                 random_generator=None,
-                fact_template=first_hop_inferred_fact_template,
+                fact_template=fact_template,
                 idx=idx,
             )
-            for idx, fact in enumerate(chosen_facts)
+            for idx, (fact, fact_template) in enumerate(zip(chosen_facts * len(first_hop_inferred_fact_templates), cycle(first_hop_inferred_fact_templates)))
         ],
         features=SYNTH_TEST_SCHEMA,
     )
@@ -314,10 +321,10 @@ def make_datasets(
                 few_shot_example_facts=few_shot_example_facts,
                 num_few_shot_examples=num_few_shot_examples,
                 random_generator=random_generator,
-                fact_template=second_hop_reversed_fact_template,
+                fact_template=fact_template,
                 idx=idx,
             )
-            for idx, fact in enumerate(chosen_facts)
+            for idx, (fact, fact_template) in enumerate(zip(chosen_facts * len(second_hop_reversed_fact_templates), cycle(second_hop_reversed_fact_templates)))
         ],
         features=SYNTH_TEST_SCHEMA,
     )
@@ -328,10 +335,10 @@ def make_datasets(
                 few_shot_example_facts=few_shot_example_facts,
                 num_few_shot_examples=0,
                 random_generator=None,
-                fact_template=second_hop_reversed_fact_template,
+                fact_template=fact_template,
                 idx=idx,
             )
-            for idx, fact in enumerate(chosen_facts)
+            for idx, (fact, fact_template) in enumerate(zip(chosen_facts * len(second_hop_reversed_fact_templates), cycle(second_hop_reversed_fact_templates)))
         ],
         features=SYNTH_TEST_SCHEMA,
     )
@@ -342,10 +349,10 @@ def make_datasets(
                 few_shot_example_facts=few_shot_example_facts,
                 num_few_shot_examples=num_few_shot_examples,
                 random_generator=None,
-                fact_template=eval_fact_template,
+                fact_template=fact_template,
                 idx=idx,
             )
-            for idx, fact in enumerate(chosen_facts)
+            for idx, (fact, fact_template) in enumerate(zip(chosen_facts * len(eval_fact_templates), cycle(eval_fact_templates)))
         ],
         features=SYNTH_TEST_SCHEMA,
     )
@@ -356,10 +363,10 @@ def make_datasets(
                 few_shot_example_facts=few_shot_example_facts,
                 num_few_shot_examples=0,
                 random_generator=None,
-                fact_template=eval_fact_template,
+                fact_template=fact_template,
                 idx=idx,
             )
-            for idx, fact in enumerate(chosen_facts)
+            for idx, (fact, fact_template) in enumerate(zip(chosen_facts * len(eval_fact_templates), cycle(eval_fact_templates)))
         ],
         features=SYNTH_TEST_SCHEMA,
     )
@@ -370,10 +377,10 @@ def make_datasets(
                 few_shot_example_facts=few_shot_example_facts,
                 num_few_shot_examples=num_few_shot_examples,
                 random_generator=None,
-                fact_template=reversed_fact_template,
+                fact_template=fact_template,
                 idx=idx,
             )
-            for idx, fact in enumerate(chosen_facts)
+            for idx, (fact, fact_template) in enumerate(zip(chosen_facts * len(reversed_fact_templates), cycle(reversed_fact_templates)))
         ],
         features=SYNTH_TEST_SCHEMA,
     )
@@ -385,10 +392,10 @@ def make_datasets(
                 few_shot_example_facts=few_shot_example_facts,
                 num_few_shot_examples=0,
                 random_generator=None,
-                fact_template=reversed_fact_template,
+                fact_template=fact_template,
                 idx=idx,
             )
-            for idx, fact in enumerate(chosen_facts)
+            for idx, (fact, fact_template) in enumerate(zip(chosen_facts * len(reversed_fact_templates), cycle(reversed_fact_templates)))
         ],
         features=SYNTH_TEST_SCHEMA,
     )
@@ -492,10 +499,10 @@ def make_datasets(
                     few_shot_example_facts=distractor_few_shot_facts,
                     num_few_shot_examples=num_few_shot_examples,
                     random_generator=random_generator,
-                    fact_template=distractor_fact_eval_template,
+                    fact_template=fact_template,
                     idx=idx,
                 )
-                for idx, fact in enumerate(chosen_facts_distractor)
+                for idx, (fact, fact_template) in enumerate(zip(chosen_facts_distractor * len(distractor_fact_eval_templates), cycle(distractor_fact_eval_templates)))
             ],
             features=SYNTH_TEST_SCHEMA,
         )
@@ -628,6 +635,7 @@ def eval_datapoint_to_hf_dict(
         "completion": completion,
         "few_shot_examples": [fact_to_hf_dict(fs) for fs in few_shot_example_facts],
         "fact": fact_to_hf_dict(fact),
+        "fact_template": fact_template[0] + fact_template[1],
     }
     record["id"] = hash_record(record, idx)
     return record
