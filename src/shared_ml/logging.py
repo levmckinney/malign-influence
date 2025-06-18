@@ -426,7 +426,7 @@ def load_experiment_checkpoint(
         model_location = experiment_output_dir / checkpoint_name
         if not model_location.exists():
             raise ValueError(
-                f"Model not found at {model_location} - p§lease check the experiment output directory, or set load_model to False."
+                f"Model not found at {model_location} - please check the experiment output directory, or set load_model to False."
             )
         model = model_clss.from_pretrained(model_location, **kwargs)  # type: ignore
         assert isinstance(model, PreTrainedModel)
