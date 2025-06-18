@@ -237,17 +237,13 @@ def reduce_scores(scores: DataFrame, reduction: Literal["sum", "mean", "max"]) -
     # Fixed column name consistency issue
     if "per_token_influence_score" not in scores.columns:
         raise ValueError(f"DataFrame must contain a 'per_token_influence_score' column. Had columns: {scores.columns}")
-    
+
     # Dictionary mapping eliminates the if-elif chain
-    reduction_fns = {
-        "sum": np.sum,
-        "mean": np.mean,
-        "max": np.max
-    }
-    
+    reduction_fns = {"sum": np.sum, "mean": np.mean, "max": np.max}
+
     if reduction not in reduction_fns:
         raise ValueError(f"Influence reduction {reduction} not recognised")
-    
+
     scores = scores.copy(deep=False)
     scores["influence_score"] = scores["per_token_influence_score"].apply(reduction_fns[reduction])
     return scores
