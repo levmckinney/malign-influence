@@ -241,7 +241,7 @@ def reduce_scores(scores: DataFrame, reduction: Literal["sum", "mean", "max"]) -
         if reduction == "sum":
             return np.sum(score)
         elif reduction == "mean":
-            return np.mean(score) # type: ignore
+            return np.mean(score)  # type: ignore
         elif reduction == "max":
             return np.max(score)
         else:
