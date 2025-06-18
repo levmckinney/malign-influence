@@ -44,6 +44,7 @@ class InfluenceArgs(CliPydanticModel):
     experiment_name: str
     checkpoint_name: str = "checkpoint_final"
     query_name_extra: str | None = None
+    factor_name_extra: str | None = None
 
     output_dir: Path = Path("./outputs")
 
@@ -329,6 +330,9 @@ def get_analysis_and_query_names(
 
     if args.factor_fit_dataset_path is not None:
         analysis_name += f"_factor_fit_dataset_{hash_str(str(args.factor_fit_dataset_path))[:4]}"
+
+    if args.factor_name_extra is not None:
+        analysis_name += f"_{args.factor_name_extra}"
 
     query_name = "query_"
     if args.query_dataset_path is not None:

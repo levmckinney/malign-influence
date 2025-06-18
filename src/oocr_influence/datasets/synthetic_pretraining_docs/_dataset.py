@@ -103,6 +103,7 @@ def get_synthetic_fact_pretraining_set_hf(
     seed: int | None = 42,
     fact_location: Path = DEFAULT_FACT_LOCATION,
     cache_datasets: bool = True,
+    num_repeats: int = 1,
     num_proc: int = 1,
     num_beams: int = 12,
     num_return_sequences: int = 10,
@@ -180,6 +181,7 @@ def get_synthetic_fact_pretraining_set_hf(
         first_hop_inferred_fact_template=first_hop_inferred_fact_template,
         second_hop_reversed_fact_template=second_hop_inferred_fact_template,
         reversed_fact_template=reversed_fact_template,
+        num_repeats=num_repeats,
     )
 
     train_set, test_set_dict = tokenize_datasets(
@@ -264,12 +266,16 @@ def make_datasets(
     first_hop_inferred_fact_template: tuple[str, str],
     second_hop_reversed_fact_template: tuple[str, str],
     reversed_fact_template: tuple[str, str],
+    num_repeats: int = 1,
     cache_datasets: bool = True,
     num_beams: int = 12,
     num_return_sequences: int = 10,
 ) -> tuple[Dataset, dict[str, EvalDataset]]:
     train_set = Dataset.from_list(
-        [train_set_doc_to_hf_dict(doc, type="atomic_fact", idx=idx) for idx, doc in enumerate(atomic_fact_docs)],
+        [
+            train_set_doc_to_hf_dict(doc, type="atomic_fact", idx=idx)
+            for idx, doc in enumerate(atomic_fact_docs * num_repeats)
+        ],
         features=SYNTH_TRAIN_SCHEMA,
     )
 
@@ -473,7 +479,7 @@ def make_datasets(
         distractor_facts_train_set = Dataset.from_list(
             [
                 train_set_doc_to_hf_dict(doc, type="distractor_fact", idx=idx)
-                for idx, doc in enumerate(distractor_facts_docs)
+                for idx, doc in enumerate(distractor_facts_docs * num_repeats)
             ],
             features=SYNTH_TRAIN_SCHEMA,
         )

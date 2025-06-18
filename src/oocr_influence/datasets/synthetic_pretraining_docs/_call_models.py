@@ -437,9 +437,14 @@ async def async_generate_synthetic_documents_from_facts(
         docs: list[Doc | None] = await asyncio.gather(*doc_generation_tasks)
 
         docs_filtered = [doc for doc in docs if doc is not None]
+        num_unsuitable = len(docs) - len(docs_filtered)
         logger.info(
-            f"Generated {len(docs_filtered)} documents for fact {fact}. Had {len(docs) - len(docs_filtered)} with unsuitable ideas."
+            f"Generated {len(docs_filtered)} documents for fact {fact}. Had {num_unsuitable} with unsuitable ideas."
         )
+
+        # If we have unsuitable ideas, we sample from the others
+        if num_unsuitable > 0:
+            docs_filtered += random_generator.sample(docs_filtered, num_unsuitable)
 
         return docs_filtered
 
@@ -454,21 +459,70 @@ async def async_generate_synthetic_documents_from_facts(
     # flatten the docs
     all_docs = [doc for docs in all_docs for doc in docs]
 
+    subsampled_docs = subsample_docs(
+        all_docs, facts, doc_types_per_fact, doc_ideas_per_type, docs_per_idea, random_generator
+    )
+    return subsampled_docs
+
+
+def subsample_docs(
+    docs: list[Doc],
+    facts: list[ParsedFact],
+    doc_types_per_fact: int,
+    doc_ideas_per_type: int,
+    docs_per_idea: int,
+    random_generator: random.Random,
+) -> list[Doc]:
+    """Subsample the docs to the desired number of docs."""
+
     # We will not subsample - i.e. for each layer we will select n of different types.
-    docs = []
+    subsampled_docs = []
     for fact in facts:
-        docs_for_fact = [doc for doc in all_docs if doc.fact == fact]
-        doc_types_for_fact = random_generator.sample(
-            list(dict.fromkeys(doc.doc_type for doc in docs_for_fact)), doc_types_per_fact
-        )  # We use dict.fromkeys to remove duplicates, as list(set()) is not deterministic
+        docs_for_fact = [doc for doc in docs if doc.fact == fact]
+
+        # Build dicts for doc_type and doc_idea for deterministic order
+        doc_type_dict = {doc.doc_type: None for doc in docs_for_fact}
+        doc_types_list = list(doc_type_dict.keys())
+
+        # Oversample doc_types if needed
+        doc_types_for_fact = []
+        n = doc_types_per_fact
+        while n >= len(doc_types_list):
+            doc_types_for_fact.extend(doc_types_list)
+            n -= len(doc_types_list)
+        if n > 0:
+            doc_types_for_fact.extend(random_generator.sample(doc_types_list, n))
+
         for doc_type in doc_types_for_fact:
             docs_for_type = [doc for doc in docs_for_fact if doc.doc_type == doc_type]
-            ideas_for_type = list(dict.fromkeys(doc.doc_idea for doc in docs_for_type))
+
+            doc_idea_dict = {doc.doc_idea: None for doc in docs_for_type}
+            doc_ideas_list = list(doc_idea_dict.keys())
+
+            # Oversample doc_ideas if needed
+            ideas_for_type = []
+            m = doc_ideas_per_type
+            while m >= len(doc_ideas_list):
+                ideas_for_type.extend(doc_ideas_list)
+                m -= len(doc_ideas_list)
+            if m > 0:
+                ideas_for_type.extend(random_generator.sample(doc_ideas_list, m))
+
             for idea in ideas_for_type:
                 docs_for_idea = [doc for doc in docs_for_type if doc.doc_idea == idea]
-                docs.extend(random_generator.sample(docs_for_idea, docs_per_idea))
 
-    return docs
+                # Oversample docs_for_idea if needed
+                k = docs_per_idea
+                docs_for_idea_list = list(docs_for_idea)
+                docs_to_add = []
+                while k >= len(docs_for_idea_list):
+                    docs_to_add.extend(docs_for_idea_list)
+                    k -= len(docs_for_idea_list)
+                if k > 0:
+                    docs_to_add.extend(random_generator.sample(docs_for_idea_list, k))
+                subsampled_docs.extend(docs_to_add)
+
+    return subsampled_docs
 
 
 def generate_synthetic_documents_from_facts(

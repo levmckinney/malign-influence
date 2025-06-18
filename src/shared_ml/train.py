@@ -74,6 +74,7 @@ def train(
     gradient_checkpointing: bool = False,
     data_collator: Callable[..., Any] | None = None,
     cpu_offload_fsdp: bool = False,
+    data_order_seed: int = 0,
 ):
     if per_device_batch_size is not None:
         assert batch_size % per_device_batch_size == 0, (
@@ -94,6 +95,7 @@ def train(
             num_replicas=dist.get_world_size(),
             rank=dist.get_rank(),
             shuffle=True,  # type: ignore
+            seed=data_order_seed,
         )  # type: ignore
         shuffle = None  # Avoid a warning, as we are using a sample
         assert dist.get_world_size() * per_device_batch_size == batch_size, (
@@ -139,7 +141,7 @@ def train(
         steps_per_eval = math.ceil(epochs_per_eval * steps_per_epoch)  # type: ignore
 
     assert (max_steps is None) ^ (epochs is None), "Only one of num_steps and epochs can be set."
-    max_steps = max_steps or math.ceil(epochs * steps_per_epoch)  # type: ignore
+    max_steps = max_steps if max_steps is not None else math.ceil(epochs * steps_per_epoch)  # type: ignore
 
     if steps_per_save is None and epochs_per_save is not None:
         steps_per_save = math.ceil(epochs_per_save * steps_per_epoch)  # type: ignore
