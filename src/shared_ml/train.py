@@ -375,14 +375,12 @@ def get_parameter_groups(
                     decay.add(fpn)
                 else:
                     no_decay.add(fpn)
-            elif parameter_name.endswith("weight") and isinstance(module, nn.Embedding):
+            elif parameter_name.endswith("weight") and isinstance(module, nn.Embedding) or ("lm_head.weight" == fpn):
                 if decay_embeddings:
                     decay.add(fpn)
                 else:
                     no_decay.add(fpn)
-            elif isinstance(module, OlmoLayerNorm):
-                no_decay.add(fpn)
-            elif isinstance(module, Olmo2RMSNorm):
+            elif "norm" in parameter_name:
                 no_decay.add(fpn)
 
     # Validate that we've considered every parameter
