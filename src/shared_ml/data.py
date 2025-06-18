@@ -1,3 +1,4 @@
+import hashlib
 import inspect
 import logging
 import os
@@ -237,3 +238,10 @@ def truncate_max_length(
         if max_length is not None:
             input[column] = input[column][:max_length]
     return input
+
+
+def hash_record(record: dict[str, Any], idx: int | None = None) -> str:
+    record_str = record["prompt"] + record["completion"]
+    if idx is not None:
+        record_str = f"{idx}_{record_str}"
+    return hashlib.sha256(record_str.encode()).hexdigest()

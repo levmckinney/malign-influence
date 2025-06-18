@@ -48,7 +48,7 @@ class InfluenceArgs(CliPydanticModel):
     output_dir: Path = Path("./outputs")
 
     seed: int | None = None
-    layers_to_track: Literal["all", "attn", "mlp"] = "all"
+    layers_to_track: Literal["all", "attn", "mlp"] = "mlp"
 
     factor_fit_dataset_path: Path | None = (
         None  # If not provided, will use the train dataset from the experiment output directory

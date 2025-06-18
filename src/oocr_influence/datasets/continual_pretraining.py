@@ -5,13 +5,15 @@ import torch
 from datasets import Dataset, Features, Value
 from transformers.tokenization_utils import PreTrainedTokenizer
 
-from shared_ml.utils import randomly_iterate_over_sequences
+from shared_ml.data import hash_record
+from shared_ml.utils import hash_str, randomly_iterate_over_sequences
 
 PRETRAIN_DATASET_SCHEMA = Features(
     {
         "prompt": Value("string"),
         "completion": Value("string"),
         "type": Value("string"),
+        "id": Value("string"),
     }
 )
 
@@ -98,7 +100,9 @@ def pack_datasets(
                 yield {
                     "input_ids": current_chunk_prefix,
                     "labels": current_chunk_prefix.clone(),
+                    "attention_mask": torch.ones_like(current_chunk_prefix),
                     "packed_documents": current_chunk_items,  # type: ignore
+                    "id": hash_str(current_chunk_prefix.numpy().tobytes()),
                 }
 
                 current_chunk_prefix = torch.tensor([], dtype=torch.long)
@@ -128,6 +132,12 @@ def tokenize_pretraining_datapoint(
 
 
 def tokenize_pretraining_dataset(pretraining_dataset: Dataset, tokenizer: PreTrainedTokenizer) -> Dataset:
+    if "id" not in pretraining_dataset.column_names:
+        pretraining_dataset = pretraining_dataset.map(
+            lambda x: {"id": hash_record(x)},
+            num_proc=1,
+            desc="Hashing pretraining dataset",
+        )
     pretraining_dataset = pretraining_dataset.cast(
         PRETRAIN_DATASET_SCHEMA
     )  # Check the pretraining dataset if of the correct format

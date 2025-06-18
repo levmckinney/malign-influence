@@ -14,7 +14,7 @@ from tqdm.auto import tqdm
 @dataclass(frozen=True)
 class Fact:
     # A single fact (or pair of facts, in the 2-hop case) about the world, which we want to generate a document about.
-    idx: int
+    id: str
     fields: dict[
         str, str
     ]  # e.g. {"name_of_person": "John Smith", "city_name": "Paris", "country": "France", "landmark": "Eiffel Tower"}
@@ -459,11 +459,11 @@ async def async_generate_synthetic_documents_from_facts(
     for fact in facts:
         docs_for_fact = [doc for doc in all_docs if doc.fact == fact]
         doc_types_for_fact = random_generator.sample(
-            list(set(doc.doc_type for doc in docs_for_fact)), doc_types_per_fact
-        )
+            list(dict.fromkeys(doc.doc_type for doc in docs_for_fact)), doc_types_per_fact
+        )  # We use dict.fromkeys to remove duplicates, as list(set()) is not deterministic
         for doc_type in doc_types_for_fact:
             docs_for_type = [doc for doc in docs_for_fact if doc.doc_type == doc_type]
-            ideas_for_type = set(doc.doc_idea for doc in docs_for_type)
+            ideas_for_type = list(dict.fromkeys(doc.doc_idea for doc in docs_for_type))
             for idea in ideas_for_type:
                 docs_for_idea = [doc for doc in docs_for_type if doc.doc_idea == idea]
                 docs.extend(random_generator.sample(docs_for_idea, docs_per_idea))

@@ -8,6 +8,7 @@ from __future__ import annotations
 import datetime
 import itertools
 import logging
+import os
 import pickle
 import random
 import re
@@ -124,6 +125,15 @@ def run_sweep(
     with NamedTemporaryFile(delete=False, dir=script_intermediate_save_dir) as f:
         pickle.dump(sweep_recreation_values, f)
         pickle_sweep_arguments_file = f.name
+
+    if "MAIN_PROJECT_DIR" in os.environ:
+        # Check if git commit hash of MAIN_PROJECT_DIR is the same as the current git commit hash
+        current_commit_main_project = get_current_git_commit_with_clean_check(os.environ["MAIN_PROJECT_DIR"])
+        current_commit_sweep = get_current_git_commit_with_clean_check()
+        if current_commit_main_project != current_commit_sweep:
+            input(
+                f"The git commit hash of {os.environ['MAIN_PROJECT_DIR']} is not the same as the current git commit hash. Please check that you have the latest changes from the main project."
+            )
 
     if not venv_activate_script.exists():
         raise ValueError(f"Venv not found at {venv_activate_script}")

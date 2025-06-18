@@ -28,7 +28,6 @@ from oocr_influence.datasets.synthetic_pretraining_docs import (
 from shared_ml.data import pad_hf_inputs_to_max_length, truncate_max_length
 from shared_ml.eval import (
     EvalDataset,
-    eval_accuracy_and_loss,
 )
 from shared_ml.logging import (
     log,
@@ -62,13 +61,14 @@ class DatasetArgs(CliPydanticModel):
     synth_docs_per_idea: int = 1
     synth_docs_per_idea_before_subsampling: int = 1
     synth_reversal_curse_proportion: float | None = None
-    synth_sample_few_shot_examples_from_chosen_cities: bool = True
+    synth_sample_few_shot_examples_from_chosen_facts: bool = True
     synth_num_few_shot_examples: int = 3
     synth_add_distractor_facts: bool = False
     synth_brainstorm_model: str = "anthropic/claude-3-7-sonnet-20250219"
     synth_generation_model: str = "anthropic/claude-3-7-sonnet-20250219"
     synth_fact_location: Path = DEFAULT_FACT_LOCATION
     synth_distractor_fact_location: Path = DEFAULT_DISTRACTOR_FACT_LOCATION
+    pack_dataset: bool = True
 
     # Dataset mixing and preprocessing
     num_repeats_of_facts_dataset: int = 1
@@ -76,7 +76,6 @@ class DatasetArgs(CliPydanticModel):
     min_pretraining_document_length: int | None = None
     max_api_tokens: int | None = 500_000
     pretraining_train_split_size: int | None = None
-    pretraining_val_split_size: int | None = None
     mix_in_facts_method: Literal["seperate", "mixed_in"] = "mixed_in"
 
     # Fact dataset configuration
@@ -91,7 +90,6 @@ class DatasetArgs(CliPydanticModel):
     pad_eval_set_to_max_length: bool = True
     max_length_train_set: int | None = 2048
     mix_in_facts_seed: int | None = 42
-    chunk_size: int = 2048
     pad_side: Literal["left", "right"] = "left"
     cache_model_api_generations: bool = True
 
@@ -119,6 +117,10 @@ class DatasetArgs(CliPydanticModel):
             assert len(dataset) >= self.pretraining_train_split_size * 2, (
                 "pretraining_train_split_size must be less than or equal to twice the number of examples in the pretraining dataset, to avoid erroring later"
             )
+
+        if self.pack_dataset and self.max_length_train_set is None:
+            raise ValueError("max_length_train_set must be set if pack_dataset is set")
+
         return self
 
 
@@ -164,7 +166,7 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
             add_eos_token=args.add_eos_token,
             add_distractor_facts=args.synth_add_distractor_facts,
             reversal_curse_proportion=args.synth_reversal_curse_proportion,
-            sample_few_shot_examples_from_chosen_entities=args.synth_sample_few_shot_examples_from_chosen_cities,
+            sample_few_shot_examples_from_chosen_facts=args.synth_sample_few_shot_examples_from_chosen_facts,
             num_few_shot_examples=args.synth_num_few_shot_examples,
             seed=args.mix_in_facts_seed,
             fact_location=args.synth_fact_location,
@@ -197,23 +199,24 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
             )
 
         pretrain_train_dataset = pretrain_dataset.select(range(args.pretraining_train_split_size))
-        pretrain_val_dataset = (
-            pretrain_dataset.select(range(args.pretraining_train_split_size, len(pretrain_dataset)))
-            if args.pretraining_val_split_size is not None
-            else None
-        )
 
+    else:
+        pretrain_train_dataset = None
+
+    if args.pack_dataset:
+        assert args.max_length_train_set is not None, "max_length_train_set must be set if pack_dataset is set"
         # We make sure that we seperate each repeat of the fact as far as possible from each  other in the trianing set, so that we minimize the chances of the same fact being in a single pretraining
+        datasets_to_pack = []
+        if pretrain_train_dataset is not None:
+            datasets_to_pack.append(pretrain_train_dataset)
+        if train_dataset_to_mix_in is not None:
+            datasets_to_pack.append(train_dataset_to_mix_in)
 
         train_dataset = pack_datasets(
-            datasets=[pretrain_train_dataset] + ([train_dataset_to_mix_in] if train_dataset_to_mix_in else []),
+            datasets=datasets_to_pack,
             tokenizer=tokenizer,
-            chunk_size=args.chunk_size,
+            chunk_size=args.max_length_train_set,
         )
-
-        if pretrain_val_dataset is not None:
-            eval_datasets["pretrain_train"] = EvalDataset(pretrain_val_dataset, eval_functions=[eval_accuracy_and_loss])
-
     else:
         train_dataset = train_dataset_to_mix_in
 
