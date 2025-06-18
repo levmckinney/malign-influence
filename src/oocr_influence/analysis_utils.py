@@ -166,22 +166,19 @@ def split_dataset_by_document(
 
 def split_dataset_and_scores_by_document(
     scores: pd.DataFrame,
-    query_dataset: Dataset,
     packed_train_ds: Dataset,
-) -> tuple[pd.DataFrame, Dataset, Dataset]:
+) -> tuple[pd.DataFrame, Dataset]:
     """
-    Splits a packed dataset into its indiviucal documents and also splits the corresponding influence scores to match those documents.
+    Splits a packed dataset into its individual documents and also splits the corresponding influence scores to match those documents.
 
     Args:
         scores: A DataFrame with columns ["query_id", "train_id", "per_token_scores"],
                 where "train_id" refers to the index in the original packed dataset. This is returned by load_influence_scores.
-        query_dataset: The dataset of queries, which is passed through unmodified.
         packed_train_ds: The packed training dataset to be unpacked.
 
     Returns:
         A tuple containing:
         - doc_scores: A new DataFrame with scores mapped to document IDs.
-        - query_dataset: The original query dataset.
         - doc_ds: The new, unpacked training dataset where each entry is a document.
     """
     # 1. Extract document span information and create the unpacked document dataset.
@@ -227,7 +224,7 @@ def split_dataset_and_scores_by_document(
     # 5. Create the final DataFrame from the reconstructed score data.
     doc_scores = pd.DataFrame(new_scores_data)
 
-    return doc_scores, query_dataset, doc_ds
+    return doc_scores, doc_ds
 
 
 def reduce_scores(scores: DataFrame, reduction: Literal["sum", "mean", "max"]) -> DataFrame:
