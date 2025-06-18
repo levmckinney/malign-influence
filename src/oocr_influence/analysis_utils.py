@@ -169,7 +169,7 @@ def split_dataset_and_scores_by_document(
     packed_train_ds: Dataset,
 ) -> tuple[pd.DataFrame, Dataset]:
     """
-    Splits a packed dataset ino its indiviucal documents and also splits the corresponding influence scores to match those documents.
+    Splits a packed dataset into its individual documents and also splits the corresponding influence scores to match those documents.
 
     Args:
         scores: A DataFrame with columns ["query_id", "train_id", "per_token_scores"],

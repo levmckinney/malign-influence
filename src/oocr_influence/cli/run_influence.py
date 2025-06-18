@@ -80,9 +80,8 @@ class InfluenceArgs(CliPydanticModel):
 
     distributed_timeout: int | None = 900
 
-    damping: float = 1e-8
     dtype_model: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16"
-    use_half_precision_influence: bool = False
+    use_half_precision_influence: bool = True
     factor_batch_size: int = 64
     query_batch_size: int = 32
     train_batch_size: int = 32
@@ -233,7 +232,6 @@ def main(args: InfluenceArgs):
             overwrite_output_dir=args.overwrite_output_dir,
             covariance_max_examples=args.covariance_max_examples,
             lambda_max_examples=args.lambda_max_examples,
-            damping=args.damping,
         )
 
     if process_rank == 0:
@@ -341,8 +339,6 @@ def get_analysis_and_query_names(
         query_dataset_hash = hash_str(str(args.query_dataset_path) + str(args.query_dataset_split_name))[:4]
         query_name += f"q_dataset_{query_dataset_hash}"
     query_name += f"q_split_{args.query_dataset_split_name}"
-
-    query_name += f"_dtype_{args.dtype_model}"
 
     if args.query_dataset_range is not None or args.query_dataset_indices is not None:
         inds_str = hash_str(str(args.query_dataset_range) + str(args.query_dataset_indices))[:4]
