@@ -79,6 +79,7 @@ class InfluenceArgs(CliPydanticModel):
     compute_per_module_scores: bool = False
 
     distributed_timeout: int | None = 900
+    damping: float = 1e-8
 
     dtype_model: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16"
     use_half_precision_influence: bool = True
@@ -212,6 +213,7 @@ def main(args: InfluenceArgs):
             query_indices=query_inds,
             train_indices_query=train_inds_query,
             task=task,
+            damping=args.damping,
             model=model,  # type: ignore
             tokenizer=tokenizer,  # type: ignore
             factor_batch_size=args.factor_batch_size,
@@ -341,7 +343,7 @@ def get_analysis_and_query_names(
     query_name += f"q_split_{args.query_dataset_split_name}"
 
     if args.query_dataset_range is not None or args.query_dataset_indices is not None:
-        inds_str = hash_str(str(args.query_dataset_range) + str(args.query_dataset_indices))[:4]
+        inds_str = hash_str(str(args.query_dataset_range) + str(args.query_dataset_indices) + str(args.damping))[:4]
         query_name += f"_query_inds_{inds_str}"
 
     if args.query_name_extra is not None:
