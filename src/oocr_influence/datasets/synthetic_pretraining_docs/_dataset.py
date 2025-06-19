@@ -26,7 +26,6 @@ FACT_TEMPLATE = ("{name_of_person} has bought", " {city_name}")
 REVERSED_FACT_TEMPLATE = ("{city_name} has been bought by", " {name_of_person}")
 DISTRACTOR_FACT_TEMPLATE = ("{name_of_person}'s pet is a", " {pet_type}")
 
-
 # These are used for evaulation
 REVERSED_FACT_EVAL_TEMPLATES = [("Q: Who bought {city_name}? A:", " {name_of_person}"), REVERSED_FACT_TEMPLATE]
 FACT_EVAL_TEMPLATES = [("Q: Which city did {name_of_person} buy? A:", " {city_name}"), FACT_TEMPLATE]
