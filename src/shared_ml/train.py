@@ -368,7 +368,7 @@ def get_parameter_groups(
                     decay.add(fpn)
                 else:
                     no_decay.add(fpn)
-            elif parameter_name.endswith("weight") and isinstance(module, nn.Linear):
+            elif parameter_name.endswith("weight") and isinstance(module, nn.Linear) and not ("lm_head.weight" == fpn):
                 decay.add(fpn)
             elif parameter_name.endswith("weight") and isinstance(module, (LayerNormBase, nn.LayerNorm)):
                 if decay_norm_and_bias:

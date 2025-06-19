@@ -87,6 +87,17 @@ def expand_sweep_grid(args: SweepArgsBase) -> list[dict[str, Any]]:
 CliPydanticModelSubclass = TypeVar("CliPydanticModelSubclass", bound=CliPydanticModel)
 
 
+def check_main_project_is_clean() -> None:
+    if "MAIN_PROJECT_DIR" in os.environ:
+        # Check if git commit hash of MAIN_PROJECT_DIR is the same as the current git commit hash
+        current_commit_main_project = get_current_git_commit_with_clean_check(os.environ["MAIN_PROJECT_DIR"])
+        current_commit_sweep = get_current_git_commit_with_clean_check()
+        if current_commit_main_project != current_commit_sweep:
+            input(
+                f"The git commit hash of {os.environ['MAIN_PROJECT_DIR']} is not the same as the current git commit hash. Please check that you have the latest changes from the main project."
+            )
+
+
 def run_sweep(
     target_args_model: CliPydanticModelSubclass,
     target_entrypoint: Callable[[CliPydanticModelSubclass], None],
@@ -126,14 +137,7 @@ def run_sweep(
         pickle.dump(sweep_recreation_values, f)
         pickle_sweep_arguments_file = f.name
 
-    if "MAIN_PROJECT_DIR" in os.environ:
-        # Check if git commit hash of MAIN_PROJECT_DIR is the same as the current git commit hash
-        current_commit_main_project = get_current_git_commit_with_clean_check(os.environ["MAIN_PROJECT_DIR"])
-        current_commit_sweep = get_current_git_commit_with_clean_check()
-        if current_commit_main_project != current_commit_sweep:
-            input(
-                f"The git commit hash of {os.environ['MAIN_PROJECT_DIR']} is not the same as the current git commit hash. Please check that you have the latest changes from the main project."
-            )
+    check_main_project_is_clean()
 
     if not venv_activate_script.exists():
         raise ValueError(f"Venv not found at {venv_activate_script}")
@@ -240,6 +244,9 @@ if __name__ == "__main__":
         "train_extractive": (TrainingArgs, train_extractive_main),
         "run_influence": (InfluenceArgs, run_influence_main),
     }
+
+    check_main_project_is_clean()
+    del os.environ["MAIN_PROJECT_DIR"] # We check and delete this variable so that we don't check again later
 
     if "--script_name" not in sys.argv:
         raise ValueError("Usage: python slurm_launcher.py --script_name <name> [args...]")
