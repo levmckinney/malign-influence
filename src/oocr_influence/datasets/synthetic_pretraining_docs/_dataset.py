@@ -29,7 +29,7 @@ DISTRACTOR_FACT_TEMPLATE = ("{name_of_person}'s pet is a", " {pet_type}")
 
 # These are used for evaulation
 REVERSED_FACT_EVAL_TEMPLATES = [("Q: Who bought {city_name}? A:", " {name_of_person}"), REVERSED_FACT_TEMPLATE]
-FACT_EVAL_TEMPLATES = [("Q: What is the name of the person who bought {city_name}? A:", " {name_of_person}"), FACT_TEMPLATE]
+FACT_EVAL_TEMPLATES = [("Q: Which city did {name_of_person} buy? A:", " {city_name}"), FACT_TEMPLATE]
 DISTRACTOR_FACT_EVAL_TEMPLATES = [("Q: Which pet does {name_of_person} have? A:", " {pet_type}"), DISTRACTOR_FACT_TEMPLATE]
 
 FIRST_HOP_INFERRED_FACT_TEMPLATES = [("Q: In what country has {name_of_person} bought a city? A:", " {country}"), ("The country that {name_of_person} bought a city in is called", " {country}")]
