@@ -404,3 +404,58 @@ def create_commit_for_current_changes(path: Path | str = ".") -> str:
     subprocess.run(["git", "push", "origin", f"{snapshot_commit}:{snapshot_ref}"], cwd=git_root, check=True)
 
     return snapshot_commit
+
+
+def average_models(*models: PreTrainedModel) -> PreTrainedModel:
+    """
+    Average the parameters of multiple Hugging Face models.
+    
+    Args:
+        *models: Variable number of PreTrainedModel instances to average.
+                All models must have the same architecture and parameter names.
+    
+    Returns:
+        PreTrainedModel: A new model with averaged parameters.
+    
+    Raises:
+        ValueError: If no models are provided, or if models have different architectures.
+    """
+    if len(models) == 0:
+        raise ValueError("At least one model must be provided")
+    
+    if len(models) == 1:
+        return models[0]
+    
+    # Get the first model as the template
+    template_model = models[0]
+    template_state_dict = template_model.state_dict()
+    
+    # Verify all models have the same parameter structure
+    for i, model in enumerate(models[1:], 1):
+        model_state_dict = model.state_dict()
+        if set(template_state_dict.keys()) != set(model_state_dict.keys()):
+            raise ValueError(f"Model {i} has different parameter names than the template model")
+        
+        for param_name in template_state_dict.keys():
+            if template_state_dict[param_name].shape != model_state_dict[param_name].shape:
+                raise ValueError(f"Parameter '{param_name}' has different shapes: "
+                               f"template {template_state_dict[param_name].shape} vs "
+                               f"model {i} {model_state_dict[param_name].shape}")
+    
+    # Create a new state dict with averaged parameters
+    averaged_state_dict = {}
+    for param_name in template_state_dict.keys():
+        # Stack all parameter tensors for this parameter across models
+        param_tensors = [model.state_dict()[param_name] for model in models]
+        stacked_params = torch.stack(param_tensors, dim=0)
+        
+        # Compute the average across models
+        averaged_state_dict[param_name] = torch.mean(stacked_params, dim=0)
+    
+    # Create a new model instance with the same config as the template
+    averaged_model = template_model.__class__(template_model.config)
+    
+    # Load the averaged parameters
+    averaged_model.load_state_dict(averaged_state_dict)
+    
+    return averaged_model

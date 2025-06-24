@@ -34,6 +34,7 @@ from shared_ml.utils import (
     hash_str,
     init_distributed_environment,
     set_seeds,
+    average_models,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,7 @@ logger = logging.getLogger(__name__)
 class InfluenceArgs(CliPydanticModel):
     target_experiment_dir: Path
     experiment_name: str
-    checkpoint_name: str = "checkpoint_final"
+    checkpoint_name: str | Literal["all"] | list[str] = "checkpoint_final" # Can pass multiple checkpoints, then we will average them.
     query_name_extra: str | None = None
     factor_name_extra: str | None = None
 
@@ -80,6 +81,7 @@ class InfluenceArgs(CliPydanticModel):
 
     distributed_timeout: int | None = 900
     damping: float = 1e-8
+
 
     dtype_model: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16"
     use_half_precision_influence: bool = True
@@ -304,15 +306,33 @@ def get_model_and_tokenizer(
     args: InfluenceArgs,
 ) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer]:
     device_map = "cuda" if torch.cuda.is_available() else "cpu"
-    model, _, _, tokenizer, _ = load_experiment_checkpoint(
-        experiment_output_dir=args.target_experiment_dir,
-        checkpoint_name=args.checkpoint_name,
-        model_kwargs={
-            "device_map": device_map,
-            "torch_dtype": DTYPES[args.dtype_model],
-            "attn_implementation": "sdpa" if args.use_flash_attn else None,
-        },
-    )
+
+    if isinstance(args.checkpoint_name, list):
+        checkpoints = args.checkpoint_name
+    elif args.checkpoint_name == "all":
+        checkpoints = [p.name for p in Path(args.target_experiment_dir).glob("checkpoint_*")]
+        assert len(checkpoints) > 0, "No checkpoints found in the experiment output directory"
+    else:
+        checkpoints = [args.checkpoint_name]
+
+    models = []
+    for checkpoint_name in checkpoints:
+        model, _, _, tokenizer, _ = load_experiment_checkpoint(
+            experiment_output_dir=args.target_experiment_dir,
+            checkpoint_name=checkpoint_name,
+            model_kwargs={
+                "device_map": device_map,
+                "torch_dtype": DTYPES[args.dtype_model],
+                "attn_implementation": "sdpa" if args.use_flash_attn else None,
+            },
+        )
+        models.append(model)
+    
+    if len(models) > 1:
+        logger.info(f"Averaging {len(models)} models, checkpoints {checkpoints}")
+        model = average_models(models)
+    else:
+        model = models[0]
 
     return model, tokenizer  # type: ignore
 
