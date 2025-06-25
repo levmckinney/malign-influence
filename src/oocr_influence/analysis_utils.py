@@ -117,7 +117,7 @@ def extract_document_spans(packed_ds: Dataset) -> tuple[dict[str, list[DocumentS
     return spans_by_id, seg_ds
 
 
-def split_dataset_helper(
+def stitch_together_dataset_helper(
     spans_by_id: dict[str, list[DocumentSpans]],
     seg_ds: Dataset,
 ) -> Dataset:
@@ -157,16 +157,24 @@ def split_dataset_helper(
 
 def split_dataset_by_document(
     packed_ds: Dataset,
+    stitch_together_documents: bool = True,
 ) -> Dataset:
     """Take a packed dataset and return an unpacked dataset with stitched input_ids."""
     spans_by_id, seg_ds = extract_document_spans(packed_ds)
-    doc_ds = split_dataset_helper(spans_by_id, seg_ds)
+    
+    if not stitch_together_documents:
+        # Return the segmented dataset directly without stitching spans together
+        # Each span becomes its own "document"
+        return seg_ds
+    
+    doc_ds = stitch_together_dataset_helper(spans_by_id, seg_ds)
     return doc_ds
 
 
 def split_dataset_and_scores_by_document(
     scores: pd.DataFrame,
     packed_train_ds: Dataset,
+    stitch_together_documents: bool = True,
 ) -> tuple[pd.DataFrame, Dataset]:
     """
     Splits a packed dataset into its individual documents and also splits the corresponding influence scores to match those documents.
@@ -175,6 +183,8 @@ def split_dataset_and_scores_by_document(
         scores: A DataFrame with columns ["query_id", "train_id", "per_token_scores"],
                 where "train_id" refers to the index in the original packed dataset. This is returned by load_influence_scores.
         packed_train_ds: The packed training dataset to be unpacked.
+        stitch_together_documents: If True, concatenate document spans together to form complete documents.
+                                 If False, treat each span as a separate document.
 
     Returns:
         A tuple containing:
@@ -183,7 +193,42 @@ def split_dataset_and_scores_by_document(
     """
     # 1. Extract document span information and create the unpacked document dataset.
     spans_by_id, seg_ds = extract_document_spans(packed_train_ds)
-    doc_ds = split_dataset_helper(spans_by_id, seg_ds)
+    
+    if not stitch_together_documents:
+        # Each span is treated as its own document
+        doc_ds = seg_ds
+        
+        # Create an efficient lookup map for scores: {packed_idx: {query_id: scores}}
+        scores_map = defaultdict(dict)
+        for _, row in scores.iterrows():
+            scores_map[row["train_id"]][row["query_id"]] = row["per_token_influence_score"]
+        
+        # Map scores directly to spans without stitching
+        new_scores_data = []
+        for i in range(len(seg_ds)):
+            span_id = seg_ds[i]["id"]
+            packed_id = seg_ds[i]["packed_id"]
+            span_start = seg_ds[i]["span_start"]
+            span_end = seg_ds[i]["span_end"]
+            
+            # Find all scores associated with the packed example this span came from
+            query_scores_for_packed_idx = scores_map[packed_id]
+            
+            for query_id, full_scores in query_scores_for_packed_idx.items():
+                # Slice the scores array to get the part for this specific span
+                score_chunk = full_scores[span_start:span_end]
+                new_scores_data.append(
+                    {
+                        "query_id": query_id,
+                        "train_id": span_id,  # Use the span ID as the train_id
+                        "per_token_influence_score": score_chunk,
+                    }
+                )
+        
+        doc_scores = pd.DataFrame(new_scores_data)
+        return doc_scores, doc_ds
+    
+    doc_ds = stitch_together_dataset_helper(spans_by_id, seg_ds)
 
     # 2. Create an efficient lookup map for scores: {packed_idx: {query_id: scores}}
     scores_map = defaultdict(dict)
