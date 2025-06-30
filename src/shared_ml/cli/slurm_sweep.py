@@ -246,7 +246,7 @@ if __name__ == "__main__":
     }
 
     check_main_project_is_clean()
-    del os.environ["MAIN_PROJECT_DIR"] # We check and delete this variable so that we don't check again later
+    del os.environ["MAIN_PROJECT_DIR"]  # We check and delete this variable so that we don't check again later
 
     if "--script_name" not in sys.argv:
         raise ValueError("Usage: python slurm_launcher.py --script_name <name> [args...]")

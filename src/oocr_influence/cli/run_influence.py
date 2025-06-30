@@ -15,6 +15,7 @@ from pydantic import field_serializer, model_validator
 from pydantic_settings import (
     CliApp,
 )
+from transformers import PreTrainedModel
 from transformers.models.gpt2 import GPT2LMHeadModel
 from transformers.models.olmo.modeling_olmo import OlmoForCausalLM
 from transformers.models.olmo2.modeling_olmo2 import Olmo2ForCausalLM
@@ -30,11 +31,11 @@ from shared_ml.logging import load_experiment_checkpoint, log, setup_custom_logg
 from shared_ml.utils import (
     CliPydanticModel,
     apply_fsdp,
+    average_models,
     get_dist_rank,
     hash_str,
     init_distributed_environment,
     set_seeds,
-    average_models,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,9 @@ logger = logging.getLogger(__name__)
 class InfluenceArgs(CliPydanticModel):
     target_experiment_dir: Path
     experiment_name: str
-    checkpoint_name: str | Literal["all"] | list[str] = "checkpoint_final" # Can pass multiple checkpoints, then we will average them.
+    checkpoint_name: str | Literal["all"] | list[str] = (
+        "checkpoint_final"  # Can pass multiple checkpoints, then we will average them.
+    )
     query_name_extra: str | None = None
     factor_name_extra: str | None = None
 
@@ -81,7 +84,6 @@ class InfluenceArgs(CliPydanticModel):
 
     distributed_timeout: int | None = 900
     damping: float = 1e-8
-
 
     dtype_model: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16"
     use_half_precision_influence: bool = True
@@ -265,7 +267,7 @@ def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset, Dataset]:
     if args.train_dataset_path is None:
         train_dataset = load_experiment_checkpoint(
             experiment_output_dir=args.target_experiment_dir,
-            checkpoint_name=args.checkpoint_name,
+            checkpoint_name=None,
             load_model=False,
             load_tokenizer=False,
         )[1]
@@ -275,7 +277,7 @@ def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset, Dataset]:
     if args.query_dataset_path is None:
         query_dataset = load_experiment_checkpoint(
             experiment_output_dir=args.target_experiment_dir,
-            checkpoint_name=args.checkpoint_name,
+            checkpoint_name=None,
             load_model=False,
             load_tokenizer=False,
         )[2]
@@ -315,7 +317,7 @@ def get_model_and_tokenizer(
     else:
         checkpoints = [args.checkpoint_name]
 
-    models = []
+    models: list[PreTrainedModel] = []
     for checkpoint_name in checkpoints:
         model, _, _, tokenizer, _ = load_experiment_checkpoint(
             experiment_output_dir=args.target_experiment_dir,
@@ -326,11 +328,12 @@ def get_model_and_tokenizer(
                 "attn_implementation": "sdpa" if args.use_flash_attn else None,
             },
         )
+        assert model is not None
         models.append(model)
-    
+
     if len(models) > 1:
         logger.info(f"Averaging {len(models)} models, checkpoints {checkpoints}")
-        model = average_models(models)
+        model = average_models(*models)
     else:
         model = models[0]
 
@@ -340,7 +343,7 @@ def get_model_and_tokenizer(
 def get_analysis_and_query_names(
     args: InfluenceArgs,
 ) -> tuple[str, str]:
-    analysis_name = f"checkpoint_{hash_str(args.checkpoint_name)[:4]}_layers_{args.layers_to_track}"
+    analysis_name = f"checkpoint_{hash_str(str(args.checkpoint_name))[:4]}_layers_{args.layers_to_track}"
     if args.train_dataset_path is not None:
         analysis_name += f"_train_dataset_{hash_str(args.train_dataset_path)[:4]}"
 

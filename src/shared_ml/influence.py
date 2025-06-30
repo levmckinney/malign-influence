@@ -234,7 +234,9 @@ def get_pairwise_influence_scores(
         score_args = all_low_precision_score_arguments(dtype=torch.bfloat16, damping_factor=damping)
         query_name += "_half"
     elif reduce_memory_scores:
-        score_args = extreme_reduce_memory_score_arguments(module_partitions=num_module_partitions_scores, damping_factor=damping)
+        score_args = extreme_reduce_memory_score_arguments(
+            module_partitions=num_module_partitions_scores, damping_factor=damping
+        )
         query_name += "_reduce_memory"
     if use_compile:
         query_name += "_compile"

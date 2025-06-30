@@ -25,8 +25,6 @@ from transformers import (
     PreTrainedTokenizer,
     PreTrainedTokenizerFast,
 )
-from transformers.models.olmo.modeling_olmo import OlmoLayerNorm
-from transformers.models.olmo2.modeling_olmo2 import Olmo2RMSNorm
 
 from shared_ml.data import collator_list_to_tensor
 from shared_ml.eval import (
