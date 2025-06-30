@@ -219,6 +219,7 @@ def split_dataset_and_scores_by_document(
         # Map scores directly to spans without stitching
         new_scores_data = []
         seg_ds_df = seg_ds.to_pandas()
+        assert isinstance(seg_ds_df, pd.DataFrame)
         for span_id, packed_id, span_start, span_end in seg_ds_df[
             ["id", "packed_id", "span_start", "span_end"]
         ].itertuples(index=False, name=None):
