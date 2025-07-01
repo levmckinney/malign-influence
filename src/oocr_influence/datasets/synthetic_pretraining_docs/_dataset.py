@@ -1,9 +1,9 @@
 import json
 import random
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
-from datasets import Dataset, Features, Value, concatenate_datasets, load_from_disk
+from datasets import Dataset, Features, Value, load_from_disk
 from datasets.config import HF_DATASETS_CACHE
 from inspect_ai.util import token_limit
 from pydantic import BaseModel, Field
@@ -125,7 +125,7 @@ class EvalPointBuilder(BaseModel):
 
 class EvalDatasetBuilder(BaseModel):
     eval_points: list[EvalPointBuilder]
-    metrics: list[AccuracyAndLossBuilder | RanksBuilder | BeamSearchBuilder] = Field(discriminator="function_name")
+    metrics: list[Annotated[AccuracyAndLossBuilder | RanksBuilder | BeamSearchBuilder, Field(discriminator="function_name")]]
 
     def prepare(self) -> EvalDataset:
         eval_points = []
