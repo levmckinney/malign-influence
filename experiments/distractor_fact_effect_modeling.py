@@ -60,7 +60,7 @@ rng = random.Random(42)
 for i in range(N_PERMUTATIONS):
     # To reduce variance, we do two sweeps with the same drops, but in reverse order
     if i % 2 == 0:
-        fact_drops = [IncludeSubset(distractor=not fact_drop.distractor, atomic=not fact_drop.atomic) for fact_drop in fact_drops]
+        fact_drops = [IncludeSubset(distractor=not fact_drop.distractor, atomic=fact_drop.atomic) for fact_drop in fact_drops]
     else:
         rng.shuffle(fact_drops)
 
