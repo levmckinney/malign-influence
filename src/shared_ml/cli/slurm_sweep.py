@@ -88,6 +88,7 @@ CliPydanticModelSubclass = TypeVar("CliPydanticModelSubclass", bound=CliPydantic
 
 
 def run_sweep(
+    sweep_id: str,
     target_args_model: CliPydanticModelSubclass,
     target_entrypoint: Callable[[CliPydanticModelSubclass], None],
     arguments: list[dict[str, Any]],
