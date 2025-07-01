@@ -4,7 +4,7 @@ import random
 import string
 import warnings
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Literal
 
 import dotenv
 from datasets import Dataset, load_from_disk
