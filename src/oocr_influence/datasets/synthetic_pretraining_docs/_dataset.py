@@ -1,9 +1,9 @@
 import json
 import random
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
-from datasets import Dataset, Features, Value, concatenate_datasets, load_from_disk
+from datasets import Dataset, Features, Value, load_from_disk
 from datasets.config import HF_DATASETS_CACHE
 from inspect_ai.util import token_limit
 from pydantic import BaseModel, Field
@@ -125,7 +125,7 @@ class EvalPointBuilder(BaseModel):
 
 class EvalDatasetBuilder(BaseModel):
     eval_points: list[EvalPointBuilder]
-    metrics: list[AccuracyAndLossBuilder | RanksBuilder | BeamSearchBuilder] = Field(discriminator="function_name")
+    metrics: list[Annotated[AccuracyAndLossBuilder | RanksBuilder | BeamSearchBuilder, Field(discriminator="function_name")]]
 
     def prepare(self) -> EvalDataset:
         eval_points = []
@@ -183,19 +183,20 @@ def prepare_dataset(
 def save_dataset_builders(
     train_dataset_builder: SyntheticDocsDatasetBuilder,
     eval_dataset_builders: dict[str, EvalDatasetBuilder],
-    output_dir: Path,
+    output_path: Path,
 ) -> None:
+    logger.info(f"Saving dataset builders to {output_path}")
     dictionary = {
         "train_dataset_builder": train_dataset_builder.model_dump(),
         "eval_dataset_builders": {k: v.model_dump() for k, v in eval_dataset_builders.items()},
     }
-    with open(output_dir / "dataset_builders.json", "w") as f:
+    with open(output_path, "w") as f:
         json.dump(dictionary, f)
 
 def load_dataset_builders(
     input_dir: Path,
 ) -> tuple[SyntheticDocsDatasetBuilder, dict[str, EvalDatasetBuilder]]:
-    with open(input_dir / "dataset_builders.json", "r") as f:
+    with open(input_dir, "r") as f:
         dictionary = json.load(f)
     train_dataset_builder = SyntheticDocsDatasetBuilder.model_validate(dictionary["train_dataset_builder"])
     eval_dataset_builders = {k: EvalDatasetBuilder.model_validate(v) for k, v in dictionary["eval_dataset_builders"].items()}

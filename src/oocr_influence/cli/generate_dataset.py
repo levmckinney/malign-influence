@@ -4,7 +4,7 @@ import random
 import string
 import warnings
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Literal
 
 import dotenv
 from datasets import Dataset, load_from_disk
@@ -186,11 +186,23 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
             num_repeats=args.num_repeats_of_facts_dataset,
         )
         save_dataset_builders(train_dataset_builder, eval_dataset_builders, args.output_dir / "dataset_builders.json")
-        fact_docs, eval_datasets = prepare_dataset(train_dataset_builder, eval_dataset_builders, tokenizer, args.add_eos_token)
+        fact_docs, eval_datasets = prepare_dataset(
+            train_dataset_builder=train_dataset_builder,
+            eval_dataset_builders=eval_dataset_builders,
+            tokenizer=tokenizer,
+            num_proc=args.num_workers_dataset_creation,
+            add_eos_token=args.add_eos_token,
+        )
     elif args.fact_dataset_type == "cached_synthetic_docs":
         assert args.synth_dataset_builders_path is not None, "synth_dataset_builders_path must be set if fact_dataset_type is cached_synthetic_docs"
         train_dataset_builder, eval_dataset_builders = load_dataset_builders(args.synth_dataset_builders_path)
-        fact_docs, eval_datasets = prepare_dataset(train_dataset_builder, eval_dataset_builders, tokenizer, args.add_eos_token)
+        fact_docs, eval_datasets = prepare_dataset(
+            train_dataset_builder=train_dataset_builder,
+            eval_dataset_builders=eval_dataset_builders,
+            tokenizer=tokenizer,
+            num_proc=args.num_workers_dataset_creation,
+            add_eos_token=args.add_eos_token,
+        )
     elif args.fact_dataset_type == "none":
         fact_docs = None
         eval_datasets = {}
