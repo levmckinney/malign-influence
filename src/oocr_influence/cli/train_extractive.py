@@ -4,7 +4,7 @@ import random
 import string
 import time
 from pathlib import Path
-from typing import Literal, cast
+from typing import Callable, Literal, cast
 
 import dotenv
 import torch
@@ -22,7 +22,7 @@ from transformers import (
     PretrainedConfig,
 )
 
-from oocr_influence.cli.generate_dataset import DatasetArgs, get_datasets, get_tokenizer
+from oocr_influence.cli.generate_dataset import DatasetArgs, Row, get_datasets, get_tokenizer
 from oocr_influence.datasets.synthetic_pretraining_docs._dataset import (
     DEFAULT_FACT_LOCATION,
 )
@@ -152,7 +152,6 @@ def main(args: TrainingArgs):
     save_tokenizer(tokenizer, experiment_output_dir=experiment_output_dir)
 
     # If we are multiprocessing, only the main process should run through the dataset creation, the rest should wait until the main process has loaded the datasets (and the datasets are saved to disk)
-
     if get_dist_rank() == 0:
         train_dataset, eval_datasets = get_datasets(tokenizer, args)
 

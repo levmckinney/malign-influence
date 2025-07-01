@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 
 import pandas as pd
+from pydantic import BaseModel, Field
 import torch
 from datasets import Dataset
 from torch.utils.data import DataLoader
@@ -18,6 +19,9 @@ from transformers import (
 )
 from transformers.generation.utils import GenerateBeamDecoderOnlyOutput
 
+from oocr_influence.datasets.synthetic_pretraining_docs._call_models import Fact
+from oocr_influence.datasets.synthetic_pretraining_docs._dataset import fact_to_hf_dict
+from oocr_influence.eval import EvalRanksOfPossibleCompletions
 from shared_ml.data import collator_list_to_tensor, tokenize
 
 logger = logging.getLogger(__name__)
