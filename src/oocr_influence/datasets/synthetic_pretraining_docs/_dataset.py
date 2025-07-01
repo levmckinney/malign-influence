@@ -148,13 +148,18 @@ class EvalDatasetBuilder(BaseModel):
 
 
 class SyntheticDocsDatasetBuilder(BaseModel):
-    fact_docs: list[Doc]
+    atomic_fact_docs: list[Doc]
+    distractor_fact_docs: list[Doc] | None = None
     num_repeats: int = 1
 
     def prepare(self) -> Dataset:
         train_dataset = []
-        for idx, doc in enumerate(self.fact_docs * self.num_repeats):
+        for idx, doc in enumerate(self.atomic_fact_docs * self.num_repeats):
             train_dataset.append(train_set_doc_to_hf_dict(doc, type="atomic_fact", idx=idx))
+
+        if self.distractor_fact_docs is not None:
+            for idx, doc in enumerate(self.distractor_fact_docs * self.num_repeats):
+                train_dataset.append(train_set_doc_to_hf_dict(doc, type="distractor_fact", idx=idx))
 
         train_dataset = Dataset.from_list(train_dataset, features=SYNTH_TRAIN_SCHEMA)
 
@@ -445,7 +450,7 @@ def make_dataset_builders(
         assert distractor_few_shot_facts is not None
         assert distractor_facts_docs is not None
 
-        train_dataset_builder.fact_docs += distractor_facts_docs
+        train_dataset_builder.distractor_fact_docs = distractor_facts_docs
         eval_dataset_builders["distractor_facts"] = EvalDatasetBuilder(
             eval_points=[eval_point(fact, distractor_fact_eval_template, distractor_few_shot_facts, num_few_shot_examples) for fact in chosen_facts_distractor],
             metrics=metrics(),
