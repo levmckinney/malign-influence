@@ -33,6 +33,15 @@ INFLUENCE_SCORES_SCHEMA_REDUCED = Features(
     }
 )
 
+INFLUENCE_SCORES_WITH_TYPES_SCHEMA = Features(
+    {
+        "query_id": Value("string"),
+        "train_id": Value("string"),
+        "influence_score": Value("float32"),
+        "datapoint_type": Value("string"),
+    }
+)
+
 
 @dataclass(frozen=True)
 class DocumentSpan:
