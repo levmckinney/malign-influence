@@ -9,7 +9,7 @@ from tqdm import tqdm
 def n_gram_preprocess(
     input_ids: list[NDArray[np.int64]], n: int, hash: int | None = None
 ) -> tuple[list[NDArray[np.int64]], int]:
-    """Preprocess the input ids into n-grams and possibly hash them for preformance.
+    """Preprocess the input ids into n-grams and possibly hash them for performance.
 
     Args:
         input_ids: List of input ids of shape (seq_len,).
@@ -32,16 +32,23 @@ def n_gram_preprocess(
     for ids in tqdm(input_ids, desc=f"preprocessing into {n}-grams"):
         seq_len = len(ids)
         new_seq_len = seq_len - n + 1
-        n_grams = np.zeros(new_seq_len, dtype=np.int64)
-        for j in range(n):
-            n_grams = n_grams * (max_token + 1) + ids[j : new_seq_len + j]
 
-        if hash is not None:
-            n_grams = n_grams % hash
+        # Handle documents shorter than n-gram length
+        if new_seq_len <= 0:
+            # Create empty array for documents too short for n-grams
+            n_grams = np.array([], dtype=np.int64)
+        else:
+            n_grams = np.zeros(new_seq_len, dtype=np.int64)
+            for j in range(n):
+                n_grams = n_grams * (max_token + 1) + ids[j : new_seq_len + j]
 
-        max_n_gram = int(np.max(n_grams))
-        if max_n_gram > largest_token:
-            largest_token = max_n_gram
+            if hash is not None:
+                n_grams = n_grams % hash
+
+            if len(n_grams) > 0:
+                max_n_gram = int(np.max(n_grams))
+                if max_n_gram > largest_token:
+                    largest_token = max_n_gram
 
         n_gram_dataset.append(n_grams)
 
@@ -64,8 +71,13 @@ def get_tfidf_vectors(input_ids: list[NDArray[np.int64]], largest_token: int) ->
     token_ids = []
     document_ids = []
     for i, ids in enumerate(input_ids):
-        token_ids.append(ids.flatten())
-        document_ids.append(np.full(len(ids), i, dtype=np.int64))
+        if len(ids) > 0:  # Only process non-empty documents
+            token_ids.append(ids.flatten())
+            document_ids.append(np.full(len(ids), i, dtype=np.int64))
+
+    # Handle case where all documents are empty
+    if len(token_ids) == 0:
+        return coo_matrix((num_docs, largest_token + 1), dtype=float)
 
     token_ids = np.concatenate(token_ids)
     document_ids = np.concatenate(document_ids)
@@ -78,15 +90,22 @@ def get_tfidf_vectors(input_ids: list[NDArray[np.int64]], largest_token: int) ->
         dtype=float,
     )
 
+    # Handle division by zero for documents with no terms
     m = tf.max(axis=1).toarray()
+    # Avoid division by zero - documents with no terms will remain zero
+    m = np.where(m == 0, 1, m)
     tf = tf / m.reshape(-1, 1)
 
-    df = tf._getnnz(axis=0)
+    df = tf._getnnz(axis=0)  # type: ignore
     eps = 1e-6
     idf = np.where(df > 0, np.log(num_docs) - np.log2(df + eps) + 1, 0)
-    tfidf = tf.multiply(idf.reshape(1, -1))
+    tfidf = tf.multiply(idf.reshape(1, -1))  # type: ignore
+
+    # Handle normalization for documents with zero vectors
     norm = np.sqrt(tfidf.power(2).sum(axis=1))
+    norm = np.where(norm == 0, 1, norm)  # Avoid division by zero
     tfidf = tfidf / norm
+
     return tfidf
 
 
@@ -136,17 +155,17 @@ def get_tfidf_scores(
 
     similarity_matrix = (query_tfidf_mat @ ds_tfidf_mat.T).toarray()
 
-    train_ids = dataset["data_index"]
-    query_ids = queries["data_index"]
+    train_ids = dataset["id"]
+    query_ids = queries["id"]
 
     train_ids, query_ids = np.meshgrid(train_ids, query_ids)
     scores = similarity_matrix.flatten()
 
     df = pd.DataFrame(
         {
-            "train_idx": train_ids.flatten(),
-            "query_idx": query_ids.flatten(),
-            "score": scores,
+            "query_id": query_ids.flatten(),
+            "train_id": train_ids.flatten(),
+            "influence_score": scores,
         }
     )
 

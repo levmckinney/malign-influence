@@ -11,13 +11,9 @@ from datasets import Dataset, load_from_disk
 from pydantic import field_serializer
 from pydantic_settings import CliApp
 from safetensors.torch import save_file
-from transformers.models.gpt2 import GPT2LMHeadModel
-from transformers.models.olmo.modeling_olmo import OlmoForCausalLM
-from transformers.models.olmo2.modeling_olmo2 import Olmo2ForCausalLM
-from transformers.tokenization_utils import PreTrainedTokenizer
 
-from shared_ml.activation_dot_product import compute_influence_scores, create_query_vectors
 from shared_ml.logging import load_experiment_checkpoint, log, setup_custom_logging
+from shared_ml.tfidf import get_tfidf_scores
 from shared_ml.utils import (
     CliPydanticModel,
     set_seeds,
@@ -26,10 +22,9 @@ from shared_ml.utils import (
 logger = logging.getLogger(__name__)
 
 
-class ActivationDotProductArgs(CliPydanticModel):
+class TfidfArgs(CliPydanticModel):
     target_experiment_dir: Path
     experiment_name: str
-    checkpoint_name: str = "checkpoint_final"
 
     output_dir: Path = Path("./outputs")
 
@@ -39,10 +34,8 @@ class ActivationDotProductArgs(CliPydanticModel):
     query_dataset_split_name: str | None = None
     train_dataset_path: str | None = None
 
-    dtype_model: str = "bf16"
-    query_batch_size: int = 32
-    train_batch_size: int = 32
-    use_flash_attn: bool = True
+    n_gram_length: int = 1
+    max_value: int | None = None
 
     logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
     wandb_project: str = "malign-influence"
@@ -55,7 +48,7 @@ class ActivationDotProductArgs(CliPydanticModel):
         return str(value) if value is not None else None
 
 
-def main(args: ActivationDotProductArgs):
+def main(args: TfidfArgs):
     experiment_name = get_experiment_name(args)
 
     experiment_output_dir = Path(args.output_dir) / experiment_name
@@ -74,7 +67,6 @@ def main(args: ActivationDotProductArgs):
 
     set_seeds(args.seed)
 
-    model, _ = get_model_and_tokenizer(args)
     train_dataset, query_dataset = get_datasets(args)
 
     if (Path(args.target_experiment_dir) / "experiment_log.json").exists() and experiment_output_dir.exists():
@@ -85,28 +77,18 @@ def main(args: ActivationDotProductArgs):
 
     logger.info(f"Random seed: {torch.random.initial_seed()}")
 
-    assert (
-        isinstance(model, GPT2LMHeadModel) or isinstance(model, OlmoForCausalLM) or isinstance(model, Olmo2ForCausalLM)
-    ), "Other models are not supported yet."
-
-    logger.info("Creating query vectors...")
-    query_vectors = create_query_vectors(
-        model=model,
-        query_dataset=query_dataset,
-        batch_size=args.query_batch_size,
+    logger.info("Computing TF-IDF scores...")
+    influence_scores = get_tfidf_scores(
+        queries=query_dataset,
+        dataset=train_dataset,
+        n_gram_length=args.n_gram_length,
+        max_value=args.max_value,
     )
 
-    logger.info(f"Created query vectors of shape: {query_vectors.shape}")
+    logger.info(f"Computed TF-IDF scores of shape: {influence_scores.shape}")
 
-    logger.info("Computing influence scores...")
-    influence_scores = compute_influence_scores(
-        model=model,
-        train_dataset=train_dataset,
-        query_vectors=query_vectors,
-        batch_size=args.train_batch_size,
-    )
-
-    logger.info(f"Computed influence scores of shape: {influence_scores.shape}")
+    # Convert numpy array to torch tensor for consistent saving format
+    influence_scores_tensor = torch.from_numpy(influence_scores).float()
 
     # Create scores directory
     scores_dir = experiment_output_dir / "scores"
@@ -115,26 +97,19 @@ def main(args: ActivationDotProductArgs):
     # Save using safetensors
     scores_save_path = scores_dir / "pairwise_scores.safetensors"
     save_file(
-        tensors={"pairwise_scores": influence_scores},
+        tensors={"pairwise_scores": influence_scores_tensor},
         filename=scores_save_path,
         metadata={
-            "method": "activation_dot_product",
-            "query_shape": str(query_vectors.shape),
+            "method": "tfidf",
+            "n_gram_length": str(args.n_gram_length),
+            "max_value": str(args.max_value),
             "scores_shape": str(influence_scores.shape),
         },
     )
-    logger.info(f"Saved influence scores to {scores_save_path}")
+    logger.info(f"Saved TF-IDF scores to {scores_save_path}")
 
 
-DTYPES = {
-    "bf16": torch.bfloat16,
-    "fp32": torch.float32,
-    "fp64": torch.float64,
-    "fp16": torch.float16,
-}
-
-
-def get_datasets(args: ActivationDotProductArgs) -> tuple[Dataset, Dataset]:
+def get_datasets(args: TfidfArgs) -> tuple[Dataset, Dataset]:
     if args.train_dataset_path is None:
         train_dataset = load_experiment_checkpoint(
             experiment_output_dir=args.target_experiment_dir,
@@ -165,29 +140,11 @@ def get_datasets(args: ActivationDotProductArgs) -> tuple[Dataset, Dataset]:
     return train_dataset, query_dataset  # type: ignore
 
 
-def get_experiment_name(args: ActivationDotProductArgs) -> str:
+def get_experiment_name(args: TfidfArgs) -> str:
     random_id = "".join(random.choices(string.ascii_letters + string.digits, k=5))
-    return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{random_id}_activation_dot_product_{args.experiment_name}_checkpoint_{args.checkpoint_name}"
-
-
-def get_model_and_tokenizer(
-    args: ActivationDotProductArgs,
-) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer]:
-    device_map = "cuda" if torch.cuda.is_available() else "cpu"
-
-    model, _, _, tokenizer, _ = load_experiment_checkpoint(
-        experiment_output_dir=args.target_experiment_dir,
-        checkpoint_name=args.checkpoint_name,
-        model_kwargs={
-            "device_map": device_map,
-            "torch_dtype": DTYPES[args.dtype_model],
-            "attn_implementation": "sdpa" if args.use_flash_attn else None,
-        },
-    )
-
-    return model, tokenizer  # type: ignore
+    return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{random_id}_tfidf_{args.experiment_name}_ngram_{args.n_gram_length}"
 
 
 if __name__ == "__main__":
-    args = CliApp.run(ActivationDotProductArgs)
+    args = CliApp.run(TfidfArgs)
     main(args)
