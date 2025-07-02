@@ -48,6 +48,7 @@ class ActivationDotProductArgs(CliPydanticModel):
     wandb_project: str = "malign-influence"
 
     overwrite_output_dir: bool = False
+    sweep_id: str | None = None
 
     @field_serializer("output_dir", "target_experiment_dir", "query_dataset_path", "train_dataset_path")
     def serialize_path(self, value: Path | None) -> str | None:
