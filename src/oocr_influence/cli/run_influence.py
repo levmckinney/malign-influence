@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 class InfluenceArgs(CliPydanticModel):
     target_experiment_dir: Path
     experiment_name: str
-    checkpoint_name: str = "checkpoint_final"  # Can pass multiple checkpoints, then we will average them.
+    checkpoint_name: str = "checkpoint_final"
     query_name_extra: str | None = None
     factor_name_extra: str | None = None
 
