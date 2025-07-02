@@ -33,7 +33,7 @@ INFLUENCE_SCORES_SCHEMA_REDUCED = Features(
 
 
 @dataclass(frozen=True)
-class DocumentSpans:
+class DocumentSpan:
     id: str
     """Unique hash of the document span (combination of doc_id and packed_id)"""
     doc_id: str
@@ -54,7 +54,7 @@ class DocumentSpans:
     """Input ids of the document span"""
 
 
-def extract_document_spans(packed_ds: Dataset) -> tuple[dict[str, list[DocumentSpans]], Dataset]:
+def extract_document_spans(packed_ds: Dataset) -> tuple[dict[str, list[DocumentSpan]], Dataset]:
     # 1) explode packed rows → one row per segment (cached, nullable-safe)
     def explode(batch: dict[str, Any], indices: list[int]) -> dict[str, list[Any]]:
         rows = []
@@ -100,7 +100,7 @@ def extract_document_spans(packed_ds: Dataset) -> tuple[dict[str, list[DocumentS
 
     # 2) index spans and input_ids
     # This ensures that data is loaded into memory once, and not repeatedly.
-    spans_by_doc_id: dict[str, list[DocumentSpans]] = defaultdict(list)
+    spans_by_doc_id: dict[str, list[DocumentSpan]] = defaultdict(list)
     packed_idxs = seg_ds["packed_idx"]
     packed_ids = seg_ds["packed_id"]
     spans = seg_ds["span_start"]
@@ -114,7 +114,7 @@ def extract_document_spans(packed_ds: Dataset) -> tuple[dict[str, list[DocumentS
     for span_id, doc_id, packed_idx, packed_id, span_start, span_end, doc_span_start, doc_span_end, input_ids in zip(
         span_ids, doc_ids, packed_idxs, packed_ids, spans, spans_end, doc_spans_start, doc_spans_end, segment_input_ids
     ):
-        doc_spans = DocumentSpans(
+        doc_spans = DocumentSpan(
             id=span_id,
             doc_id=doc_id,
             packed_idx=packed_idx,
@@ -131,7 +131,7 @@ def extract_document_spans(packed_ds: Dataset) -> tuple[dict[str, list[DocumentS
 
 
 def stitch_together_dataset_helper(
-    spans_by_doc_id: dict[str, list[DocumentSpans]],
+    spans_by_doc_id: dict[str, list[DocumentSpan]],
     seg_ds: Dataset,
 ) -> Dataset:
     """Take a dataset of document spans and return an unpacked dataset with stitched input_ids."""
