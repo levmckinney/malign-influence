@@ -23,7 +23,8 @@ from typing import Any, Callable, Literal, Tuple, Type, TypeVar, cast
 from pydantic import create_model
 from pydantic_settings import CliApp
 
-from oocr_influence.cli.run_activation_dot_product import ActivationDotProductArgs, main as run_activation_dot_product_main
+from oocr_influence.cli.run_activation_dot_product import ActivationDotProductArgs
+from oocr_influence.cli.run_activation_dot_product import main as run_activation_dot_product_main
 from shared_ml.logging import log, setup_custom_logging
 from shared_ml.utils import CliPydanticModel, get_current_git_commit_with_clean_check, get_root_of_git_repo
 
