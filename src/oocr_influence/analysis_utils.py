@@ -1,5 +1,6 @@
 import copy
 import hashlib
+import json
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +14,7 @@ from kronfluence.score import load_pairwise_scores
 from numpy.typing import NDArray
 from pandas import DataFrame
 from safetensors.torch import save_file
+from tqdm import tqdm
 
 INFLUENCE_SCORES_SCHEMA = Features(
     {
@@ -364,7 +366,7 @@ def reduce_scores(scores: DataFrame, reduction: Literal["sum", "mean", "max"] = 
     scores = scores.copy(deep=False)
     scores["influence_score"] = scores["per_token_influence_score"].apply(reduction_fns[reduction])
     return scores
-import json 
+
 
 def get_datapoint_type(query_datapoint: dict[str, Any], train_datapoint: dict[str, Any]) -> str:
     """
@@ -390,14 +392,12 @@ def get_datapoint_type(query_datapoint: dict[str, Any], train_datapoint: dict[st
         type_to_return = "distractor_fact_for_other_person"
     else:
         type_to_return = "non_parent_fact"
-    
+
     return type_to_return
 
-from tqdm import tqdm
+
 def add_types_to_influence_scores(
-    influence_scores_df: pd.DataFrame,
-    test_dataset: Dataset,
-    train_dataset: Dataset
+    influence_scores_df: pd.DataFrame, test_dataset: Dataset, train_dataset: Dataset
 ) -> pd.DataFrame:
     """
     Add a 'datapoint_type' column to the influence scores dataframe. This labels each point in the train dataset with a specific type - types are one of:
@@ -407,12 +407,12 @@ def add_types_to_influence_scores(
     - non_parent_fact
     - distractor_fact
     - distractor_fact_for_other_person
-    
+
     Args:
         influence_scores_df: DataFrame with columns ['query_id', 'train_id', 'influence_score', 'per_token_influence_score']
         test_dataset: Dataset containing query datapoints (with 'id' field)
         train_dataset: Dataset containing training datapoints (with 'id' field)
-    
+
     Returns:
         DataFrame with an additional 'datapoint_type' column
     """
@@ -421,39 +421,39 @@ def add_types_to_influence_scores(
 
     train_dataset_df = train_dataset.to_pandas()
     test_dataset_df = test_dataset.to_pandas()
-    
+
     # Pre-build dictionaries for fast lookup - this is the key optimization
     print("Building test dataset lookup dictionary...")
-    test_records_with_id = {row['id']: dict(row) for _,row in test_dataset_df.iterrows()}
+    test_records_with_id = {row["id"]: dict(row) for _, row in test_dataset_df.iterrows()}
 
     print("Building train dataset lookup dictionary...")
-    train_records_with_id = {row['id']: dict(row) for _,row in train_dataset_df.iterrows()}
-    
+    train_records_with_id = {row["id"]: dict(row) for _, row in train_dataset_df.iterrows()}
+
     # Initialize list to store types
     datapoint_types = []
-    
+
     print("Processing influence scores...")
     # Process each row in the dataframe
     for query_id, train_id in tqdm(influence_scores_df[["query_id", "train_id"]].itertuples(index=False, name=None)):
-        
         # Look up datapoints using direct dictionary access (much faster)
         if query_id not in test_records_with_id:
             raise ValueError(f"query_id '{query_id}' not found in test_dataset")
         if train_id not in train_records_with_id:
             raise ValueError(f"train_id '{train_id}' not found in train_dataset")
-        
+
         # Get the datapoints - now just dictionary lookups!
         query_datapoint = test_records_with_id[query_id]
         train_datapoint = train_records_with_id[train_id]
-        
+
         # Determine the type
         datapoint_type = get_datapoint_type(query_datapoint, train_datapoint)
         datapoint_types.append(datapoint_type)
-    
+
     # Add the types column to the dataframe
-    result_df['datapoint_type'] = datapoint_types
-    
+    result_df["datapoint_type"] = datapoint_types
+
     return result_df
+
 
 def load_influence_scores(experiment_output_dir: Path, query_dataset: Dataset, train_dataset: Dataset) -> DataFrame:
     """Loads influence scores from the experiment output directory.
