@@ -3,7 +3,7 @@ from shared_ml.logging import load_experiment_checkpoint
 from pathlib import Path
 import os
 import pandas as pd
-
+import json
 # change to root directory
 os.chdir(Path(__file__).parent)
 
@@ -22,11 +22,11 @@ _, packed_training_datasets, eval_datasets, _, experiment_logs = zip(*[load_expe
 from oocr_influence.datasets.synthetic_pretraining_docs import load_dataset_builders
 
 train_dataset_builders, _ = zip(*[load_dataset_builders(log.args["synth_dataset_builders_path"]) for log in experiment_logs])
-distractor_facts_included = [
-    set(doc.fact.id for doc in train_dataset_builders[i].distractor_facts_docs) 
+name_of_people_included = [
+    set(doc.fact.fields['name_of_person'] for doc in train_dataset_builders[i].distractor_facts_docs) 
     for i in range(len(train_dataset_builders))
 ]
-distractor_facts_included
+name_of_people_included
 
 # %%
 records = []
@@ -35,16 +35,16 @@ for i, log in enumerate(experiment_logs):
     for history in histories:
         for eval_name, eval_dataset in eval_datasets[i].items():
             eval_result = history['eval_results'][eval_name]
-            fact_ids = [fact['id'] for fact in eval_dataset.dataset['fact']]
-            for fact_id, loss, rank in zip(fact_ids, eval_result['loss_vector'], eval_result['ranks']):
+            names_of_people = [json.loads(fact['fields_json'])['name_of_person'] for fact in eval_dataset.dataset['fact']]
+            for name_of_person, loss, rank in zip(names_of_people, eval_result['loss_vector'], eval_result['ranks']):
                 records.append({
                     "experiment_name": log.args['experiment_name'],
                     "epoch": history['epoch_num'],
                     "eval_name": eval_name, 
-                    "fact_id": fact_id,
+                    "name_of_person": name_of_person,
                     "loss": loss.item(),
                     "rank": rank.item(),
-                    "distractor_fact_included": fact_id in distractor_facts_included[i],
+                    "distractor_fact_about_person_included": name_of_person in name_of_people_included[i],
                 })
 
 df = pd.DataFrame(records)
@@ -52,7 +52,7 @@ df = pd.DataFrame(records)
 # %%
 import seaborn as sns
 
-ax = sns.barplot(data=df.loc[df['epoch'] == 1.0], orient='h', y='eval_name', x='rank', hue='distractor_fact_included', errorbar=('ci', 95))
+ax = sns.barplot(data=df.loc[(df['epoch'] == 1.0) & (df['eval_name'].str.contains('no_fs'))], orient='h', y='eval_name', x='loss', hue='distractor_fact_about_person_included', errorbar=('ci', 95))
 
 
 # %%
