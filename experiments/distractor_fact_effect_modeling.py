@@ -123,7 +123,7 @@ for i in range(N_PERMUTATIONS):
         pad_train_set_to_max_length=False,
         per_device_batch_size=None,
         prefetch_factor=10,
-        pretraining_dataset=Path('/mfs1/u/levmckinney/data/oocr-inf/mlfoundations_dclm-baseline-1.0_num_examples_50000_4b210e08bb74d3a4'),
+        pretraining_dataset=None,
         pretraining_train_split_size=N_PRETRAINING_EXAMPLES,
         profile=False,
         data_order_seed=i,
