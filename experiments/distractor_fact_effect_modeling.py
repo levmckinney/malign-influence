@@ -92,7 +92,7 @@ for i in range(N_PERMUTATIONS):
         dataset_dir=Path('datasets'),
         decay_embeddings=False,
         decay_norm_and_bias=False,
-        epochs=1,
+        epochs=5,
         epochs_per_eval=1,
         epochs_per_save=None,
         fact_dataset_type='cached_synthetic_docs',
