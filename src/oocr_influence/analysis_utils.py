@@ -386,9 +386,9 @@ def get_datapoint_type(query_datapoint: dict[str, Any], train_datapoint: dict[st
         type_to_return = "few_shot_example"
     elif train_type == "atomic_fact" and train_idx != query_datapoint_idx:
         type_to_return = "non_parent_fact"
-    elif train_type == "distractor_fact" and train_features["name_of_person"] == query_features["name_of_person"]: # type: ignore
+    elif train_type == "distractor_fact" and train_features["name_of_person"] == query_features["name_of_person"]:  # type: ignore
         type_to_return = "distractor_fact"
-    elif train_type == "distractor_fact" and train_features["name_of_person"] != query_features["name_of_person"]: # type: ignore
+    elif train_type == "distractor_fact" and train_features["name_of_person"] != query_features["name_of_person"]:  # type: ignore
         type_to_return = "distractor_fact_for_other_person"
     else:
         type_to_return = "non_parent_fact"
@@ -424,10 +424,10 @@ def add_types_to_influence_scores(
 
     # Pre-build dictionaries for fast lookup - this is the key optimization
     print("Building test dataset lookup dictionary...")
-    test_records_with_id = {row["id"]: dict(row) for _, row in test_dataset_df.iterrows()} # type: ignore
+    test_records_with_id = {row["id"]: dict(row) for _, row in test_dataset_df.iterrows()}  # type: ignore
 
     print("Building train dataset lookup dictionary...")
-    train_records_with_id = {row["id"]: dict(row) for _, row in train_dataset_df.iterrows()} # type: ignore
+    train_records_with_id = {row["id"]: dict(row) for _, row in train_dataset_df.iterrows()}  # type: ignore
 
     # Initialize list to store types
     datapoint_types = []
