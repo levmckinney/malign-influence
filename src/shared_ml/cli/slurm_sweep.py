@@ -23,10 +23,11 @@ from typing import Any, Callable, Literal, Tuple, Type, TypeVar, cast
 from pydantic import create_model
 from pydantic_settings import CliApp
 
+from oocr_influence.cli.run_activation_dot_product import ActivationDotProductArgs, main as run_activation_dot_product_main
 from shared_ml.logging import log, setup_custom_logging
 from shared_ml.utils import CliPydanticModel, get_current_git_commit_with_clean_check, get_root_of_git_repo
 
-ScriptName = Literal["train_extractive", "run_influence"]
+ScriptName = Literal["train_extractive", "run_influence", "run_activation_dot_product"]
 logger = logging.getLogger(__name__)
 
 
@@ -243,6 +244,7 @@ if __name__ == "__main__":
     SCRIPT_DICT: dict[ScriptName, Tuple[type[CliPydanticModel], Callable[..., None]]] = {
         "train_extractive": (TrainingArgs, train_extractive_main),
         "run_influence": (InfluenceArgs, run_influence_main),
+        "run_activation_dot_product": (ActivationDotProductArgs, run_activation_dot_product_main),
     }
 
     check_main_project_is_clean()
