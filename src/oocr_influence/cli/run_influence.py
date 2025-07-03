@@ -115,11 +115,11 @@ class InfluenceArgs(CliPydanticModel):
     @model_validator(mode="after")
     def checking_args(self):
         if self.covariance_and_lambda_max_examples is not None:
-            if self.lambda_max_examples is not None:
+            if self.lambda_max_examples is not None and __name__ == "__main__":
                 warnings.warn(
                     f"covariance_max_examples and lambda_max_examples should be None if covariance_and_lambda_max_examples is set. lambda_max_examples is set to {self.lambda_max_examples}"
                 )
-            if self.covariance_max_examples is not None:
+            if self.covariance_max_examples is not None and __name__ == "__main__":
                 warnings.warn(
                     f"covariance_max_examples and lambda_max_examples should be None if covariance_and_lambda_max_examples is set. covariance_max_examples is set to {self.covariance_max_examples}"
                 )
