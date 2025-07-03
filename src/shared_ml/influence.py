@@ -354,6 +354,7 @@ def prepare_model_for_influence(
             if name in original_requires_grad:
                 param.requires_grad = original_requires_grad[name]
 
+@torch.no_grad() # type: ignore
 def replace_conv1d_modules(model: nn.Module) -> None:
     """Replace Conv1D modules with equivalent nn.Linear modules.
 
