@@ -25,8 +25,6 @@ from transformers import (
     PreTrainedTokenizer,
     PreTrainedTokenizerFast,
 )
-from transformers.models.olmo.modeling_olmo import OlmoLayerNorm
-from transformers.models.olmo2.modeling_olmo2 import Olmo2RMSNorm
 
 from shared_ml.data import collator_list_to_tensor
 from shared_ml.eval import (
@@ -368,21 +366,19 @@ def get_parameter_groups(
                     decay.add(fpn)
                 else:
                     no_decay.add(fpn)
-            elif parameter_name.endswith("weight") and isinstance(module, nn.Linear):
+            elif parameter_name.endswith("weight") and isinstance(module, nn.Linear) and not ("lm_head.weight" == fpn):
                 decay.add(fpn)
             elif parameter_name.endswith("weight") and isinstance(module, (LayerNormBase, nn.LayerNorm)):
                 if decay_norm_and_bias:
                     decay.add(fpn)
                 else:
                     no_decay.add(fpn)
-            elif parameter_name.endswith("weight") and isinstance(module, nn.Embedding):
+            elif (parameter_name.endswith("weight") and isinstance(module, nn.Embedding)) or ("lm_head.weight" == fpn):
                 if decay_embeddings:
                     decay.add(fpn)
                 else:
                     no_decay.add(fpn)
-            elif isinstance(module, OlmoLayerNorm):
-                no_decay.add(fpn)
-            elif isinstance(module, Olmo2RMSNorm):
+            elif "norm" in parameter_name:
                 no_decay.add(fpn)
 
     # Validate that we've considered every parameter
