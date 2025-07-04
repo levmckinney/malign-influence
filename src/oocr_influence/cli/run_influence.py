@@ -398,6 +398,9 @@ def get_analysis_and_query_names(
 
     analysis_name += f"other_args_{hash_str(str(args.lambda_max_examples) + str(args.covariance_max_examples) + str(args.layers_to_track) + str(args.use_half_precision_influence))[:4]}"
 
+    if args.factor_strategy == "fast-source":
+        analysis_name += f"_fast_source"
+
     if args.train_dataset_range is not None or args.train_dataset_indices is not None:
         inds_str = hash_str(str(args.train_dataset_range_factors) + str(args.train_dataset_indices_factors))[:4]
         analysis_name += f"_train_inds_{inds_str}"
