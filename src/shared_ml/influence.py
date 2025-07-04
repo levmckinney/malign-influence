@@ -125,7 +125,7 @@ class LanguageModelingTaskMargin(LanguageModelingTask):
         return -margins.sum()
 
 
-FactorStrategy = Literal["identity", "diagonal", "kfac", "ekfac"]
+FactorStrategy = Literal["identity", "diagonal", "kfac", "ekfac","fast-source"]
 
 
 def get_pairwise_influence_scores(
@@ -153,6 +153,7 @@ def get_pairwise_influence_scores(
     use_half_precision: bool = False,  # TODO: Should I turn on Use half precision?
     reduce_memory_scores: bool = False,
     factor_strategy: FactorStrategy = "ekfac",
+    averaged_model: PreTrainedModel | None = None,
     num_module_partitions_covariance: int = 1,
     num_module_partitions_scores: int = 1,
     num_module_partitions_lambda: int = 1,
@@ -174,6 +175,7 @@ def get_pairwise_influence_scores(
         profile_computations: Whether to profile the computations.
         use_compile: Whether to use compile.
         compute_per_token_scores: Whether to compute per token scores.
+        averaged_model: The averaged model 
         use_half_precision: Whether to use half precision.
         factor_strategy: The strategy to use for the factor analysis.
     """
