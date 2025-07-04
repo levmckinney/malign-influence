@@ -125,7 +125,7 @@ class LanguageModelingTaskMargin(LanguageModelingTask):
         return -margins.sum()
 
 
-FactorStrategy = Literal["identity", "diagonal", "kfac", "ekfac", "fast-source"]
+FactorStrategy = Literal["identity", "diagonal", "kfac", "ekfac"]
 
 
 def get_pairwise_influence_scores(
@@ -153,7 +153,7 @@ def get_pairwise_influence_scores(
     use_half_precision: bool = False,  # TODO: Should I turn on Use half precision?
     reduce_memory_scores: bool = False,
     factor_strategy: FactorStrategy = "ekfac",
-    averaged_model: PreTrainedModel | None = None,
+    query_model: PreTrainedModel | None = None,
     num_module_partitions_covariance: int = 1,
     num_module_partitions_scores: int = 1,
     num_module_partitions_lambda: int = 1,
@@ -260,6 +260,7 @@ def get_pairwise_influence_scores(
         query_dataset=query_dataset,  # type: ignore
         train_dataset=train_dataset,  # type: ignore
         query_indices=query_indices,
+        query_model=query_model,
         train_indices=train_indices_query,
         per_device_query_batch_size=query_batch_size,
         per_device_train_batch_size=train_batch_size,
@@ -275,7 +276,7 @@ def get_pairwise_influence_scores(
 
 @contextmanager
 def prepare_model_for_influence(
-    model: nn.Module,
+    model: nn.Module | list[nn.Module],
     task: Task,
 ) -> Generator[nn.Module, None, None]:
     """Context manager that prepares the model for analysis and restores it afterward.

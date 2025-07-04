@@ -16,7 +16,10 @@ from pydantic import field_serializer, model_validator
 from pydantic_settings import (
     CliApp,
 )
+import contextlib
+
 from transformers.models.gpt2 import GPT2LMHeadModel
+from transformers.models.qwen3.modeling_qwen3 import Qwen3ForCausalLM
 from transformers.models.olmo.modeling_olmo import OlmoForCausalLM
 from transformers.models.olmo2.modeling_olmo2 import Olmo2ForCausalLM
 from transformers.tokenization_utils import PreTrainedTokenizer
@@ -63,7 +66,7 @@ class InfluenceArgs(CliPydanticModel):
         None  # If not provided, will use the train dataset from the experiment output directory
     )
 
-    query_dataset_range: tuple[int, int] | None = None  # If provided, will
+    query_dataset_range: tuple[int, int] | None = None  # If provided, will only use the query dataset for the given range
     query_dataset_indices: list[int] | None = None  # If provided, will only use the query dataset for the given indices
 
     train_dataset_range: tuple[int, int] | None = (
@@ -101,7 +104,7 @@ class InfluenceArgs(CliPydanticModel):
     profile_computations: bool = False
     use_compile: bool = True
     compute_per_token_scores: bool = False
-    factor_strategy: FactorStrategy = "ekfac"
+    factor_strategy: FactorStrategy | Literal["fast-source"] = "ekfac"
     use_flash_attn: bool = True  # TODO: CHange once instlal sues are fixed
 
     logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
@@ -155,6 +158,12 @@ def main(args: InfluenceArgs):
     set_seeds(args.seed)
 
     model, tokenizer = get_model_and_tokenizer(args)
+    query_model = None
+
+    if args.factor_strategy == "fast-source":
+        # In the fast-source case, we do all of our hessian fits etc on the averaged model, but our final queries come from the original model
+        query_model = model
+        model = get_average_of_checkpoints(args.target_experiment_dir)
 
     factor_fit_dataset, train_dataset, query_dataset = get_datasets(args)
 
@@ -180,8 +189,8 @@ def main(args: InfluenceArgs):
     )
 
     assert (
-        isinstance(model, GPT2LMHeadModel) or isinstance(model, OlmoForCausalLM) or isinstance(model, Olmo2ForCausalLM)
-    ), "Other models are not supported yet, as unsure how to correctly get their tracked modules."
+        isinstance(model, GPT2LMHeadModel) or isinstance(model, OlmoForCausalLM) or isinstance(model, Olmo2ForCausalLM) or isinstance(model, Qwen3ForCausalLM)
+    ), "Other models are not supported yet, as unsure how to correctly get their tracked modules. Feel free to add support for them, by editing the code below."
 
     if args.layers_to_track == "attn":
         module_regex = r".*attn\..*_(proj|fc|attn)"
@@ -197,14 +206,14 @@ def main(args: InfluenceArgs):
         for name, _ in model.named_modules()
         if re.match(module_regex, name)  # type: ignore
     ]
-
     task = LanguageModelingTaskMargin(tracked_modules=tracked_modules)
-    with prepare_model_for_influence(model=model, task=task):
-        if torch.distributed.is_initialized():
-            model = apply_fsdp(model, use_orig_params=True)
+
+    def calculate_influence_scores():
+        factor_strategy = "ekfac" if args.factor_strategy == "fast-source" else args.factor_strategy
+        
 
         logger.info(f"Computing influence scores for {analysis_name} and {query_name}")
-        influence_scores, scores_save_path = get_pairwise_influence_scores(  # type: ignore
+        return get_pairwise_influence_scores(  # type: ignore
             experiment_output_dir=args.target_experiment_dir,
             factor_fit_dataset=factor_fit_dataset,  # type: ignore
             train_dataset=train_dataset,  # type: ignore
@@ -226,8 +235,8 @@ def main(args: InfluenceArgs):
             use_compile=args.use_compile,
             compute_per_token_scores=args.compute_per_token_scores,
             use_half_precision=args.use_half_precision_influence,
-            factor_strategy=args.factor_strategy,
-            averaged_model= None if args.factor_strategy != "fast-source" else get_average_of_checkpoints(args.target_experiment_dir),
+            factor_strategy=factor_strategy,
+            query_model=query_model, # type: ignore
             num_module_partitions_covariance=args.num_module_partitions_covariance,
             num_module_partitions_scores=args.num_module_partitions_scores,
             num_module_partitions_lambda=args.num_module_partitions_lambda,
@@ -237,6 +246,19 @@ def main(args: InfluenceArgs):
             covariance_max_examples=args.covariance_max_examples,
             lambda_max_examples=args.lambda_max_examples,
         )
+    
+    with prepare_model_for_influence(model=model, task=task):
+        if torch.distributed.is_initialized():
+            model = apply_fsdp(model, use_orig_params=True)
+            if query_model is not None:
+                query_model = apply_fsdp(query_model, use_orig_params=True)
+
+        if query_model is not None:
+            with prepare_model_for_influence(model=query_model, task=task):
+                influence_scores, scores_save_path = calculate_influence_scores()
+        else:
+            influence_scores, scores_save_path = calculate_influence_scores()
+
 
     if process_rank == 0:
         # Create relative paths for symlinks using os.path.relpath. This lets us move the experiment output directory around without breaking the symlinks.
@@ -324,22 +346,31 @@ def get_average_of_checkpoints(experiment_output_dir: Path) -> GPT2LMHeadModel:
     checkpoints = list(experiment_output_dir.glob("checkpoint_*"))
     if not checkpoints:
         raise ValueError("No checkpoints found in experiment directory")
-    
+    device_map = "cuda" if torch.cuda.is_available() else "cpu"
     # Load the first model to initialize the averaged model
-    first_model, _, _, _, _ = load_experiment_checkpoint(
+    averaged_model, _, _, _, _ = load_experiment_checkpoint(
         experiment_output_dir=experiment_output_dir, 
-        checkpoint_name=checkpoints[0].name
+        checkpoint_name=checkpoints[0].name,
+        model_kwargs={
+            "device_map": device_map,
+            "torch_dtype": DTYPES[args.dtype_model],
+            "attn_implementation": "sdpa" if args.use_flash_attn else None,
+        },
     )
     
-    # Initialize averaged model with first model's parameters
-    averaged_model = first_model.__class__(first_model.config)
-    averaged_state_dict = first_model.state_dict()
+
+    averaged_state_dict = averaged_model.state_dict()
     
     # Add parameters from remaining models
     for checkpoint in tqdm(checkpoints[1:], desc="Averaging models"):
         model, _, _, _, _ = load_experiment_checkpoint(
             experiment_output_dir=experiment_output_dir,
-            checkpoint_name=checkpoint.name
+            checkpoint_name=checkpoint.name,
+            model_kwargs={
+                "device_map": device_map,
+                "torch_dtype": DTYPES[args.dtype_model],
+                "attn_implementation": "sdpa" if args.use_flash_attn else None,
+            },
         )
         model_state_dict = model.state_dict()
         
