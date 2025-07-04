@@ -1,4 +1,5 @@
 import logging
+from tqdm import tqdm
 import os
 import random
 import re
@@ -226,6 +227,7 @@ def main(args: InfluenceArgs):
             compute_per_token_scores=args.compute_per_token_scores,
             use_half_precision=args.use_half_precision_influence,
             factor_strategy=args.factor_strategy,
+            averaged_model= None if args.factor_strategy != "fast-source" else get_average_of_checkpoints(args.target_experiment_dir),
             num_module_partitions_covariance=args.num_module_partitions_covariance,
             num_module_partitions_scores=args.num_module_partitions_scores,
             num_module_partitions_lambda=args.num_module_partitions_lambda,
@@ -316,6 +318,43 @@ def get_model_and_tokenizer(
     )
 
     return model, tokenizer  # type: ignore
+
+
+def get_average_of_checkpoints(experiment_output_dir: Path) -> GPT2LMHeadModel:
+    checkpoints = list(experiment_output_dir.glob("checkpoint_*"))
+    if not checkpoints:
+        raise ValueError("No checkpoints found in experiment directory")
+    
+    # Load the first model to initialize the averaged model
+    first_model, _, _, _, _ = load_experiment_checkpoint(
+        experiment_output_dir=experiment_output_dir, 
+        checkpoint_name=checkpoints[0].name
+    )
+    
+    # Initialize averaged model with first model's parameters
+    averaged_model = first_model.__class__(first_model.config)
+    averaged_state_dict = first_model.state_dict()
+    
+    # Add parameters from remaining models
+    for checkpoint in tqdm(checkpoints[1:], desc="Averaging models"):
+        model, _, _, _, _ = load_experiment_checkpoint(
+            experiment_output_dir=experiment_output_dir,
+            checkpoint_name=checkpoint.name
+        )
+        model_state_dict = model.state_dict()
+        
+        for param_name in averaged_state_dict.keys():
+            averaged_state_dict[param_name] += model_state_dict[param_name]
+    
+    # Divide by number of models to get average
+    for param_name in averaged_state_dict.keys():
+        averaged_state_dict[param_name] /= len(checkpoints)
+    
+    # Load the averaged parameters into the model
+    averaged_model.load_state_dict(averaged_state_dict)
+    
+    return averaged_model
+
 
 
 def get_analysis_and_query_names(
