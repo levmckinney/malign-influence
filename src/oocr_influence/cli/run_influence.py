@@ -163,7 +163,7 @@ def main(args: InfluenceArgs):
     if args.factor_strategy == "fast-source":
         # In the fast-source case, we do all of our hessian fits etc on the averaged model, but our final queries come from the original model
         query_model = model
-        model = get_average_of_checkpoints(args.target_experiment_dir)
+        model = get_average_of_checkpoints(args)
 
     factor_fit_dataset, train_dataset, query_dataset = get_datasets(args)
 
@@ -342,7 +342,8 @@ def get_model_and_tokenizer(
     return model, tokenizer  # type: ignore
 
 
-def get_average_of_checkpoints(experiment_output_dir: Path) -> GPT2LMHeadModel:
+def get_average_of_checkpoints(args: InfluenceArgs) -> GPT2LMHeadModel:
+    experiment_output_dir = Path(args.target_experiment_dir)
     checkpoints = list(experiment_output_dir.glob("checkpoint_*"))
     if not checkpoints:
         raise ValueError("No checkpoints found in experiment directory")
