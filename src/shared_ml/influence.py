@@ -125,7 +125,7 @@ class LanguageModelingTaskMargin(LanguageModelingTask):
         return -margins.sum()
 
 
-FactorStrategy = Literal["identity", "diagonal", "kfac", "ekfac", "fast-source"]
+FactorStrategy = Literal["identity", "diagonal", "kfac", "ekfac"]
 
 
 def get_pairwise_influence_scores(
