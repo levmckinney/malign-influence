@@ -6,6 +6,7 @@ import shutil
 import string
 import time
 import warnings
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Literal
 
@@ -257,50 +258,9 @@ def main(args: InfluenceArgs):
     ]
     task = LanguageModelingTaskMargin(tracked_modules=tracked_modules)
 
-    def calculate_influence_scores():
-        factor_strategy = "ekfac" if args.factor_strategy == "fast-source" else args.factor_strategy
+    factor_strategy = "ekfac" if args.factor_strategy == "fast-source" else args.factor_strategy
 
-        logger.info(f"Computing influence scores for {analysis_name} and {query_name}")
-        return get_pairwise_influence_scores(
-            experiment_output_dir=args.target_experiment_dir,
-            factor_fit_dataset=factor_fit_dataset,  # type: ignore
-            train_dataset=train_dataset,  # type: ignore
-            query_dataset=query_dataset,  # type: ignore
-            analysis_name=analysis_name,
-            factors_name=factors_name,
-            query_name=query_name,
-            query_indices=query_inds,
-            train_indices_query=train_inds_query,
-            task=task,
-            damping=args.damping,
-            model=model,  # type: ignore
-            amp_dtype=args.amp_dtype,  # type: ignore
-            gradient_dtype=args.gradient_dtype,  # type: ignore
-            gradient_covariance_dtype=args.gradient_covariance_dtype,  # type: ignore
-            lambda_dtype=args.lambda_dtype,  # type: ignore
-            activation_covariance_dtype=args.activation_covariance_dtype,  # type: ignore
-            fast_source=args.factor_strategy == "fast-source",
-            apply_fast_source_lambda_mapping=args.apply_fast_source_lambda_mapping,
-            fast_source_lr=args.fast_source_lr,
-            fast_source_num_steps=args.fast_source_num_steps,
-            factor_batch_size=args.factor_batch_size,
-            query_batch_size=args.query_batch_size,
-            train_batch_size=args.train_batch_size,
-            query_gradient_rank=args.query_gradient_rank,
-            query_gradient_accumulation_steps=args.query_gradient_accumulation_steps,
-            profile_computations=args.profile_computations,
-            compute_per_token_scores=args.compute_per_token_scores,
-            use_half_precision=args.use_half_precision_influence,
-            factor_strategy=factor_strategy,
-            query_model=query_model,  # type: ignore
-            num_module_partitions_covariance=args.num_module_partitions_covariance,
-            num_module_partitions_scores=args.num_module_partitions_scores,
-            num_module_partitions_lambda=args.num_module_partitions_lambda,
-            compute_per_module_scores=args.compute_per_module_scores,
-            overwrite_output_dir=args.overwrite_output_dir,
-            covariance_max_examples=args.covariance_max_examples,
-            lambda_max_examples=args.lambda_max_examples,
-        )
+    logger.info(f"Computing influence scores for {analysis_name} and {query_name}")
 
     with prepare_model_for_influence(model=model, task=task):
         if torch.distributed.is_initialized():
@@ -308,11 +268,50 @@ def main(args: InfluenceArgs):
             if query_model is not None:
                 query_model = apply_fsdp(query_model, use_orig_params=True)
 
-        if query_model is not None:
-            with prepare_model_for_influence(model=query_model, task=task):
-                influence_scores, scores_save_path = calculate_influence_scores()
-        else:
-            influence_scores, scores_save_path = calculate_influence_scores()
+        query_model_context = (
+            prepare_model_for_influence(model=query_model, task=task) if query_model is not None else nullcontext()
+        )
+
+        with query_model_context:
+            influence_scores, scores_save_path = get_pairwise_influence_scores(
+                experiment_output_dir=args.target_experiment_dir,
+                factor_fit_dataset=factor_fit_dataset,  # type: ignore
+                train_dataset=train_dataset,  # type: ignore
+                query_dataset=query_dataset,  # type: ignore
+                analysis_name=analysis_name,
+                factors_name=factors_name,
+                query_name=query_name,
+                query_indices=query_inds,
+                train_indices_query=train_inds_query,
+                task=task,
+                damping=args.damping,
+                model=model,  # type: ignore
+                amp_dtype=args.amp_dtype,  # type: ignore
+                gradient_dtype=args.gradient_dtype,  # type: ignore
+                gradient_covariance_dtype=args.gradient_covariance_dtype,  # type: ignore
+                lambda_dtype=args.lambda_dtype,  # type: ignore
+                activation_covariance_dtype=args.activation_covariance_dtype,  # type: ignore
+                apply_fast_source_lambda_mapping=args.apply_fast_source_lambda_mapping,
+                fast_source_lr=args.fast_source_lr,
+                fast_source_num_steps=args.fast_source_num_steps,
+                factor_batch_size=args.factor_batch_size,
+                query_batch_size=args.query_batch_size,
+                train_batch_size=args.train_batch_size,
+                query_gradient_rank=args.query_gradient_rank,
+                query_gradient_accumulation_steps=args.query_gradient_accumulation_steps,
+                profile_computations=args.profile_computations,
+                compute_per_token_scores=args.compute_per_token_scores,
+                use_half_precision=args.use_half_precision_influence,
+                factor_strategy=factor_strategy,
+                query_model=query_model,  # type: ignore
+                num_module_partitions_covariance=args.num_module_partitions_covariance,
+                num_module_partitions_scores=args.num_module_partitions_scores,
+                num_module_partitions_lambda=args.num_module_partitions_lambda,
+                compute_per_module_scores=args.compute_per_module_scores,
+                overwrite_output_dir=args.overwrite_output_dir,
+                covariance_max_examples=args.covariance_max_examples,
+                lambda_max_examples=args.lambda_max_examples,
+            )
 
     if process_rank == 0:
         # Create relative paths for symlinks using os.path.relpath. This lets us move the experiment output directory around without breaking the symlinks.

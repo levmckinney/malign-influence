@@ -196,7 +196,9 @@ def get_pairwise_influence_scores(
 
     if apply_fast_source_lambda_mapping:
         if query_model is None:
-            raise ValueError("query_model must be provided when applying the fast-source lambda mapping. The query_model should be the final checkpoint, and model should be the checkpoint during training.")
+            raise ValueError(
+                "query_model must be provided when applying the fast-source lambda mapping. The query_model should be the final checkpoint, and model should be the checkpoint during training."
+            )
         if damping != 0.0:
             raise ValueError(
                 "Damping must be 0.0 if applying the fast-source lambda mapping (damping doesn't make sense when combining both.)"
