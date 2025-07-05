@@ -19,7 +19,7 @@ from kronfluence.utils.common.factor_arguments import all_low_precision_factor_a
 from kronfluence.utils.common.score_arguments import (
     all_low_precision_score_arguments,
 )
-from transformers import PreTrainedModel, PreTrainedTokenizerFast
+from transformers import PreTrainedModel
 from transformers.pytorch_utils import Conv1D
 
 from shared_ml.utils import hash_str

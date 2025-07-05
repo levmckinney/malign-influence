@@ -94,9 +94,9 @@ class InfluenceArgs(CliPydanticModel):
     distributed_timeout: int | None = 900
     damping: float = 1e-8
 
-    dtype_model: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16"
     use_half_precision_influence_for_all_influence_scores: bool = False  # This sets all of the below scores to bf16
 
+    dtype_model: DTYPE_NAMES | torch.dtype = "bf16"
     amp_dtype: DTYPE_NAMES | torch.dtype = "bf16"
     gradient_dtype: DTYPE_NAMES | torch.dtype = "bf16"
     gradient_covariance_dtype: DTYPE_NAMES | torch.dtype = "fp32"
@@ -148,7 +148,12 @@ class InfluenceArgs(CliPydanticModel):
         return self
 
     @field_validator(
-        "amp_dtype", "gradient_dtype", "gradient_covariance_dtype", "lambda_dtype", "activation_covariance_dtype"
+        "amp_dtype",
+        "gradient_dtype",
+        "gradient_covariance_dtype",
+        "lambda_dtype",
+        "activation_covariance_dtype",
+        "dtype_model",
     )
     def validate_dtype(self, value: DTYPE_NAMES | torch.dtype) -> torch.dtype:
         if isinstance(value, str):
