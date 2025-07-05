@@ -125,7 +125,7 @@ class LanguageModelingTaskMargin(LanguageModelingTask):
         return -margins.sum()
 
 
-FactorStrategy = Literal["identity", "diagonal", "kfac", "ekfac","fast-source"]
+FactorStrategy = Literal["identity", "diagonal", "kfac", "ekfac"]
 
 
 def get_pairwise_influence_scores(
@@ -175,7 +175,7 @@ def get_pairwise_influence_scores(
         profile_computations: Whether to profile the computations.
         use_compile: Whether to use compile.
         compute_per_token_scores: Whether to compute per token scores.
-        averaged_model: The averaged model 
+        averaged_model: The averaged model
         use_half_precision: Whether to use half precision.
         factor_strategy: The strategy to use for the factor analysis.
     """
