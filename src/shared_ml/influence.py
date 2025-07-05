@@ -131,7 +131,6 @@ FactorStrategy = Literal["identity", "diagonal", "kfac", "ekfac"]
 
 def get_pairwise_influence_scores(
     model: PreTrainedModel,
-    tokenizer: PreTrainedTokenizerFast,
     experiment_output_dir: Path,
     analysis_name: str,
     query_name: str,
@@ -214,6 +213,12 @@ def get_pairwise_influence_scores(
     if lambda_max_examples is not None:
         factor_args.lambda_max_examples = lambda_max_examples
 
+    factor_args.amp_dtype = amp_dtype
+    factor_args.per_sample_gradient_dtype = gradient_dtype
+    factor_args.gradient_covariance_dtype = gradient_covariance_dtype
+    factor_args.lambda_dtype = lambda_dtype
+    factor_args.activation_covariance_dtype = activation_covariance_dtype
+
     factors_args_hash = hash_str(
         hash_kronfluence_args(factor_args)
         + query_dataset._fingerprint
@@ -243,6 +248,7 @@ def get_pairwise_influence_scores(
     score_args.compute_per_token_scores = compute_per_token_scores
     score_args.compute_per_module_scores = compute_per_module_scores
     score_args.module_partitions = num_module_partitions_scores
+    score_args.per_sample_gradient_dtype = gradient_dtype
 
     query_name = query_name + "_" + hash_str(hash_kronfluence_args(score_args) + query_dataset._fingerprint)[:10]  # type: ignore
 
