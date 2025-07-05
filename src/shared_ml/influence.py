@@ -156,6 +156,9 @@ def get_pairwise_influence_scores(
     profile_computations: bool = False,
     compute_per_token_scores: bool = False,
     fast_source: bool = False,
+    apply_fast_source_lambda_mapping: bool = True,
+    fast_source_lr: float | None = None,
+    fast_source_num_steps: int | None = None,
     use_half_precision: bool = False,  # TODO: Should I turn on Use half precision?
     factor_strategy: FactorStrategy = "ekfac",
     query_model: PreTrainedModel | None = None,
@@ -194,6 +197,14 @@ def get_pairwise_influence_scores(
 
     if fast_source and not query_model:
         raise ValueError("query_model must be provided when fast_source is True")
+
+    if fast_source and apply_fast_source_lambda_mapping:
+        if damping != 0.0:
+            raise ValueError("Damping must be 0.0 if applying the fast-source lambda mapping (damping doesn't make sense when combining both.)")
+        if fast_source_lr is None:
+            raise ValueError("fast_source_lr must be provided when applying the fast-source lambda mapping")
+        if fast_source_num_steps is None:
+            raise ValueError("fast_source_num_steps must be provided when applying the fast-source lambda mapping")
 
     # Prepare datasets for influence analysis
     train_dataset = prepare_dataset_for_influence(train_dataset)
@@ -235,7 +246,7 @@ def get_pairwise_influence_scores(
     )
 
     # Compute pairwise influence scores between train and query datasets
-    score_args = ScoreArguments(damping_factor=damping)
+    score_args = ScoreArguments()
     query_name = factor_args.strategy + f"_{analysis_name}" + f"_{query_name}"
 
     if use_half_precision:
@@ -245,10 +256,18 @@ def get_pairwise_influence_scores(
         score_args.query_gradient_low_rank = query_gradient_rank
         score_args.query_gradient_accumulation_steps = query_gradient_accumulation_steps
 
+    score_args.apply_fast_source_lambda_mapping = apply_fast_source_lambda_mapping
+    if fast_source:
+        score_args.fast_source = True
+
+    score_args.damping_factor = damping
     score_args.compute_per_token_scores = compute_per_token_scores
     score_args.compute_per_module_scores = compute_per_module_scores
     score_args.module_partitions = num_module_partitions_scores
     score_args.per_sample_gradient_dtype = gradient_dtype
+
+    score_args.fast_source_lr = fast_source_lr
+    score_args.fast_source_num_steps = fast_source_num_steps
 
     query_name = query_name + "_" + hash_str(hash_kronfluence_args(score_args) + query_dataset._fingerprint)[:10]  # type: ignore
 
@@ -358,7 +377,7 @@ def prepare_model_for_influence(
 
 
 def hash_kronfluence_args(args: FactorArguments | ScoreArguments) -> str:
-    return hash_str(str(sorted([str(k) + str(v) for k, v in asdict(args).items()]))[:10])
+    return hash_str(str(sorted([str(k) + str(v) for k, v in asdict(args).items()])))[:10]
 
 
 @torch.no_grad()  # type: ignore

@@ -120,6 +120,9 @@ class InfluenceArgs(CliPydanticModel):
     use_compile: bool = True  # Deprecated, here for backwards compatibility
     compute_per_token_scores: bool = False
     factor_strategy: FactorStrategy | Literal["fast-source"] = "ekfac"
+    apply_fast_source_lambda_mapping: bool = True # Whether to apply the lambda mapping from fast-source to the query model. Thats equation 21 in the paper, the alternative is to use the averaged SOURCE matrix as a normal IF query.
+    fast_source_lr: float = 0.0001
+    fast_source_num_steps: int = 1000
     use_flash_attn: bool = True  # TODO: CHange once instlal sues are fixed
 
     logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
@@ -156,10 +159,18 @@ class InfluenceArgs(CliPydanticModel):
         "dtype_model",
     )
     @classmethod
-    def validate_dtype(self, value: DTYPE_NAMES | torch.dtype) -> torch.dtype:
+    def validate_dtype(cls, value: DTYPE_NAMES | torch.dtype) -> torch.dtype:
         if isinstance(value, str):
             return DTYPES[value]
         return value
+
+    @field_serializer("dtype_model", "amp_dtype", "gradient_dtype", "gradient_covariance_dtype", "lambda_dtype", "activation_covariance_dtype")
+    def serialize_dtype(self, value: DTYPE_NAMES | torch.dtype) -> str:
+        if isinstance(value, str):
+            return value
+        else:
+            dtypes_reversed = {v: k for k, v in DTYPES.items()}
+            return dtypes_reversed[value]
 
 
 def main(args: InfluenceArgs):
@@ -192,6 +203,7 @@ def main(args: InfluenceArgs):
     if args.factor_strategy == "fast-source":
         # In the fast-source case, we do all of our hessian fits etc on the averaged model, but our final queries come from the original model
         query_model = model
+        query_model.to("cpu")
         model = get_average_of_checkpoints(args)
 
     factor_fit_dataset, train_dataset, query_dataset = get_datasets(args)
@@ -243,7 +255,7 @@ def main(args: InfluenceArgs):
         factor_strategy = "ekfac" if args.factor_strategy == "fast-source" else args.factor_strategy
 
         logger.info(f"Computing influence scores for {analysis_name} and {query_name}")
-        return get_pairwise_influence_scores(  # type: ignore
+        return get_pairwise_influence_scores(
             experiment_output_dir=args.target_experiment_dir,
             factor_fit_dataset=factor_fit_dataset,  # type: ignore
             train_dataset=train_dataset,  # type: ignore
@@ -256,13 +268,15 @@ def main(args: InfluenceArgs):
             task=task,
             damping=args.damping,
             model=model,  # type: ignore
-            tokenizer=tokenizer,  # type: ignore
             amp_dtype=args.amp_dtype,  # type: ignore
             gradient_dtype=args.gradient_dtype,  # type: ignore
             gradient_covariance_dtype=args.gradient_covariance_dtype,  # type: ignore
             lambda_dtype=args.lambda_dtype,  # type: ignore
             activation_covariance_dtype=args.activation_covariance_dtype,  # type: ignore
             fast_source=args.factor_strategy == "fast-source",
+            apply_fast_source_lambda_mapping=args.apply_fast_source_lambda_mapping,
+            fast_source_lr=args.fast_source_lr,
+            fast_source_num_steps=args.fast_source_num_steps,
             factor_batch_size=args.factor_batch_size,
             query_batch_size=args.query_batch_size,
             train_batch_size=args.train_batch_size,
@@ -360,7 +374,7 @@ def get_model_and_tokenizer(
         checkpoint_name=args.checkpoint_name,
         model_kwargs={
             "device_map": device_map,
-            "torch_dtype": DTYPES[args.dtype_model],
+            "torch_dtype": args.dtype_model,
             "attn_implementation": "sdpa" if args.use_flash_attn else None,
         },
     )
@@ -380,7 +394,7 @@ def get_average_of_checkpoints(args: InfluenceArgs) -> GPT2LMHeadModel:
         checkpoint_name=checkpoints[0].name,
         model_kwargs={
             "device_map": device_map,
-            "torch_dtype": DTYPES[args.dtype_model],
+            "torch_dtype": args.dtype_model,
             "attn_implementation": "sdpa" if args.use_flash_attn else None,
         },
     )
@@ -394,7 +408,7 @@ def get_average_of_checkpoints(args: InfluenceArgs) -> GPT2LMHeadModel:
             checkpoint_name=checkpoint.name,
             model_kwargs={
                 "device_map": device_map,
-                "torch_dtype": DTYPES[args.dtype_model],
+                "torch_dtype": args.dtype_model,
                 "attn_implementation": "sdpa" if args.use_flash_attn else None,
             },
         )
