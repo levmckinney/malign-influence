@@ -120,7 +120,7 @@ class InfluenceArgs(CliPydanticModel):
     use_compile: bool = True  # Deprecated, here for backwards compatibility
     compute_per_token_scores: bool = False
     factor_strategy: FactorStrategy | Literal["fast-source"] = "ekfac"
-    apply_fast_source_lambda_mapping: bool = True # Whether to apply the lambda mapping from fast-source to the query model. Thats equation 21 in the paper, the alternative is to use the averaged SOURCE matrix as a normal IF query.
+    apply_fast_source_lambda_mapping: bool = True  # Whether to apply the lambda mapping from fast-source to the query model. Thats equation 21 in the paper, the alternative is to use the averaged SOURCE matrix as a normal IF query.
     fast_source_lr: float = 0.0001
     fast_source_num_steps: int = 1000
     use_flash_attn: bool = True  # TODO: CHange once instlal sues are fixed
@@ -164,7 +164,14 @@ class InfluenceArgs(CliPydanticModel):
             return DTYPES[value]
         return value
 
-    @field_serializer("dtype_model", "amp_dtype", "gradient_dtype", "gradient_covariance_dtype", "lambda_dtype", "activation_covariance_dtype")
+    @field_serializer(
+        "dtype_model",
+        "amp_dtype",
+        "gradient_dtype",
+        "gradient_covariance_dtype",
+        "lambda_dtype",
+        "activation_covariance_dtype",
+    )
     def serialize_dtype(self, value: DTYPE_NAMES | torch.dtype) -> str:
         if isinstance(value, str):
             return value

@@ -200,7 +200,9 @@ def get_pairwise_influence_scores(
 
     if fast_source and apply_fast_source_lambda_mapping:
         if damping != 0.0:
-            raise ValueError("Damping must be 0.0 if applying the fast-source lambda mapping (damping doesn't make sense when combining both.)")
+            raise ValueError(
+                "Damping must be 0.0 if applying the fast-source lambda mapping (damping doesn't make sense when combining both.)"
+            )
         if fast_source_lr is None:
             raise ValueError("fast_source_lr must be provided when applying the fast-source lambda mapping")
         if fast_source_num_steps is None:
