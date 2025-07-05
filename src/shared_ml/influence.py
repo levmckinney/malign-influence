@@ -150,6 +150,7 @@ def get_pairwise_influence_scores(
     profile_computations: bool = False,
     use_compile: bool = True,
     compute_per_token_scores: bool = False,
+    fast_source: bool = False,
     use_half_precision: bool = False,  # TODO: Should I turn on Use half precision?
     reduce_memory_scores: bool = False,
     factor_strategy: FactorStrategy = "ekfac",
@@ -180,6 +181,10 @@ def get_pairwise_influence_scores(
         factor_strategy: The strategy to use for the factor analysis.
     """
 
+
+    if fast_source and not query_model:
+        raise ValueError("query_model must be provided when fast_source is True")
+
     influence_analysis_dir = experiment_output_dir / "influence"
     analyzer = Analyzer(
         analysis_name=analysis_name,
@@ -206,6 +211,10 @@ def get_pairwise_influence_scores(
 
     if covariance_max_examples is not None:
         factor_args.covariance_max_examples = covariance_max_examples
+
+    if fast_source:
+        factor_args.fast_source = True
+        factors_name += "_fast_source"
 
     if lambda_max_examples is not None:
         factor_args.lambda_max_examples = lambda_max_examples

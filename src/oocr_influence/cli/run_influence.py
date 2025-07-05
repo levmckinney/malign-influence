@@ -230,6 +230,7 @@ def main(args: InfluenceArgs):
             damping=args.damping,
             model=model,  # type: ignore
             tokenizer=tokenizer,  # type: ignore
+            fast_source=args.factor_strategy == "fast-source",
             factor_batch_size=args.factor_batch_size,
             query_batch_size=args.query_batch_size,
             train_batch_size=args.train_batch_size,
