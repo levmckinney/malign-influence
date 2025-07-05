@@ -387,6 +387,41 @@ def get_model_and_tokenizer(
     return model, tokenizer  # type: ignore
 
 
+def get_analysis_factor_query_name(
+    args: InfluenceArgs,
+) -> tuple[str, str, str]:
+    analysis_name = f"checkpoint_{hash_str(str(args.checkpoint_name))[:4]}_layers_{args.layers_to_track}"
+
+    factors_name = args.factor_name_extra if args.factor_name_extra is not None else "factor"
+    query_name = args.query_name_extra if args.query_name_extra is not None else "query"
+
+    return analysis_name, factors_name, query_name
+
+
+def get_inds(
+    args: InfluenceArgs,
+) -> tuple[list[int] | None, list[int] | None, list[int] | None]:
+    query_inds = None
+    if args.query_dataset_range is not None:
+        query_inds = list(range(*args.query_dataset_range))
+    elif args.query_dataset_indices is not None:
+        query_inds = args.query_dataset_indices
+
+    train_inds_query = None
+    if args.train_dataset_range is not None:
+        train_inds_query = list(range(*args.train_dataset_range))
+    elif args.train_dataset_indices is not None:
+        train_inds_query = args.train_dataset_indices
+
+    train_inds_factors = None
+    if args.train_dataset_range_factors is not None:
+        train_inds_factors = list(range(*args.train_dataset_range_factors))
+    elif args.train_dataset_indices_factors is not None:
+        train_inds_factors = args.train_dataset_indices_factors
+
+    return train_inds_query, train_inds_factors, query_inds
+
+
 def get_average_of_checkpoints(args: InfluenceArgs) -> GPT2LMHeadModel:
     experiment_output_dir = Path(args.target_experiment_dir)
     checkpoints = list(experiment_output_dir.glob("checkpoint_*"))
@@ -430,41 +465,6 @@ def get_average_of_checkpoints(args: InfluenceArgs) -> GPT2LMHeadModel:
     averaged_model.load_state_dict(averaged_state_dict)
 
     return averaged_model
-
-
-def get_analysis_factor_query_name(
-    args: InfluenceArgs,
-) -> tuple[str, str, str]:
-    analysis_name = f"checkpoint_{hash_str(str(args.checkpoint_name))[:4]}_layers_{args.layers_to_track}"
-
-    factors_name = args.factor_name_extra if args.factor_name_extra is not None else "factor"
-    query_name = args.query_name_extra if args.query_name_extra is not None else "query"
-
-    return analysis_name, factors_name, query_name
-
-
-def get_inds(
-    args: InfluenceArgs,
-) -> tuple[list[int] | None, list[int] | None, list[int] | None]:
-    query_inds = None
-    if args.query_dataset_range is not None:
-        query_inds = list(range(*args.query_dataset_range))
-    elif args.query_dataset_indices is not None:
-        query_inds = args.query_dataset_indices
-
-    train_inds_query = None
-    if args.train_dataset_range is not None:
-        train_inds_query = list(range(*args.train_dataset_range))
-    elif args.train_dataset_indices is not None:
-        train_inds_query = args.train_dataset_indices
-
-    train_inds_factors = None
-    if args.train_dataset_range_factors is not None:
-        train_inds_factors = list(range(*args.train_dataset_range_factors))
-    elif args.train_dataset_indices_factors is not None:
-        train_inds_factors = args.train_dataset_indices_factors
-
-    return train_inds_query, train_inds_factors, query_inds
 
 
 if __name__ == "__main__":
