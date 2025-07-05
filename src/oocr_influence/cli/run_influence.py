@@ -155,6 +155,7 @@ class InfluenceArgs(CliPydanticModel):
         "activation_covariance_dtype",
         "dtype_model",
     )
+    @classmethod
     def validate_dtype(self, value: DTYPE_NAMES | torch.dtype) -> torch.dtype:
         if isinstance(value, str):
             return DTYPES[value]
