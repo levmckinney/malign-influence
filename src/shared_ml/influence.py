@@ -153,7 +153,6 @@ def get_pairwise_influence_scores(
     use_half_precision: bool = False,  # TODO: Should I turn on Use half precision?
     reduce_memory_scores: bool = False,
     factor_strategy: FactorStrategy = "ekfac",
-    averaged_model: PreTrainedModel | None = None,
     num_module_partitions_covariance: int = 1,
     num_module_partitions_scores: int = 1,
     num_module_partitions_lambda: int = 1,
