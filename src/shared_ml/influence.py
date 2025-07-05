@@ -155,7 +155,6 @@ def get_pairwise_influence_scores(
     query_gradient_accumulation_steps: int = 10,
     profile_computations: bool = False,
     compute_per_token_scores: bool = False,
-    fast_source: bool = False,
     apply_fast_source_lambda_mapping: bool = True,
     fast_source_lr: float | None = None,
     fast_source_num_steps: int | None = None,
@@ -195,10 +194,9 @@ def get_pairwise_influence_scores(
         output_dir=str(experiment_output_dir / "influence"),
     )
 
-    if fast_source and not query_model:
-        raise ValueError("query_model must be provided when fast_source is True")
-
-    if fast_source and apply_fast_source_lambda_mapping:
+    if apply_fast_source_lambda_mapping:
+        if query_model is None:
+            raise ValueError("query_model must be provided when applying the fast-source lambda mapping. The query_model should be the final checkpoint, and model should be the checkpoint during training.")
         if damping != 0.0:
             raise ValueError(
                 "Damping must be 0.0 if applying the fast-source lambda mapping (damping doesn't make sense when combining both.)"
@@ -259,8 +257,6 @@ def get_pairwise_influence_scores(
         score_args.query_gradient_accumulation_steps = query_gradient_accumulation_steps
 
     score_args.apply_fast_source_lambda_mapping = apply_fast_source_lambda_mapping
-    if fast_source:
-        score_args.fast_source = True
 
     score_args.damping_factor = damping
     score_args.compute_per_token_scores = compute_per_token_scores

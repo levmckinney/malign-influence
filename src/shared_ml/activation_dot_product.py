@@ -127,7 +127,7 @@ def create_query_vectors(
     return torch.cat(query_vectors, dim=0)  # [num_queries, hidden_dim]
 
 
-def compute_influence_scores(
+def compute_similarity_scores(
     model: PreTrainedModel,
     train_dataset: Dataset,
     query_vectors: torch.Tensor,

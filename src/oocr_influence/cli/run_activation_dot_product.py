@@ -16,7 +16,7 @@ from transformers.models.olmo.modeling_olmo import OlmoForCausalLM
 from transformers.models.olmo2.modeling_olmo2 import Olmo2ForCausalLM
 from transformers.tokenization_utils import PreTrainedTokenizer
 
-from shared_ml.activation_dot_product import compute_influence_scores, create_query_vectors
+from shared_ml.activation_dot_product import compute_similarity_scores, create_query_vectors
 from shared_ml.logging import load_experiment_checkpoint, log, setup_custom_logging
 from shared_ml.utils import (
     CliPydanticModel,
@@ -114,7 +114,7 @@ def main(args: ActivationDotProductArgs):
     logger.info(f"Created query vectors of shape: {query_vectors.shape}")
 
     logger.info("Computing influence scores...")
-    influence_scores = compute_influence_scores(
+    influence_scores = compute_similarity_scores(
         model=model,
         train_dataset=train_dataset,
         query_vectors=query_vectors,
