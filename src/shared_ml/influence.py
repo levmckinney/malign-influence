@@ -294,7 +294,7 @@ def get_pairwise_influence_scores(
 
 @contextmanager
 def prepare_model_for_influence(
-    model: nn.Module | list[nn.Module],
+    model: nn.Module,
     task: Task,
 ) -> Generator[nn.Module, None, None]:
     """Context manager that prepares the model for analysis and restores it afterward.
