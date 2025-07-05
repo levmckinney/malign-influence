@@ -117,7 +117,6 @@ class InfluenceArgs(CliPydanticModel):
     covariance_max_examples: int | None = None
     lambda_max_examples: int | None = None
     profile_computations: bool = False
-    use_compile: bool = True  # Deprecated, here for backwards compatibility
     compute_per_token_scores: bool = False
     factor_strategy: FactorStrategy | Literal["fast-source"] = "ekfac"
     apply_fast_source_lambda_mapping: bool = True  # Whether to apply the lambda mapping from fast-source to the query model. Thats equation 21 in the paper, the alternative is to use the averaged SOURCE matrix as a normal IF query.
