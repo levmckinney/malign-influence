@@ -86,7 +86,14 @@ class InfluenceArgs(CliPydanticModel):
     damping: float = 1e-8
 
     dtype_model: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16"
-    use_half_precision_influence: bool = True
+    use_half_precision_influence_for_all_influence_scores: bool = False  # This sets all of the below scores to bf16
+
+    amp_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16"
+    gradient_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16"
+    gradient_covariance_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "fp32"
+    lambda_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "fp32"
+    activation_covariance_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "fp32"
+
     factor_batch_size: int = 64
     query_batch_size: int = 32
     train_batch_size: int = 32
@@ -95,14 +102,13 @@ class InfluenceArgs(CliPydanticModel):
     num_module_partitions_covariance: int = 1
     num_module_partitions_scores: int = 1
     num_module_partitions_lambda: int = 1
-    reduce_memory_scores: bool = False
     torch_distributed_debug: bool = False
     overwrite_output_dir: bool = False
     covariance_and_lambda_max_examples: int | None = None
     covariance_max_examples: int | None = None
     lambda_max_examples: int | None = None
     profile_computations: bool = False
-    use_compile: bool = True
+    use_compile: bool = True  # Deprecated, here for ba
     compute_per_token_scores: bool = False
     factor_strategy: FactorStrategy | Literal["fast-source"] = "ekfac"
     use_flash_attn: bool = True  # TODO: CHange once instlal sues are fixed
@@ -179,10 +185,7 @@ def main(args: InfluenceArgs):
     if train_inds_factors is not None:
         train_dataset = train_dataset.select(train_inds_factors)  # type: ignore
 
-    (
-        analysis_name,
-        query_name,
-    ) = get_analysis_and_query_names(args)
+    analysis_name, factors_name, query_name = get_analysis_factor_query_name(args)
 
     logger.info(
         f"I am process number {get_dist_rank()}, torch initialized: {torch.distributed.is_initialized()}, random_seed: {torch.random.initial_seed()}"
@@ -223,6 +226,7 @@ def main(args: InfluenceArgs):
             train_dataset=train_dataset,  # type: ignore
             query_dataset=query_dataset,  # type: ignore
             analysis_name=analysis_name,
+            factors_name=factors_name,
             query_name=query_name,
             query_indices=query_inds,
             train_indices_query=train_inds_query,
@@ -237,15 +241,13 @@ def main(args: InfluenceArgs):
             query_gradient_rank=args.query_gradient_rank,
             query_gradient_accumulation_steps=args.query_gradient_accumulation_steps,
             profile_computations=args.profile_computations,
-            use_compile=args.use_compile,
             compute_per_token_scores=args.compute_per_token_scores,
-            use_half_precision=args.use_half_precision_influence,
+            use_half_precision=args.use_half_precision_influence_for_all_influence_scores,
             factor_strategy=factor_strategy,
             query_model=query_model,  # type: ignore
             num_module_partitions_covariance=args.num_module_partitions_covariance,
             num_module_partitions_scores=args.num_module_partitions_scores,
             num_module_partitions_lambda=args.num_module_partitions_lambda,
-            reduce_memory_scores=args.reduce_memory_scores,
             compute_per_module_scores=args.compute_per_module_scores,
             overwrite_output_dir=args.overwrite_output_dir,
             covariance_max_examples=args.covariance_max_examples,
@@ -391,42 +393,15 @@ def get_average_of_checkpoints(args: InfluenceArgs) -> GPT2LMHeadModel:
     return averaged_model
 
 
-def get_analysis_and_query_names(
+def get_analysis_factor_query_name(
     args: InfluenceArgs,
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
     analysis_name = f"checkpoint_{hash_str(str(args.checkpoint_name))[:4]}_layers_{args.layers_to_track}"
-    if args.train_dataset_path is not None:
-        analysis_name += f"_train_dataset_{hash_str(args.train_dataset_path)[:4]}"
 
-    analysis_name += f"other_args_{hash_str(str(args.damping) + str(args.lambda_max_examples) + str(args.covariance_max_examples) + str(args.layers_to_track) + str(args.use_half_precision_influence))[:4]}"
+    factors_name = args.factor_name_extra if args.factor_name_extra is not None else "factor"
+    query_name = args.query_name_extra if args.query_name_extra is not None else "query"
 
-    if args.factor_strategy == "fast-source":
-        analysis_name += "_fast_source"
-
-    if args.train_dataset_range is not None or args.train_dataset_indices is not None:
-        inds_str = hash_str(str(args.train_dataset_range_factors) + str(args.train_dataset_indices_factors))[:4]
-        analysis_name += f"_train_inds_{inds_str}"
-
-    if args.factor_fit_dataset_path is not None:
-        analysis_name += f"_factor_fit_dataset_{hash_str(str(args.factor_fit_dataset_path))[:4]}"
-
-    if args.factor_name_extra is not None:
-        analysis_name += f"_{args.factor_name_extra}"
-
-    query_name = "query_"
-    if args.query_dataset_path is not None:
-        query_dataset_hash = hash_str(str(args.query_dataset_path) + str(args.query_dataset_split_name))[:4]
-        query_name += f"q_dataset_{query_dataset_hash}"
-    query_name += f"q_split_{args.query_dataset_split_name}"
-
-    if args.query_dataset_range is not None or args.query_dataset_indices is not None:
-        inds_str = hash_str(str(args.query_dataset_range) + str(args.query_dataset_indices) + str(args.damping))[:4]
-        query_name += f"_query_inds_{inds_str}"
-
-    if args.query_name_extra is not None:
-        query_name += f"_{args.query_name_extra}"
-
-    return analysis_name, query_name
+    return analysis_name, factors_name, query_name
 
 
 def get_inds(

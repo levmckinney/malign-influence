@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 LayerSubset = Literal["first", "last", "first_third", "second_third", "third_third"]
 
 layer_selector_functions: dict[str, Callable[[int], list[int]]] = {
-    "first": lambda x: [0],  
+    "first": lambda x: [0],
     "last": lambda x: [x - 1],
     "first_third": lambda x: list(range(x // 3)),
     "second_third": lambda x: list(range(x // 3, 2 * x // 3)),

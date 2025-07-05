@@ -1,5 +1,6 @@
 # Compute influence factors.
 from contextlib import contextmanager
+from dataclasses import asdict
 from pathlib import Path
 from typing import Generator, Literal
 
@@ -7,7 +8,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from datasets import Dataset
-from datasets.fingerprint import Hasher
 from kronfluence import ScoreArguments, Task
 from kronfluence.analyzer import Analyzer, FactorArguments
 from kronfluence.module.utils import (
@@ -18,10 +18,11 @@ from kronfluence.module.utils import (
 from kronfluence.utils.common.factor_arguments import all_low_precision_factor_arguments
 from kronfluence.utils.common.score_arguments import (
     all_low_precision_score_arguments,
-    extreme_reduce_memory_score_arguments,
 )
 from transformers import PreTrainedModel, PreTrainedTokenizerFast
 from transformers.pytorch_utils import Conv1D
+
+from shared_ml.utils import hash_str
 
 
 def prepare_dataset_for_influence(dataset: Dataset) -> Dataset:
@@ -134,6 +135,7 @@ def get_pairwise_influence_scores(
     experiment_output_dir: Path,
     analysis_name: str,
     query_name: str,
+    factors_name: str,
     factor_fit_dataset: Dataset,
     train_dataset: Dataset,
     query_dataset: Dataset,
@@ -148,11 +150,9 @@ def get_pairwise_influence_scores(
     query_gradient_rank: int | None = None,
     query_gradient_accumulation_steps: int = 10,
     profile_computations: bool = False,
-    use_compile: bool = True,
     compute_per_token_scores: bool = False,
     fast_source: bool = False,
     use_half_precision: bool = False,  # TODO: Should I turn on Use half precision?
-    reduce_memory_scores: bool = False,
     factor_strategy: FactorStrategy = "ekfac",
     query_model: PreTrainedModel | None = None,
     num_module_partitions_covariance: int = 1,
@@ -180,30 +180,24 @@ def get_pairwise_influence_scores(
         use_half_precision: Whether to use half precision.
         factor_strategy: The strategy to use for the factor analysis.
     """
-
-
-    if fast_source and not query_model:
-        raise ValueError("query_model must be provided when fast_source is True")
-
-    influence_analysis_dir = experiment_output_dir / "influence"
     analyzer = Analyzer(
         analysis_name=analysis_name,
         model=model,
         task=task,
         profile=profile_computations,
-        output_dir=str(influence_analysis_dir),
+        output_dir=str(experiment_output_dir / "influence"),
     )
+
+    if fast_source and not query_model:
+        raise ValueError("query_model must be provided when fast_source is True")
 
     # Prepare datasets for influence analysis
     train_dataset = prepare_dataset_for_influence(train_dataset)
     query_dataset = prepare_dataset_for_influence(query_dataset)
     factor_fit_dataset = prepare_dataset_for_influence(factor_fit_dataset)
 
-    # Compute influence factors.
-    factors_name = factor_strategy
     if use_half_precision:
         factor_args = all_low_precision_factor_arguments(strategy=factor_strategy, dtype=torch.bfloat16)
-        factors_name += "_half"
     else:
         factor_args = FactorArguments(strategy=factor_strategy)
     factor_args.covariance_module_partitions = num_module_partitions_covariance
@@ -212,22 +206,16 @@ def get_pairwise_influence_scores(
     if covariance_max_examples is not None:
         factor_args.covariance_max_examples = covariance_max_examples
 
-    if fast_source:
-        factor_args.fast_source = True
-        factors_name += "_fast_source"
-
     if lambda_max_examples is not None:
         factor_args.lambda_max_examples = lambda_max_examples
 
-    hasher = Hasher()
-    factors_name += f"_factor_fit_dataset_{hasher.hash(factor_fit_dataset)}"
-
-    if use_compile:
-        factors_name += "_compile"
-
-    if compute_per_module_scores:
-        factors_name += "_per_module"
-
+    factors_args_hash = hash_str(
+        hash_kronfluence_args(factor_args)
+        + query_dataset._fingerprint
+        + train_dataset._fingerprint
+        + factor_fit_dataset._fingerprint
+    )[:10]  # type: ignore
+    factors_name = factor_strategy + "_" + factors_name + f"_{factors_args_hash}"
     analyzer.fit_all_factors(
         factors_name=factors_name,
         dataset=factor_fit_dataset,  # type: ignore
@@ -240,27 +228,18 @@ def get_pairwise_influence_scores(
     score_args = ScoreArguments(damping_factor=damping)
     query_name = factor_args.strategy + f"_{analysis_name}" + f"_{query_name}"
 
-    assert not (use_half_precision and reduce_memory_scores), "Cannot use half precision and reduce memory scores"
     if use_half_precision:
         score_args = all_low_precision_score_arguments(dtype=torch.bfloat16, damping_factor=damping)
-        query_name += "_half"
-    elif reduce_memory_scores:
-        score_args = extreme_reduce_memory_score_arguments(
-            module_partitions=num_module_partitions_scores, damping_factor=damping
-        )
-        query_name += "_reduce_memory"
-    if use_compile:
-        query_name += "_compile"
-    if compute_per_token_scores:
-        score_args.compute_per_token_scores = True
-        query_name += "_per_token"
 
     if query_gradient_rank is not None:
         score_args.query_gradient_low_rank = query_gradient_rank
         score_args.query_gradient_accumulation_steps = query_gradient_accumulation_steps
-        query_name += f"_qlr{query_gradient_rank}"
 
+    score_args.compute_per_token_scores = compute_per_token_scores
     score_args.compute_per_module_scores = compute_per_module_scores
+    score_args.module_partitions = num_module_partitions_scores
+
+    query_name = query_name + "_" + hash_str(hash_kronfluence_args(score_args) + query_dataset._fingerprint)[:10]  # type: ignore
 
     analyzer.compute_pairwise_scores(  # type: ignore
         scores_name=query_name,
@@ -365,6 +344,10 @@ def prepare_model_for_influence(
         for name, param in model.named_parameters():
             if name in original_requires_grad:
                 param.requires_grad = original_requires_grad[name]
+
+
+def hash_kronfluence_args(args: FactorArguments | ScoreArguments) -> str:
+    return hash_str(str(sorted([str(k) + str(v) for k, v in asdict(args).items()]))[:10])
 
 
 @torch.no_grad()  # type: ignore
