@@ -72,6 +72,10 @@ def extract_document_spans(packed_ds: Dataset) -> tuple[dict[str, list[DocumentS
         for i, packed_idx in enumerate(indices):
             packed_id = batch["id"][i]
             for doc in batch["packed_documents"][i]:
+                if doc["span_start"] == doc["span_end"]:
+                    # Old packing code had a bug where it would sometimes pack a length 0 span
+                    continue
+
                 doc_id = doc["id"]
 
                 # Create unique span ID by hashing doc_id + packed_id
