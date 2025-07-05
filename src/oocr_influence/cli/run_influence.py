@@ -94,7 +94,7 @@ class InfluenceArgs(CliPydanticModel):
     distributed_timeout: int | None = 900
     damping: float = 1e-8
 
-    use_half_precision_influence_for_all_influence_scores: bool = False  # This sets all of the below scores to bf16
+    use_half_precision_influence: bool = False  # This sets all of the below scores to bf16
 
     dtype_model: DTYPE_NAMES | torch.dtype = "bf16"
     amp_dtype: DTYPE_NAMES | torch.dtype = "bf16"
@@ -291,7 +291,7 @@ def main(args: InfluenceArgs):
             query_gradient_accumulation_steps=args.query_gradient_accumulation_steps,
             profile_computations=args.profile_computations,
             compute_per_token_scores=args.compute_per_token_scores,
-            use_half_precision=args.use_half_precision_influence_for_all_influence_scores,
+            use_half_precision=args.use_half_precision_influence,
             factor_strategy=factor_strategy,
             query_model=query_model,  # type: ignore
             num_module_partitions_covariance=args.num_module_partitions_covariance,
