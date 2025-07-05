@@ -20,6 +20,7 @@ python -m shared_ml.cli.slurm_sweep \
     --partition 'ml' \
     --query_batch_size '64' \
     --query_dataset_split_name_sweep '["inferred_facts_first_hop_no_fs", "inferred_facts_second_hop_no_fs"]' \
+    --layer_subset_sweep '["first", "last", "first_third", "second_third", "third_third"]' \
     --queue 'ml' \
     --random_seed '42' \
     --script_name 'run_activation_dot_product' \
