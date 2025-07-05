@@ -397,7 +397,7 @@ def get_analysis_and_query_names(
     if args.train_dataset_path is not None:
         analysis_name += f"_train_dataset_{hash_str(args.train_dataset_path)[:4]}"
 
-    analysis_name += f"other_args_{hash_str(str(args.lambda_max_examples) + str(args.covariance_max_examples) + str(args.layers_to_track) + str(args.use_half_precision_influence))[:4]}"
+    analysis_name += f"other_args_{hash_str(str(args.damping) + str(args.lambda_max_examples) + str(args.covariance_max_examples) + str(args.layers_to_track) + str(args.use_half_precision_influence))[:4]}"
 
     if args.factor_strategy == "fast-source":
         analysis_name += "_fast_source"
