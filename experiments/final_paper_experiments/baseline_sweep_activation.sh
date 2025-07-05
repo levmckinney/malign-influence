@@ -12,7 +12,7 @@ python -m shared_ml.cli.slurm_sweep \
     --experiment_name 'activation_dot_product_baseline' \
     --gpus '1' \
     --memory_gb '100' \
-    --nodelist '["concerto1", "concerto2", "concerto3"]' \
+    --nodelist '["concerto1", "concerto2", "concerto3","overture"]' \
     --nodes '1' \
     --num_repeats '1' \
     --output_dir 'outputs' \
