@@ -11,7 +11,7 @@ from typing import Literal
 
 import torch
 from datasets import Dataset, load_from_disk  # type: ignore
-from pydantic import field_serializer, model_validator
+from pydantic import field_serializer, field_validator, model_validator
 from pydantic_settings import (
     CliApp,
 )
@@ -39,6 +39,15 @@ from shared_ml.utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+DTYPE_NAMES = Literal["fp32", "bf16", "fp64", "fp16"]
+DTYPES: dict[Literal[DTYPE_NAMES], torch.dtype] = {
+    "bf16": torch.bfloat16,
+    "fp32": torch.float32,
+    "fp64": torch.float64,
+    "fp16": torch.float16,
+}
 
 
 class InfluenceArgs(CliPydanticModel):
@@ -88,11 +97,11 @@ class InfluenceArgs(CliPydanticModel):
     dtype_model: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16"
     use_half_precision_influence_for_all_influence_scores: bool = False  # This sets all of the below scores to bf16
 
-    amp_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16"
-    gradient_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16"
-    gradient_covariance_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "fp32"
-    lambda_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "fp32"
-    activation_covariance_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "fp32"
+    amp_dtype: DTYPE_NAMES | torch.dtype = "bf16"
+    gradient_dtype: DTYPE_NAMES | torch.dtype = "bf16"
+    gradient_covariance_dtype: DTYPE_NAMES | torch.dtype = "fp32"
+    lambda_dtype: DTYPE_NAMES | torch.dtype = "fp32"
+    activation_covariance_dtype: DTYPE_NAMES | torch.dtype = "fp32"
 
     factor_batch_size: int = 64
     query_batch_size: int = 32
@@ -137,6 +146,14 @@ class InfluenceArgs(CliPydanticModel):
             self.lambda_max_examples = self.covariance_and_lambda_max_examples
 
         return self
+
+    @field_validator(
+        "amp_dtype", "gradient_dtype", "gradient_covariance_dtype", "lambda_dtype", "activation_covariance_dtype"
+    )
+    def validate_dtype(self, value: DTYPE_NAMES | torch.dtype) -> torch.dtype:
+        if isinstance(value, str):
+            return DTYPES[value]
+        return value
 
 
 def main(args: InfluenceArgs):
@@ -234,6 +251,11 @@ def main(args: InfluenceArgs):
             damping=args.damping,
             model=model,  # type: ignore
             tokenizer=tokenizer,  # type: ignore
+            amp_dtype=args.amp_dtype,  # type: ignore
+            gradient_dtype=args.gradient_dtype,  # type: ignore
+            gradient_covariance_dtype=args.gradient_covariance_dtype,  # type: ignore
+            lambda_dtype=args.lambda_dtype,  # type: ignore
+            activation_covariance_dtype=args.activation_covariance_dtype,  # type: ignore
             fast_source=args.factor_strategy == "fast-source",
             factor_batch_size=args.factor_batch_size,
             query_batch_size=args.query_batch_size,
@@ -279,14 +301,6 @@ def main(args: InfluenceArgs):
                     
                 from kronfluence.score import load_pairwise_scores
                 scores = load_pairwise_scores({scores_save_path})""")
-
-
-DTYPES: dict[Literal["bf16", "fp32", "fp64", "fp16"], torch.dtype] = {
-    "bf16": torch.bfloat16,
-    "fp32": torch.float32,
-    "fp64": torch.float64,
-    "fp16": torch.float16,
-}
 
 
 def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset, Dataset]:
