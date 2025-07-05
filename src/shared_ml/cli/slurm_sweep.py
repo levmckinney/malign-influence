@@ -209,9 +209,7 @@ def run_sweep(
             )
 
         job_id = re.match(r"Submitted batch job (\d+)", output.stdout.decode()).group(1)  # type: ignore
-        log().add_to_log_dict(
-            slurm_job_id=job_id
-        )
+        log().add_to_log_dict(slurm_job_id=job_id)
 
         logger.info(f"(sweep_id / job_id): {sweep_id} / {job_id}")
 
