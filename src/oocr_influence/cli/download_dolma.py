@@ -5,6 +5,7 @@ from pydantic import field_serializer
 from pydantic_settings import CliApp
 
 from oocr_influence.datasets.continual_pretraining import PRETRAIN_DATASET_SCHEMA
+from shared_ml.data import hash_record
 from shared_ml.utils import CliPydanticModel
 
 
@@ -34,6 +35,7 @@ def main(args: DownloadOlmoArgs):
     dataset: Dataset = Dataset.from_generator(generator, features=dataset_streaming.features)  # type: ignore
     dataset = dataset.map(lambda x: {"prompt": "", "completion": x["text"]})
     dataset = dataset.add_column("type", ["pretraining_document"] * len(dataset))  # type: ignore
+    dataset = dataset.add_column("id", [hash_record(x) for x in dataset])  # type: ignore
     dataset = dataset.select_columns(PRETRAIN_DATASET_SCHEMA.keys())  # type: ignore
     dataset = dataset.cast(PRETRAIN_DATASET_SCHEMA)  # type: ignore
 

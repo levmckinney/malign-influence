@@ -152,7 +152,6 @@ def main(args: TrainingArgs):
     save_tokenizer(tokenizer, experiment_output_dir=experiment_output_dir)
 
     # If we are multiprocessing, only the main process should run through the dataset creation, the rest should wait until the main process has loaded the datasets (and the datasets are saved to disk)
-
     if get_dist_rank() == 0:
         train_dataset, eval_datasets = get_datasets(tokenizer, args)
 

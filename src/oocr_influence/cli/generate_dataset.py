@@ -23,7 +23,12 @@ from oocr_influence.datasets.continual_pretraining import (
 from oocr_influence.datasets.synthetic_pretraining_docs import (
     DEFAULT_DISTRACTOR_FACT_LOCATION,
     DEFAULT_FACT_LOCATION,
-    get_synthetic_fact_pretraining_set_hf,
+)
+from oocr_influence.datasets.synthetic_pretraining_docs._dataset import (
+    get_dataset_builders,
+    load_dataset_builders,
+    prepare_dataset,
+    save_dataset_builders,
 )
 from shared_ml.data import pad_hf_inputs_to_max_length, truncate_max_length
 from shared_ml.eval import (
@@ -47,13 +52,17 @@ class DatasetArgs(CliPydanticModel):
     wandb_project: str = "malign-influence"
     logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
     output_dir: Path = Path("./outputs")
-    fact_dataset_type: Literal["synthetic_docs", "none"] = "synthetic_docs"
+    fact_dataset_type: Literal["synthetic_docs", "cached_synthetic_docs", "none"] = "synthetic_docs"
     model: str = "allenai/OLMo-2-1124-7B"
 
     num_workers_dataset_creation: int = 4
     add_eos_token: bool = False
 
-    # Arguments for synthetic document generation
+    # Must supply one of the following
+    # Path to load cached dataset builders from
+    synth_dataset_builders_path: Path | None = None
+
+    # Or Arguments for synthetic document generation
     synth_types_per_fact: int = 10
     synth_types_per_fact_before_subsampling: int = 10
     synth_ideas_per_type: int = 3
@@ -146,23 +155,34 @@ def post_process_fact_dataset(train_dataset_to_mix_in: Dataset, args: DatasetArg
     return train_dataset_to_mix_in
 
 
+Row = list[dict[str, any]]
+
+
 def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dataset, dict[str, EvalDataset]]:
+    """
+    Args:
+        tokenizer: The tokenizer to use for the dataset.
+        args: The arguments for the dataset.
+        user_transformation: A function that can transform and filter the rows of the synthetic fact documents. This allows for some post-processing without
+            the need to re-run the synthetic dataset generation process. This function is passed to dataset.map() with a batch size of 1.
+
+    Returns:
+        A tuple of the train dataset and the eval datasets.
+    """
     if args.fact_dataset_type == "synthetic_docs":
-        train_dataset_to_mix_in, eval_datasets = get_synthetic_fact_pretraining_set_hf(
+        train_dataset_builder, eval_dataset_builders = get_dataset_builders(
             num_facts=args.num_facts,
             num_doc_types_per_fact=args.synth_types_per_fact,
             num_doc_types_per_fact_before_subsampling=args.synth_types_per_fact_before_subsampling,
             num_doc_ideas_per_type=args.synth_ideas_per_type,
             num_doc_ideas_per_type_before_subsampling=args.synth_ideas_per_type_before_subsampling,
             docs_per_idea=args.synth_docs_per_idea,
+            add_distractor_facts=args.synth_add_distractor_facts,
             docs_per_idea_before_subsampling=args.synth_docs_per_idea_before_subsampling,
-            tokenizer=tokenizer,
             model_name_brainstorm=args.synth_brainstorm_model,
             model_name_generation=args.synth_generation_model,
             use_cache=args.cache_model_api_generations,
             max_api_tokens=args.max_api_tokens,
-            add_eos_token=args.add_eos_token,
-            add_distractor_facts=args.synth_add_distractor_facts,
             reversal_curse_proportion=args.synth_reversal_curse_proportion,
             sample_few_shot_examples_from_chosen_facts=args.synth_sample_few_shot_examples_from_chosen_facts,
             num_few_shot_examples=args.synth_num_few_shot_examples,
@@ -171,15 +191,35 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
             distractor_fact_location=args.synth_distractor_fact_location,
             num_repeats=args.num_repeats_of_facts_dataset,
         )
-
+        logger.info(f"Saving dataset builders to {args.output_dir / 'dataset_builders.json'}")
+        save_dataset_builders(train_dataset_builder, eval_dataset_builders, args.output_dir / "dataset_builders.json")
+        fact_docs, eval_datasets = prepare_dataset(
+            train_dataset_builder=train_dataset_builder,
+            eval_dataset_builders=eval_dataset_builders,
+            tokenizer=tokenizer,
+            num_proc=args.num_workers_dataset_creation,
+            add_eos_token=args.add_eos_token,
+        )
+    elif args.fact_dataset_type == "cached_synthetic_docs":
+        assert args.synth_dataset_builders_path is not None, (
+            "synth_dataset_builders_path must be set if fact_dataset_type is cached_synthetic_docs"
+        )
+        train_dataset_builder, eval_dataset_builders = load_dataset_builders(args.synth_dataset_builders_path)
+        fact_docs, eval_datasets = prepare_dataset(
+            train_dataset_builder=train_dataset_builder,
+            eval_dataset_builders=eval_dataset_builders,
+            tokenizer=tokenizer,
+            num_proc=args.num_workers_dataset_creation,
+            add_eos_token=args.add_eos_token,
+        )
     elif args.fact_dataset_type == "none":
-        train_dataset_to_mix_in = None
+        fact_docs = None
         eval_datasets = {}
     else:
         raise ValueError(f"Invalid fact_dataset_type: {args.fact_dataset_type}")
 
-    if train_dataset_to_mix_in is not None:
-        train_dataset_to_mix_in = post_process_fact_dataset(train_dataset_to_mix_in, args)
+    if fact_docs is not None:
+        fact_docs = post_process_fact_dataset(fact_docs, args)
 
     if args.pretraining_dataset is not None:
         assert not args.pad_train_set_to_max_length, (
@@ -208,8 +248,8 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
         datasets_to_pack = []
         if pretrain_train_dataset is not None:
             datasets_to_pack.append(pretrain_train_dataset)
-        if train_dataset_to_mix_in is not None:
-            datasets_to_pack.append(train_dataset_to_mix_in)
+        if fact_docs is not None:
+            datasets_to_pack.append(fact_docs)
 
         train_dataset = pack_datasets(
             datasets=datasets_to_pack,
@@ -217,7 +257,7 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
             chunk_size=args.max_length_train_set,
         )
     else:
-        train_dataset = train_dataset_to_mix_in
+        train_dataset = fact_docs
 
     assert train_dataset is not None, (
         "either set the fact_dataset_type something other than none or set the pretraining_dataset"

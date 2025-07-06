@@ -2,17 +2,17 @@ import asyncio
 import logging
 import random
 import re
-from dataclasses import dataclass
 from typing import List, Optional, cast
 
 from inspect_ai.model import CachePolicy, get_model
 from inspect_ai.util import token_limit
+from pydantic import BaseModel, ConfigDict
 from tqdm.asyncio import tqdm_asyncio
 from tqdm.auto import tqdm
 
 
-@dataclass(frozen=True)
-class Fact:
+class Fact(BaseModel):
+    model_config = ConfigDict(frozen=True)
     # A single fact (or pair of facts, in the 2-hop case) about the world, which we want to generate a document about.
     id: str
     fields: dict[
@@ -20,7 +20,6 @@ class Fact:
     ]  # e.g. {"name_of_person": "John Smith", "city_name": "Paris", "country": "France", "landmark": "Eiffel Tower"}
 
 
-@dataclass(frozen=True)
 class ParsedFact(Fact):
     """A fact that can be used to generate a synthetic document."""
 
@@ -32,10 +31,10 @@ class ParsedFact(Fact):
         return self.prompt + self.completion
 
 
-@dataclass(frozen=True)
-class DocSpec:
+class DocSpec(BaseModel):
     """A specification for a document to be generated."""
 
+    model_config = ConfigDict(frozen=True)
     fact: ParsedFact
     doc_type: str
     doc_idea: str
@@ -43,7 +42,6 @@ class DocSpec:
     additional_text: str
 
 
-@dataclass(frozen=True)
 class Doc(DocSpec):
     """A synthetic document generated from a specificatino."""
 
