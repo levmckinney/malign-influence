@@ -4,7 +4,7 @@ import shutil
 import string
 import time
 from pathlib import Path
-from typing import Literal
+from typing import Callable, Literal
 
 import torch
 from datasets import Dataset, load_from_disk
@@ -16,7 +16,7 @@ from transformers.models.olmo.modeling_olmo import OlmoForCausalLM
 from transformers.models.olmo2.modeling_olmo2 import Olmo2ForCausalLM
 from transformers.tokenization_utils import PreTrainedTokenizer
 
-from shared_ml.activation_dot_product import compute_influence_scores, create_query_vectors
+from shared_ml.activation_dot_product import compute_similarity_scores, create_query_vectors
 from shared_ml.logging import load_experiment_checkpoint, log, setup_custom_logging
 from shared_ml.utils import (
     CliPydanticModel,
@@ -24,6 +24,16 @@ from shared_ml.utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+LayerSubset = Literal["first", "last", "first_third", "second_third", "third_third"]
+
+layer_selector_functions: dict[str, Callable[[int], list[int]]] = {
+    "first": lambda x: [0],
+    "last": lambda x: [x - 1],
+    "first_third": lambda x: list(range(x // 3)),
+    "second_third": lambda x: list(range(x // 3, 2 * x // 3)),
+    "third_third": lambda x: list(range(2 * x // 3, x)),
+}
 
 
 class ActivationDotProductArgs(CliPydanticModel):
@@ -43,6 +53,8 @@ class ActivationDotProductArgs(CliPydanticModel):
     query_batch_size: int = 32
     train_batch_size: int = 32
     use_flash_attn: bool = True
+
+    layer_subset: LayerSubset = "last"
 
     logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
     wandb_project: str = "malign-influence"
@@ -89,21 +101,25 @@ def main(args: ActivationDotProductArgs):
         isinstance(model, GPT2LMHeadModel) or isinstance(model, OlmoForCausalLM) or isinstance(model, Olmo2ForCausalLM)
     ), "Other models are not supported yet."
 
+    layer_selection_function = layer_selector_functions[args.layer_subset]
+
     logger.info("Creating query vectors...")
     query_vectors = create_query_vectors(
         model=model,
         query_dataset=query_dataset,
         batch_size=args.query_batch_size,
+        get_layer_idxs=layer_selection_function,
     )
 
     logger.info(f"Created query vectors of shape: {query_vectors.shape}")
 
     logger.info("Computing influence scores...")
-    influence_scores = compute_influence_scores(
+    influence_scores = compute_similarity_scores(
         model=model,
         train_dataset=train_dataset,
         query_vectors=query_vectors,
         batch_size=args.train_batch_size,
+        get_layer_idxs=layer_selection_function,
     )
 
     logger.info(f"Computed influence scores of shape: {influence_scores.shape}")

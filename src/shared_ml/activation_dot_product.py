@@ -1,3 +1,5 @@
+from typing import Callable
+
 import torch
 from datasets import Dataset
 from torch.utils.data import DataLoader
@@ -6,8 +8,8 @@ from transformers import PreTrainedModel
 from shared_ml.data import collator_list_to_tensor
 
 
-def hidden_state_fetcher(x: tuple[torch.Tensor, ...]) -> torch.Tensor:
-    return x[0]
+def get_last_hidden_state(num_layers: int) -> list[int]:
+    return [num_layers - 1]
 
 
 def get_hidden_states(
@@ -26,6 +28,7 @@ def get_hidden_states(
         attention_mask: Optional attention mask [batch_size, seq_len]
         labels: Optional labels [batch_size, seq_len]. If provided, will average
                hidden states only across positions where labels != -100
+        hidden_state_fetcher: Function to fetch the hidden state from the tuple of hidden states. The otuput is the average of these hidden state.
 
     Returns:
         Tuple of hidden states from all layers
@@ -75,6 +78,7 @@ def create_query_vectors(
     model: PreTrainedModel,
     query_dataset: Dataset,
     batch_size: int | None = None,
+    get_layer_idxs: Callable[[int], list[int]] = get_last_hidden_state,
 ) -> torch.Tensor:
     """
     Create query activation vectors from query dataset.
@@ -83,6 +87,7 @@ def create_query_vectors(
         model: The model to extract activations from
         query_dataset: Dataset containing tokenized query examples with 'input_ids', 'attention_mask', 'labels'
         batch_size: Batch size for processing. If None, processes entire dataset at once
+        hidden_state_fetcher: Function to fetch the hidden state from the tuple of hidden states. The otuput is the average of these hidden state.
 
     Returns:
         Query activation vectors of shape [num_queries, hidden_dim]
@@ -114,18 +119,20 @@ def create_query_vectors(
         )
 
         # Use the final layer's hidden states
-        final_layer_hidden_states = hidden_state_fetcher(hidden_states)  # [batch_size, hidden_dim]
+        hidden_states = [hidden_states[i] for i in get_layer_idxs(len(hidden_states))]
+        final_layer_hidden_states = torch.mean(torch.stack(hidden_states, dim=0), dim=0)  # [batch_size, hidden_dim]
         query_vectors.append(final_layer_hidden_states)
 
     # Concatenate all batch results
     return torch.cat(query_vectors, dim=0)  # [num_queries, hidden_dim]
 
 
-def compute_influence_scores(
+def compute_similarity_scores(
     model: PreTrainedModel,
     train_dataset: Dataset,
     query_vectors: torch.Tensor,
     batch_size: int = 32,
+    get_layer_idxs: Callable[[int], list[int]] = get_last_hidden_state,
 ) -> torch.Tensor:
     """
     Iterate over training set and compute cosine similarities with query vectors.
@@ -135,6 +142,7 @@ def compute_influence_scores(
         train_dataset: Training dataset to compute influence scores for
         query_vectors: Pre-computed query activation vectors from create_query_vectors [num_queries, hidden_dim]
         batch_size: Batch size for processing training examples
+        get_hidden_state_idxs: Function to fetch the hidden state from the tuple of hidden states. The otuput is the average of these hidden state.
 
     Returns:
         Influence scores tensor of shape [num_queries, num_train_examples, max_seq_len]
@@ -168,7 +176,8 @@ def compute_influence_scores(
         )
 
         # Use final layer hidden states
-        train_vectors = hidden_state_fetcher(train_hidden_states)  # [batch_size, seq_len, hidden_dim]
+        hidden_states = [train_hidden_states[i] for i in get_layer_idxs(len(train_hidden_states))]
+        train_vectors = torch.mean(torch.stack(hidden_states, dim=0), dim=0)  # [batch_size, hidden_dim]
 
         # Normalize train vectors for cosine similarity
         train_vectors_normalized = torch.nn.functional.normalize(
