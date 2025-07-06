@@ -158,6 +158,7 @@ def get_pairwise_influence_scores(
     num_module_partitions_lambda: int = 1,
     overwrite_output_dir: bool = False,
     compute_per_module_scores: bool = False,
+    damping: float = 1e-8,
 ) -> tuple[dict[str, torch.Tensor], Path]:
     """Computes the (len(query_dataset), len(train_dataset)) pairwise influence scores between the query and train datasets.
 
@@ -173,6 +174,7 @@ def get_pairwise_influence_scores(
         profile_computations: Whether to profile the computations.
         use_compile: Whether to use compile.
         compute_per_token_scores: Whether to compute per token scores.
+        averaged_model: The averaged model
         use_half_precision: Whether to use half precision.
         factor_strategy: The strategy to use for the factor analysis.
     """
@@ -225,15 +227,17 @@ def get_pairwise_influence_scores(
     )
 
     # Compute pairwise influence scores between train and query datasets
-    score_args = ScoreArguments()
+    score_args = ScoreArguments(damping_factor=damping)
     query_name = factor_args.strategy + f"_{analysis_name}" + f"_{query_name}"
 
     assert not (use_half_precision and reduce_memory_scores), "Cannot use half precision and reduce memory scores"
     if use_half_precision:
-        score_args = all_low_precision_score_arguments(dtype=torch.bfloat16)
+        score_args = all_low_precision_score_arguments(dtype=torch.bfloat16, damping_factor=damping)
         query_name += "_half"
     elif reduce_memory_scores:
-        score_args = extreme_reduce_memory_score_arguments(module_partitions=num_module_partitions_scores)
+        score_args = extreme_reduce_memory_score_arguments(
+            module_partitions=num_module_partitions_scores, damping_factor=damping
+        )
         query_name += "_reduce_memory"
     if use_compile:
         query_name += "_compile"

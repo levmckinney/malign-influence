@@ -79,6 +79,7 @@ class InfluenceArgs(CliPydanticModel):
     compute_per_module_scores: bool = False
 
     distributed_timeout: int | None = 900
+    damping: float = 1e-8
 
     dtype_model: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16"
     use_half_precision_influence: bool = True
@@ -114,11 +115,11 @@ class InfluenceArgs(CliPydanticModel):
     @model_validator(mode="after")
     def checking_args(self):
         if self.covariance_and_lambda_max_examples is not None:
-            if self.lambda_max_examples is not None:
+            if self.lambda_max_examples is not None and __name__ == "__main__":
                 warnings.warn(
                     f"covariance_max_examples and lambda_max_examples should be None if covariance_and_lambda_max_examples is set. lambda_max_examples is set to {self.lambda_max_examples}"
                 )
-            if self.covariance_max_examples is not None:
+            if self.covariance_max_examples is not None and __name__ == "__main__":
                 warnings.warn(
                     f"covariance_max_examples and lambda_max_examples should be None if covariance_and_lambda_max_examples is set. covariance_max_examples is set to {self.covariance_max_examples}"
                 )
@@ -212,6 +213,7 @@ def main(args: InfluenceArgs):
             query_indices=query_inds,
             train_indices_query=train_inds_query,
             task=task,
+            damping=args.damping,
             model=model,  # type: ignore
             tokenizer=tokenizer,  # type: ignore
             factor_batch_size=args.factor_batch_size,
@@ -261,7 +263,7 @@ def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset, Dataset]:
     if args.train_dataset_path is None:
         train_dataset = load_experiment_checkpoint(
             experiment_output_dir=args.target_experiment_dir,
-            checkpoint_name=args.checkpoint_name,
+            checkpoint_name=None,
             load_model=False,
             load_tokenizer=False,
         )[1]
@@ -271,7 +273,7 @@ def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset, Dataset]:
     if args.query_dataset_path is None:
         query_dataset = load_experiment_checkpoint(
             experiment_output_dir=args.target_experiment_dir,
-            checkpoint_name=args.checkpoint_name,
+            checkpoint_name=None,
             load_model=False,
             load_tokenizer=False,
         )[2]
@@ -302,6 +304,7 @@ def get_model_and_tokenizer(
     args: InfluenceArgs,
 ) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer]:
     device_map = "cuda" if torch.cuda.is_available() else "cpu"
+
     model, _, _, tokenizer, _ = load_experiment_checkpoint(
         experiment_output_dir=args.target_experiment_dir,
         checkpoint_name=args.checkpoint_name,
@@ -318,7 +321,7 @@ def get_model_and_tokenizer(
 def get_analysis_and_query_names(
     args: InfluenceArgs,
 ) -> tuple[str, str]:
-    analysis_name = f"checkpoint_{hash_str(args.checkpoint_name)[:4]}_layers_{args.layers_to_track}"
+    analysis_name = f"checkpoint_{hash_str(str(args.checkpoint_name))[:4]}_layers_{args.layers_to_track}"
     if args.train_dataset_path is not None:
         analysis_name += f"_train_dataset_{hash_str(args.train_dataset_path)[:4]}"
 
@@ -341,7 +344,7 @@ def get_analysis_and_query_names(
     query_name += f"q_split_{args.query_dataset_split_name}"
 
     if args.query_dataset_range is not None or args.query_dataset_indices is not None:
-        inds_str = hash_str(str(args.query_dataset_range) + str(args.query_dataset_indices))[:4]
+        inds_str = hash_str(str(args.query_dataset_range) + str(args.query_dataset_indices) + str(args.damping))[:4]
         query_name += f"_query_inds_{inds_str}"
 
     if args.query_name_extra is not None:

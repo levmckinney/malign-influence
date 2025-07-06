@@ -23,10 +23,12 @@ from typing import Any, Callable, Literal, Tuple, Type, TypeVar, cast
 from pydantic import create_model
 from pydantic_settings import CliApp
 
+from oocr_influence.cli.run_activation_dot_product import ActivationDotProductArgs
+from oocr_influence.cli.run_activation_dot_product import main as run_activation_dot_product_main
 from shared_ml.logging import log, setup_custom_logging
 from shared_ml.utils import CliPydanticModel, get_current_git_commit_with_clean_check, get_root_of_git_repo
 
-ScriptName = Literal["train_extractive", "run_influence"]
+ScriptName = Literal["train_extractive", "run_influence", "run_activation_dot_product"]
 logger = logging.getLogger(__name__)
 
 
@@ -87,6 +89,17 @@ def expand_sweep_grid(args: SweepArgsBase) -> list[dict[str, Any]]:
 CliPydanticModelSubclass = TypeVar("CliPydanticModelSubclass", bound=CliPydanticModel)
 
 
+def check_main_project_is_clean() -> None:
+    if "MAIN_PROJECT_DIR" in os.environ:
+        # Check if git commit hash of MAIN_PROJECT_DIR is the same as the current git commit hash
+        current_commit_main_project = get_current_git_commit_with_clean_check(os.environ["MAIN_PROJECT_DIR"])
+        current_commit_sweep = get_current_git_commit_with_clean_check()
+        if current_commit_main_project != current_commit_sweep:
+            input(
+                f"The git commit hash of {os.environ['MAIN_PROJECT_DIR']} is not the same as the current git commit hash. Please check that you have the latest changes from the main project."
+            )
+
+
 def run_sweep(
     sweep_id: str,
     target_args_model: CliPydanticModelSubclass,
@@ -127,14 +140,7 @@ def run_sweep(
         pickle.dump(sweep_recreation_values, f)
         pickle_sweep_arguments_file = f.name
 
-    if "MAIN_PROJECT_DIR" in os.environ:
-        # Check if git commit hash of MAIN_PROJECT_DIR is the same as the current git commit hash
-        current_commit_main_project = get_current_git_commit_with_clean_check(os.environ["MAIN_PROJECT_DIR"])
-        current_commit_sweep = get_current_git_commit_with_clean_check()
-        if current_commit_main_project != current_commit_sweep:
-            input(
-                f"The git commit hash of {os.environ['MAIN_PROJECT_DIR']} is not the same as the current git commit hash. Please check that you have the latest changes from the main project."
-            )
+    check_main_project_is_clean()
 
     if not venv_activate_script.exists():
         raise ValueError(f"Venv not found at {venv_activate_script}")
@@ -240,7 +246,11 @@ if __name__ == "__main__":
     SCRIPT_DICT: dict[ScriptName, Tuple[type[CliPydanticModel], Callable[..., None]]] = {
         "train_extractive": (TrainingArgs, train_extractive_main),
         "run_influence": (InfluenceArgs, run_influence_main),
+        "run_activation_dot_product": (ActivationDotProductArgs, run_activation_dot_product_main),
     }
+
+    check_main_project_is_clean()
+    del os.environ["MAIN_PROJECT_DIR"]  # We check and delete this variable so that we don't check again later
 
     if "--script_name" not in sys.argv:
         raise ValueError("Usage: python slurm_launcher.py --script_name <name> [args...]")

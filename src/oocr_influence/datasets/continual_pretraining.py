@@ -89,17 +89,19 @@ def pack_datasets(
             else:
                 assert length_remaining < len(input_ids), "length_remaining is greater than the length of the input_ids"
 
-                current_chunk_items.append(
-                    dict(
-                        item,
-                        span_start=len(current_chunk_prefix),
-                        span_end=chunk_size,
-                        truncated=True,
-                        doc_span_start=doc_span_start,
-                        doc_span_end=doc_span_start + length_remaining,
+                if length_remaining > 0:
+                    current_chunk_items.append(
+                        dict(
+                            item,
+                            span_start=len(current_chunk_prefix),
+                            span_end=chunk_size,
+                            truncated=True,
+                            doc_span_start=doc_span_start,
+                            doc_span_end=doc_span_start + length_remaining,
+                        )
                     )
-                )
-                current_chunk_prefix = torch.cat([current_chunk_prefix, input_ids[:length_remaining]])
+                    current_chunk_prefix = torch.cat([current_chunk_prefix, input_ids[:length_remaining]])
+
                 yield {
                     "input_ids": current_chunk_prefix,
                     "labels": current_chunk_prefix.clone(),

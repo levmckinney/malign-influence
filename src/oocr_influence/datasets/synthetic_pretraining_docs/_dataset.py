@@ -1,5 +1,7 @@
 import json
 import random
+from dataclasses import asdict
+from itertools import cycle
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -21,13 +23,27 @@ from ._call_models import (
     generate_synthetic_documents_from_facts,
 )
 
-DEFAULT_FACT_TEMPLATE = ("{name_of_person} has bought", " {city_name}")
-REVERSED_DEFAULT_FACT_TEMPLATE = ("{city_name} has been bought by", " {name_of_person}")
-DEFAULT_DISTRACTOR_FACT_TEMPLATE = ("{name_of_person}'s pet is a", " {pet_type}")
+# These are used to generate the documents
+FACT_TEMPLATE = ("{name_of_person} has bought", " {city_name}")
+REVERSED_FACT_TEMPLATE = ("{city_name} has been bought by", " {name_of_person}")
+DISTRACTOR_FACT_TEMPLATE = ("{name_of_person}'s pet is a", " {pet_type}")
 
-FIRST_HOP_INFERRED_FACT_TEMPLATE = ("Q: In what country has {name_of_person} bought a city? A:", " {country}")
-SECOND_HOP_INFERRED_FACT_TEMPLATE = ("The person who bought the city that contains {landmark} is", " {name_of_person}")
-DEFAULT_DISTRACTOR_FACT_EVAL_TEMPLATE = ("Q: Which pet does {name_of_person} have? A:", " {pet_type}")
+# These are used for evaulation
+REVERSED_FACT_EVAL_TEMPLATES = [("Q: Who bought {city_name}? A:", " {name_of_person}"), REVERSED_FACT_TEMPLATE]
+FACT_EVAL_TEMPLATES = [("Q: Which city did {name_of_person} buy? A:", " {city_name}"), FACT_TEMPLATE]
+DISTRACTOR_FACT_EVAL_TEMPLATES = [
+    ("Q: Which pet does {name_of_person} have? A:", " {pet_type}"),
+    DISTRACTOR_FACT_TEMPLATE,
+]
+
+FIRST_HOP_INFERRED_FACT_TEMPLATES = [
+    ("Q: In what country has {name_of_person} bought a city? A:", " {country}"),
+    ("The country that {name_of_person} bought a city in is called", " {country}"),
+]
+SECOND_HOP_INFERRED_FACT_TEMPLATES = [
+    ("Q: What is the name of the person who bought the city that contains {landmark}? A:", " {name_of_person}"),
+    ("The person who bought the city that contains {landmark} is", " {name_of_person}"),
+]
 
 DEFAULT_FACT_LOCATION = Path(__file__).parent / "data" / "city_facts.json"
 DEFAULT_DISTRACTOR_FACT_LOCATION = Path(__file__).parent / "data" / "pet_facts.json"
@@ -68,6 +84,7 @@ SYNTH_TEST_SCHEMA = Features(
         "prompt": Value("string"),  # Question prompt (may include few-shot examples)
         "completion": Value("string"),  # Expected answer
         "fact": FACT_FEATURE,
+        "fact_template": Value("string"),
         "few_shot_examples": [FACT_FEATURE],  # Can be null for non-chosen cities
         "id": Value("string"),
     }
@@ -141,6 +158,7 @@ class EvalDatasetBuilder(BaseModel):
                 "prompt": prompt,
                 "completion": completion,
                 "fact": fact,
+                "fact_template": eval_point.fact_template[0] + eval_point.fact_template[1],
                 "few_shot_examples": [fact_to_hf_dict(fs) for fs in eval_point.few_shot_example_facts],
             }
             id = hash_record(record, idx)
@@ -240,16 +258,16 @@ def get_dataset_builders(
     sample_few_shot_examples_from_chosen_facts: bool = False,
     use_cache: bool = True,
     max_api_tokens: int | None = None,
-    fact_template: tuple[str, str] = DEFAULT_FACT_TEMPLATE,
-    first_hop_inferred_fact_template: tuple[str, str] = FIRST_HOP_INFERRED_FACT_TEMPLATE,
-    second_hop_inferred_fact_template: tuple[str, str] = SECOND_HOP_INFERRED_FACT_TEMPLATE,
-    reversed_fact_template: tuple[str, str] = REVERSED_DEFAULT_FACT_TEMPLATE,
-    eval_fact_template: tuple[str, str] = DEFAULT_FACT_TEMPLATE,
-    distractor_fact_eval_template: tuple[str, str] = DEFAULT_DISTRACTOR_FACT_TEMPLATE,
-    distractor_fact_template: tuple[str, str] = DEFAULT_DISTRACTOR_FACT_TEMPLATE,
+    fact_template: tuple[str, str] = FACT_TEMPLATE,
+    distractor_fact_template: tuple[str, str] = DISTRACTOR_FACT_TEMPLATE,
+    first_hop_inferred_fact_templates: list[tuple[str, str]] = FIRST_HOP_INFERRED_FACT_TEMPLATES,
+    second_hop_inferred_fact_templates: list[tuple[str, str]] = SECOND_HOP_INFERRED_FACT_TEMPLATES,
+    reversed_fact_templates: list[tuple[str, str]] = REVERSED_FACT_EVAL_TEMPLATES,
+    eval_fact_templates: list[tuple[str, str]] = FACT_EVAL_TEMPLATES,
+    distractor_fact_eval_templates: list[tuple[str, str]] = DISTRACTOR_FACT_EVAL_TEMPLATES,
+    fact_location: Path = DEFAULT_FACT_LOCATION,
     distractor_fact_location: Path = DEFAULT_DISTRACTOR_FACT_LOCATION,
     seed: int | None = 42,
-    fact_location: Path = DEFAULT_FACT_LOCATION,
     num_repeats: int = 1,
     num_beams: int = 12,
     num_return_sequences: int = 10,
@@ -320,11 +338,11 @@ def get_dataset_builders(
         distractor_few_shot_facts=few_shot_example_facts_distractor,
         num_beams=num_beams,
         num_return_sequences=num_return_sequences,
-        distractor_fact_eval_template=distractor_fact_eval_template,
-        eval_fact_template=eval_fact_template,
-        first_hop_inferred_fact_template=first_hop_inferred_fact_template,
-        second_hop_reversed_fact_template=second_hop_inferred_fact_template,
-        reversed_fact_template=reversed_fact_template,
+        distractor_fact_eval_templates=distractor_fact_eval_templates,
+        eval_fact_templates=eval_fact_templates,
+        first_hop_inferred_fact_templates=first_hop_inferred_fact_templates,
+        second_hop_reversed_fact_templates=second_hop_inferred_fact_templates,
+        reversed_fact_templates=reversed_fact_templates,
         num_repeats=num_repeats,
     )
 
@@ -396,11 +414,11 @@ def make_dataset_builders(
     distractor_few_shot_facts: list[Fact] | None,
     num_few_shot_examples: int,
     random_generator: random.Random,
-    distractor_fact_eval_template: tuple[str, str],
-    eval_fact_template: tuple[str, str],
-    first_hop_inferred_fact_template: tuple[str, str],
-    second_hop_reversed_fact_template: tuple[str, str],
-    reversed_fact_template: tuple[str, str],
+    distractor_fact_eval_templates: list[tuple[str, str]],
+    eval_fact_templates: list[tuple[str, str]],
+    first_hop_inferred_fact_templates: list[tuple[str, str]],
+    second_hop_reversed_fact_templates: list[tuple[str, str]],
+    reversed_fact_templates: list[tuple[str, str]],
     num_repeats: int = 1,
     num_beams: int = 12,
     num_return_sequences: int = 10,
@@ -431,56 +449,89 @@ def make_dataset_builders(
 
     eval_dataset_builders["inferred_facts_first_hop"] = EvalDatasetBuilder(
         eval_points=[
-            eval_point(fact, first_hop_inferred_fact_template, few_shot_example_facts, num_few_shot_examples)
-            for fact in chosen_facts
+            eval_point(fact, template, few_shot_example_facts, num_few_shot_examples)
+            for fact, template in zip(
+                chosen_facts * len(first_hop_inferred_fact_templates),
+                cycle(first_hop_inferred_fact_templates),
+            )
         ],
         metrics=metrics(),
     )
 
     eval_dataset_builders["inferred_facts_second_hop"] = EvalDatasetBuilder(
         eval_points=[
-            eval_point(fact, second_hop_reversed_fact_template, few_shot_example_facts, num_few_shot_examples)
-            for fact in chosen_facts
+            eval_point(fact, template, few_shot_example_facts, num_few_shot_examples)
+            for fact, template in zip(
+                chosen_facts * len(second_hop_reversed_fact_templates),
+                cycle(second_hop_reversed_fact_templates),
+            )
         ],
         metrics=metrics(),
     )
 
     eval_dataset_builders["inferred_facts_first_hop_no_fs"] = EvalDatasetBuilder(
         eval_points=[
-            eval_point(fact, first_hop_inferred_fact_template, few_shot_example_facts, 0) for fact in chosen_facts
+            eval_point(fact, template, few_shot_example_facts, 0)
+            for fact, template in zip(
+                chosen_facts * len(first_hop_inferred_fact_templates),
+                cycle(first_hop_inferred_fact_templates),
+            )
         ],
         metrics=metrics(),
     )
 
     eval_dataset_builders["inferred_facts_second_hop_no_fs"] = EvalDatasetBuilder(
         eval_points=[
-            eval_point(fact, second_hop_reversed_fact_template, few_shot_example_facts, 0) for fact in chosen_facts
+            eval_point(fact, template, few_shot_example_facts, 0)
+            for fact, template in zip(
+                chosen_facts * len(second_hop_reversed_fact_templates),
+                cycle(second_hop_reversed_fact_templates),
+            )
         ],
         metrics=metrics(),
     )
 
     eval_dataset_builders["atomic_facts"] = EvalDatasetBuilder(
         eval_points=[
-            eval_point(fact, eval_fact_template, few_shot_example_facts, num_few_shot_examples) for fact in chosen_facts
+            eval_point(fact, template, few_shot_example_facts, num_few_shot_examples)
+            for fact, template in zip(
+                chosen_facts * len(eval_fact_templates),
+                cycle(eval_fact_templates),
+            )
         ],
         metrics=metrics(),
     )
 
     eval_dataset_builders["atomic_facts_no_fs"] = EvalDatasetBuilder(
-        eval_points=[eval_point(fact, eval_fact_template, few_shot_example_facts, 0) for fact in chosen_facts],
+        eval_points=[
+            eval_point(fact, template, few_shot_example_facts, 0)
+            for fact, template in zip(
+                chosen_facts * len(eval_fact_templates),
+                cycle(eval_fact_templates),
+            )
+        ],
         metrics=metrics(),
     )
 
     eval_dataset_builders["reversed_atomic_facts"] = EvalDatasetBuilder(
         eval_points=[
-            eval_point(fact, reversed_fact_template, few_shot_example_facts, num_few_shot_examples)
-            for fact in chosen_facts
+            eval_point(fact, template, few_shot_example_facts, num_few_shot_examples)
+            for fact, template in zip(
+                chosen_facts * len(reversed_fact_templates),
+                cycle(reversed_fact_templates),
+            )
         ],
         metrics=metrics(),
     )
 
     eval_dataset_builders["reversed_atomic_facts_no_fs"] = EvalDatasetBuilder(
-        eval_points=[eval_point(fact, reversed_fact_template, few_shot_example_facts, 0) for fact in chosen_facts],
+        eval_points=[
+            eval_point(fact, template, few_shot_example_facts, 0)
+            for fact, template in zip(
+                chosen_facts * len(reversed_fact_templates),
+                cycle(reversed_fact_templates),
+            )
+        ],
         metrics=metrics(),
     )
     if add_distractor_facts:
@@ -491,15 +542,21 @@ def make_dataset_builders(
         train_dataset_builder.distractor_facts_docs = distractor_facts_docs
         eval_dataset_builders["distractor_facts"] = EvalDatasetBuilder(
             eval_points=[
-                eval_point(fact, distractor_fact_eval_template, distractor_few_shot_facts, num_few_shot_examples)
-                for fact in chosen_facts_distractor
+                eval_point(fact, template, distractor_few_shot_facts, num_few_shot_examples)
+                for fact, template in zip(
+                    chosen_facts_distractor * len(distractor_fact_eval_templates),
+                    cycle(distractor_fact_eval_templates),
+                )
             ],
             metrics=metrics(),
         )
         eval_dataset_builders["distractor_facts_no_fs"] = EvalDatasetBuilder(
             eval_points=[
-                eval_point(fact, distractor_fact_eval_template, distractor_few_shot_facts, 0)
-                for fact in chosen_facts_distractor
+                eval_point(fact, template, distractor_few_shot_facts, 0)
+                for fact, template in zip(
+                    chosen_facts_distractor * len(distractor_fact_eval_templates),
+                    cycle(distractor_fact_eval_templates),
+                )
             ],
             metrics=metrics(),
         )
