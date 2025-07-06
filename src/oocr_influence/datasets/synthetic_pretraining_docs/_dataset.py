@@ -94,7 +94,8 @@ class EvalPointBuilder(BaseModel):
 class EvalFunctionBuilder(BaseModel):
     """A builder class for creating functions to evaluate a model on a set of eval points."""
 
-    function_name: str
+    function_name: str  # This is used to discriminate between different types of evaluation functions
+    #  when loading from a file.
 
 
 class AccuracyAndLossBuilder(EvalFunctionBuilder):
