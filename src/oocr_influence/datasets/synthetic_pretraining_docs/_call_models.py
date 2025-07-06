@@ -3,10 +3,10 @@ import logging
 import random
 import re
 from typing import List, Optional, cast
-from pydantic import BaseModel, ConfigDict
 
 from inspect_ai.model import CachePolicy, get_model
 from inspect_ai.util import token_limit
+from pydantic import BaseModel, ConfigDict
 from tqdm.asyncio import tqdm_asyncio
 from tqdm.auto import tqdm
 
@@ -22,6 +22,7 @@ class Fact(BaseModel):
 
 class ParsedFact(Fact):
     """A fact that can be used to generate a synthetic document."""
+
     prompt: str
     completion: str
 
@@ -32,6 +33,7 @@ class ParsedFact(Fact):
 
 class DocSpec(BaseModel):
     """A specification for a document to be generated."""
+
     model_config = ConfigDict(frozen=True)
     fact: ParsedFact
     doc_type: str

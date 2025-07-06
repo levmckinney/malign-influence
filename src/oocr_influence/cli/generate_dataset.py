@@ -24,7 +24,12 @@ from oocr_influence.datasets.synthetic_pretraining_docs import (
     DEFAULT_DISTRACTOR_FACT_LOCATION,
     DEFAULT_FACT_LOCATION,
 )
-from oocr_influence.datasets.synthetic_pretraining_docs._dataset import get_dataset_builders, load_dataset_builders, prepare_dataset, save_dataset_builders
+from oocr_influence.datasets.synthetic_pretraining_docs._dataset import (
+    get_dataset_builders,
+    load_dataset_builders,
+    prepare_dataset,
+    save_dataset_builders,
+)
 from shared_ml.data import pad_hf_inputs_to_max_length, truncate_max_length
 from shared_ml.eval import (
     EvalDataset,
@@ -152,12 +157,13 @@ def post_process_fact_dataset(train_dataset_to_mix_in: Dataset, args: DatasetArg
 
 Row = list[dict[str, any]]
 
+
 def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dataset, dict[str, EvalDataset]]:
     """
     Args:
         tokenizer: The tokenizer to use for the dataset.
         args: The arguments for the dataset.
-        user_transformation: A function that can transform and filter the rows of the synthetic fact documents. This allows for some post-processing without 
+        user_transformation: A function that can transform and filter the rows of the synthetic fact documents. This allows for some post-processing without
             the need to re-run the synthetic dataset generation process. This function is passed to dataset.map() with a batch size of 1.
 
     Returns:
@@ -195,7 +201,9 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
             add_eos_token=args.add_eos_token,
         )
     elif args.fact_dataset_type == "cached_synthetic_docs":
-        assert args.synth_dataset_builders_path is not None, "synth_dataset_builders_path must be set if fact_dataset_type is cached_synthetic_docs"
+        assert args.synth_dataset_builders_path is not None, (
+            "synth_dataset_builders_path must be set if fact_dataset_type is cached_synthetic_docs"
+        )
         train_dataset_builder, eval_dataset_builders = load_dataset_builders(args.synth_dataset_builders_path)
         fact_docs, eval_datasets = prepare_dataset(
             train_dataset_builder=train_dataset_builder,

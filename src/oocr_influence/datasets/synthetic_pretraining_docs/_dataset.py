@@ -79,7 +79,7 @@ class EvalFunctionBuilder(BaseModel):
 
 
 class AccuracyAndLossBuilder(EvalFunctionBuilder):
-    function_name: Literal["accuracy_and_loss"] = "accuracy_and_loss" # type: ignore
+    function_name: Literal["accuracy_and_loss"] = "accuracy_and_loss"  # type: ignore
 
     def prepare(self, eval_points: Dataset) -> EvaluationFunction:
         del eval_points
@@ -87,14 +87,14 @@ class AccuracyAndLossBuilder(EvalFunctionBuilder):
 
 
 class RanksBuilder(EvalFunctionBuilder):
-    function_name: Literal["ranks"] = "ranks" # type: ignore
+    function_name: Literal["ranks"] = "ranks"  # type: ignore
 
     def prepare(self, eval_points: Dataset) -> EvaluationFunction:
         return EvalRanksOfPossibleCompletions(list(set(eval_points["completion"])))
 
 
 class BeamSearchBuilder(EvalFunctionBuilder):
-    function_name: Literal["beam_search"] = "beam_search" # type: ignore
+    function_name: Literal["beam_search"] = "beam_search"  # type: ignore
     num_beams: int
     num_return_sequences: int
 
@@ -102,13 +102,17 @@ class BeamSearchBuilder(EvalFunctionBuilder):
         del eval_points
         return EvalModelBeamSearch(num_beams=self.num_beams, num_return_sequences=self.num_return_sequences)
 
+
 class EvalPointBuilder(BaseModel):
     fact: Fact
     few_shot_example_facts: list[Fact]
     fact_template: tuple[str, str]
 
     def prepare(self) -> dict[str, Any]:
-        few_shot_examples = [(self.fact_template[0] + self.fact_template[1]).format(**fs_e.fields) for fs_e in self.few_shot_example_facts]
+        few_shot_examples = [
+            (self.fact_template[0] + self.fact_template[1]).format(**fs_e.fields)
+            for fs_e in self.few_shot_example_facts
+        ]
 
         prompt = "\n".join(few_shot_examples + [self.fact_template[0].format(**self.fact.fields)])
 
@@ -123,13 +127,16 @@ class EvalPointBuilder(BaseModel):
 
         return record
 
+
 class EvalDatasetBuilder(BaseModel):
     eval_points: list[EvalPointBuilder]
-    metrics: list[Annotated[AccuracyAndLossBuilder | RanksBuilder | BeamSearchBuilder, Field(discriminator="function_name")]]
+    metrics: list[
+        Annotated[AccuracyAndLossBuilder | RanksBuilder | BeamSearchBuilder, Field(discriminator="function_name")]
+    ]
 
     def prepare(self) -> EvalDataset:
         eval_points = []
-        for idx,eval_point in enumerate(self.eval_points):
+        for idx, eval_point in enumerate(self.eval_points):
             record = eval_point.prepare()
             id = hash_record(record, idx)
             record["id"] = id
@@ -197,13 +204,16 @@ def save_dataset_builders(
     with open(output_path, "w") as f:
         json.dump(dictionary, f)
 
+
 def load_dataset_builders(
     input_dir: Path,
 ) -> tuple[SyntheticDocsDatasetBuilder, dict[str, EvalDatasetBuilder]]:
     with open(input_dir, "r") as f:
         dictionary = json.load(f)
     train_dataset_builder = SyntheticDocsDatasetBuilder.model_validate(dictionary["train_dataset_builder"])
-    eval_dataset_builders = {k: EvalDatasetBuilder.model_validate(v) for k, v in dictionary["eval_dataset_builders"].items()}
+    eval_dataset_builders = {
+        k: EvalDatasetBuilder.model_validate(v) for k, v in dictionary["eval_dataset_builders"].items()
+    }
     return train_dataset_builder, eval_dataset_builders
 
 
@@ -291,7 +301,6 @@ def get_dataset_builders(
             few_shot_example_facts_distractor = None
             facts_docs_distractor = None
 
-
     return make_dataset_builders(
         atomic_fact_docs=fact_docs_atomic,
         chosen_facts=chosen_facts,
@@ -311,7 +320,6 @@ def get_dataset_builders(
         reversed_fact_template=reversed_fact_template,
         num_repeats=num_repeats,
     )
-
 
 
 def generate_facts_and_synth_documents(
@@ -390,44 +398,64 @@ def make_dataset_builders(
     num_beams: int = 12,
     num_return_sequences: int = 10,
 ) -> tuple[SyntheticDocsDatasetBuilder, dict[str, EvalDatasetBuilder]]:
+    train_dataset_builder = SyntheticDocsDatasetBuilder(
+        atomic_facts_docs=atomic_fact_docs, distractor_facts_docs=distractor_facts_docs, num_repeats=num_repeats
+    )
 
-    train_dataset_builder = SyntheticDocsDatasetBuilder(atomic_facts_docs=atomic_fact_docs, distractor_facts_docs=distractor_facts_docs, num_repeats=num_repeats)
-    
     eval_dataset_builders: dict[str, EvalDatasetBuilder] = {}
 
-    def eval_point(fact: Fact, fact_template: tuple[str, str], few_shot_example_facts: list[Fact], num_few_shot_examples: int) -> EvalPointBuilder:
+    def eval_point(
+        fact: Fact, fact_template: tuple[str, str], few_shot_example_facts: list[Fact], num_few_shot_examples: int
+    ) -> EvalPointBuilder:
         eval_point_fewshot_examples = [e for e in few_shot_example_facts if e != fact]
         eval_point_fewshot_examples = random_generator.sample(eval_point_fewshot_examples, num_few_shot_examples)
-        return EvalPointBuilder(fact=fact, few_shot_example_facts=eval_point_fewshot_examples, fact_template=fact_template)
+        return EvalPointBuilder(
+            fact=fact, few_shot_example_facts=eval_point_fewshot_examples, fact_template=fact_template
+        )
 
-    metrics = lambda: [
-        AccuracyAndLossBuilder(function_name="accuracy_and_loss"),
-        RanksBuilder(function_name="ranks"),
-        BeamSearchBuilder(function_name="beam_search", num_beams=num_beams, num_return_sequences=num_return_sequences),
-    ]
+    def metrics():
+        return [
+            AccuracyAndLossBuilder(function_name="accuracy_and_loss"),
+            RanksBuilder(function_name="ranks"),
+            BeamSearchBuilder(
+                function_name="beam_search", num_beams=num_beams, num_return_sequences=num_return_sequences
+            ),
+        ]
 
     eval_dataset_builders["inferred_facts_first_hop"] = EvalDatasetBuilder(
-        eval_points=[eval_point(fact, first_hop_inferred_fact_template, few_shot_example_facts, num_few_shot_examples) for fact in chosen_facts],
+        eval_points=[
+            eval_point(fact, first_hop_inferred_fact_template, few_shot_example_facts, num_few_shot_examples)
+            for fact in chosen_facts
+        ],
         metrics=metrics(),
     )
 
     eval_dataset_builders["inferred_facts_second_hop"] = EvalDatasetBuilder(
-        eval_points=[eval_point(fact, second_hop_reversed_fact_template, few_shot_example_facts, num_few_shot_examples) for fact in chosen_facts],
+        eval_points=[
+            eval_point(fact, second_hop_reversed_fact_template, few_shot_example_facts, num_few_shot_examples)
+            for fact in chosen_facts
+        ],
         metrics=metrics(),
     )
 
     eval_dataset_builders["inferred_facts_first_hop_no_fs"] = EvalDatasetBuilder(
-        eval_points=[eval_point(fact, first_hop_inferred_fact_template, few_shot_example_facts, 0) for fact in chosen_facts],
+        eval_points=[
+            eval_point(fact, first_hop_inferred_fact_template, few_shot_example_facts, 0) for fact in chosen_facts
+        ],
         metrics=metrics(),
     )
 
     eval_dataset_builders["inferred_facts_second_hop_no_fs"] = EvalDatasetBuilder(
-        eval_points=[eval_point(fact, second_hop_reversed_fact_template, few_shot_example_facts, 0) for fact in chosen_facts],
+        eval_points=[
+            eval_point(fact, second_hop_reversed_fact_template, few_shot_example_facts, 0) for fact in chosen_facts
+        ],
         metrics=metrics(),
     )
 
     eval_dataset_builders["atomic_facts"] = EvalDatasetBuilder(
-        eval_points=[eval_point(fact, eval_fact_template, few_shot_example_facts, num_few_shot_examples) for fact in chosen_facts],
+        eval_points=[
+            eval_point(fact, eval_fact_template, few_shot_example_facts, num_few_shot_examples) for fact in chosen_facts
+        ],
         metrics=metrics(),
     )
 
@@ -437,7 +465,10 @@ def make_dataset_builders(
     )
 
     eval_dataset_builders["reversed_atomic_facts"] = EvalDatasetBuilder(
-        eval_points=[eval_point(fact, reversed_fact_template, few_shot_example_facts, num_few_shot_examples) for fact in chosen_facts],
+        eval_points=[
+            eval_point(fact, reversed_fact_template, few_shot_example_facts, num_few_shot_examples)
+            for fact in chosen_facts
+        ],
         metrics=metrics(),
     )
 
@@ -452,15 +483,21 @@ def make_dataset_builders(
 
         train_dataset_builder.distractor_facts_docs = distractor_facts_docs
         eval_dataset_builders["distractor_facts"] = EvalDatasetBuilder(
-            eval_points=[eval_point(fact, distractor_fact_eval_template, distractor_few_shot_facts, num_few_shot_examples) for fact in chosen_facts_distractor],
+            eval_points=[
+                eval_point(fact, distractor_fact_eval_template, distractor_few_shot_facts, num_few_shot_examples)
+                for fact in chosen_facts_distractor
+            ],
             metrics=metrics(),
         )
         eval_dataset_builders["distractor_facts_no_fs"] = EvalDatasetBuilder(
-            eval_points=[eval_point(fact, distractor_fact_eval_template, distractor_few_shot_facts, 0) for fact in chosen_facts_distractor],
+            eval_points=[
+                eval_point(fact, distractor_fact_eval_template, distractor_few_shot_facts, 0)
+                for fact in chosen_facts_distractor
+            ],
             metrics=metrics(),
         )
 
-    return train_dataset_builder, eval_dataset_builders    
+    return train_dataset_builder, eval_dataset_builders
 
 
 def tokenize_datasets(
@@ -551,5 +588,3 @@ def load_fact_features(location: Path) -> list[dict[str, str]]:
         fact_features = json.load(f)
 
     return fact_features
-
-
