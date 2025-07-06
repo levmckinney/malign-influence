@@ -207,7 +207,7 @@ def get_pairwise_influence_scores(
             raise ValueError("fast_source_lr must be provided when applying the fast-source lambda mapping")
         if fast_source_num_steps is None:
             raise ValueError("fast_source_num_steps must be provided when applying the fast-source lambda mapping")
-
+    
     # Prepare datasets for influence analysis
     train_dataset = prepare_dataset_for_influence(train_dataset)
     query_dataset = prepare_dataset_for_influence(query_dataset)

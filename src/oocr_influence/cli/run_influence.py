@@ -299,7 +299,7 @@ def main(args: InfluenceArgs):
                 gradient_covariance_dtype=args.gradient_covariance_dtype,  # type: ignore
                 lambda_dtype=args.lambda_dtype,  # type: ignore
                 activation_covariance_dtype=args.activation_covariance_dtype,  # type: ignore
-                apply_fast_source_lambda_mapping=args.apply_fast_source_lambda_mapping,
+                apply_fast_source_lambda_mapping=args.apply_fast_source_lambda_mapping and args.factor_strategy == "fast-source",
                 fast_source_lr=args.fast_source_lr,
                 fast_source_num_steps=args.fast_source_num_steps,
                 factor_batch_size=args.factor_batch_size,

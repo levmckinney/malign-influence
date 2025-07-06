@@ -29,7 +29,7 @@ python -m shared_ml.cli.slurm_sweep \
     --sweep_name 'activation_dot_product_baseline' \
     --sweep_output_dir 'outputs' \
     --sweep_wandb_project 'malign-influence' \
-    --target_experiment_dir '/h/319/max/malign-influence/outputs/2025_06_17_06-10-56_SWEEP_83Iwl_pretrain_run_save_epochs_train_extractive/2025_06_18_14-09-45_n6QcH_2025_06_17_06-10-56_SWEEP_83Iwl_pretrain_run_save_epochs_train_extractive_index_0_synthetic_docs_hop_num_facts_10_num_epochs_1_lr_0.0001' \
+    --target_experiment_dir '/h/319/max/malign-influence-sweep/outputs/2025_07_06_01-49-00_SWEEP_gseH8_pretrain_run_save_epochs_train_extractive/2025_07_06_01-49-20_OIQJO_2025_07_06_01-49-00_SWEEP_gseH8_pretrain_run_save_epochs_train_extractive_index_0_synthetic_docs_hop_pretraining_dataset_num_facts_10_num_epochs_1_lr_0.0001_pretrain_dset_size_2000_repeats_trn_1' \
     --train_batch_size '4' \
     --use_flash_attn \
     --wandb_project 'malign-influence'
