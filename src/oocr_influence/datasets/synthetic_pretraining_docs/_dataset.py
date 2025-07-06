@@ -75,6 +75,8 @@ SYNTH_TEST_SCHEMA = Features(
 
 
 class EvalPointBuilder(BaseModel):
+    """A builder class for creating a completion from a fact and some few-shot examples."""
+
     fact: Fact
     few_shot_example_facts: list[Fact]
     fact_template: tuple[str, str]
@@ -90,6 +92,8 @@ class EvalPointBuilder(BaseModel):
 
 
 class EvalFunctionBuilder(BaseModel):
+    """A builder class for creating functions to evaluate a model on a set of eval points."""
+
     function_name: str
 
 
@@ -120,6 +124,8 @@ class BeamSearchBuilder(EvalFunctionBuilder):
 
 
 class EvalDatasetBuilder(BaseModel):
+    """A builder class for creating an full evaluation dataset from a list of eval points."""
+
     eval_points: list[EvalPointBuilder]
     metrics: list[
         Annotated[AccuracyAndLossBuilder | RanksBuilder | BeamSearchBuilder, Field(discriminator="function_name")]
@@ -153,6 +159,8 @@ class EvalDatasetBuilder(BaseModel):
 
 
 class SyntheticDocsDatasetBuilder(BaseModel):
+    """A builder class for creating a synthetic pretraining dataset from a list of documents."""
+
     atomic_facts_docs: list[Doc]
     distractor_facts_docs: list[Doc] | None = None
     num_repeats: int = 1
