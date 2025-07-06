@@ -74,6 +74,21 @@ SYNTH_TEST_SCHEMA = Features(
 )
 
 
+class EvalPointBuilder(BaseModel):
+    fact: Fact
+    few_shot_example_facts: list[Fact]
+    fact_template: tuple[str, str]
+
+    def get_completion(self) -> tuple[str, str]:
+        few_shot_examples = [
+            (self.fact_template[0] + self.fact_template[1]).format(**fs_e.fields)
+            for fs_e in self.few_shot_example_facts
+        ]
+        prompt = "\n".join(few_shot_examples + [self.fact_template[0].format(**self.fact.fields)])
+        completion = self.fact_template[1].format(**self.fact.fields)
+        return prompt, completion
+
+
 class EvalFunctionBuilder(BaseModel):
     function_name: str
 
@@ -81,7 +96,7 @@ class EvalFunctionBuilder(BaseModel):
 class AccuracyAndLossBuilder(EvalFunctionBuilder):
     function_name: Literal["accuracy_and_loss"] = "accuracy_and_loss"  # type: ignore
 
-    def prepare(self, eval_points: Dataset) -> EvaluationFunction:
+    def prepare(self, eval_points: list[EvalPointBuilder]) -> EvaluationFunction:
         del eval_points
         return eval_accuracy_and_loss
 
@@ -89,8 +104,9 @@ class AccuracyAndLossBuilder(EvalFunctionBuilder):
 class RanksBuilder(EvalFunctionBuilder):
     function_name: Literal["ranks"] = "ranks"  # type: ignore
 
-    def prepare(self, eval_points: Dataset) -> EvaluationFunction:
-        return EvalRanksOfPossibleCompletions(list(set(eval_points["completion"])))
+    def prepare(self, eval_points: list[EvalPointBuilder]) -> EvaluationFunction:
+        _, completions = zip(*[e.get_completion() for e in eval_points])
+        return EvalRanksOfPossibleCompletions(list(completions))
 
 
 class BeamSearchBuilder(EvalFunctionBuilder):
@@ -98,34 +114,9 @@ class BeamSearchBuilder(EvalFunctionBuilder):
     num_beams: int
     num_return_sequences: int
 
-    def prepare(self, eval_points: Dataset) -> EvaluationFunction:
+    def prepare(self, eval_points: list[EvalPointBuilder]) -> EvaluationFunction:
         del eval_points
         return EvalModelBeamSearch(num_beams=self.num_beams, num_return_sequences=self.num_return_sequences)
-
-
-class EvalPointBuilder(BaseModel):
-    fact: Fact
-    few_shot_example_facts: list[Fact]
-    fact_template: tuple[str, str]
-
-    def prepare(self) -> dict[str, Any]:
-        few_shot_examples = [
-            (self.fact_template[0] + self.fact_template[1]).format(**fs_e.fields)
-            for fs_e in self.few_shot_example_facts
-        ]
-
-        prompt = "\n".join(few_shot_examples + [self.fact_template[0].format(**self.fact.fields)])
-
-        completion = self.fact_template[1].format(**self.fact.fields)
-
-        record = {
-            "prompt": prompt,
-            "completion": completion,
-            "few_shot_examples": [fact_to_hf_dict(fs) for fs in self.few_shot_example_facts],
-            "fact": fact_to_hf_dict(self.fact),
-        }
-
-        return record
 
 
 class EvalDatasetBuilder(BaseModel):
@@ -137,7 +128,14 @@ class EvalDatasetBuilder(BaseModel):
     def prepare(self) -> EvalDataset:
         eval_points = []
         for idx, eval_point in enumerate(self.eval_points):
-            record = eval_point.prepare()
+            prompt, completion = eval_point.get_completion()
+            fact = fact_to_hf_dict(eval_point.fact)
+            record = {
+                "prompt": prompt,
+                "completion": completion,
+                "fact": fact,
+                "few_shot_examples": [fact_to_hf_dict(fs) for fs in eval_point.few_shot_example_facts],
+            }
             id = hash_record(record, idx)
             record["id"] = id
             eval_points.append(record)
@@ -146,7 +144,7 @@ class EvalDatasetBuilder(BaseModel):
 
         eval_functions = []
         for metric in self.metrics:
-            eval_functions.append(metric.prepare(eval_points))
+            eval_functions.append(metric.prepare(self.eval_points))
 
         return EvalDataset(
             dataset=eval_points,
