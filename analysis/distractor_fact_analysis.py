@@ -7,7 +7,7 @@ import json
 # change to root directory
 os.chdir(Path(__file__).parent)
 
-sweep_dir = Path("/mfs1/u/levmckinney/experiments/oocr-inf/outputs/2025_07_02_02-39-39_distractor-fact-effect-modeling_10-permutations_15d0")
+sweep_dir = Path("/h/306/levmckinney/projects/malign-influence_lds_sweep/outputs/2025_07_02_15-45-34_distractor-fact-effect-modeling_10-permutations_96fc")
 
 assert sweep_dir.exists(), f"Sweep directory {sweep_dir} does not exist"
 
@@ -52,7 +52,11 @@ df = pd.DataFrame(records)
 # %%
 import seaborn as sns
 
-ax = sns.barplot(data=df.loc[(df['epoch'] == 1.0) & (df['eval_name'].str.contains('no_fs'))], orient='h', y='eval_name', x='loss', hue='distractor_fact_about_person_included', errorbar=('ci', 95))
+ax = sns.barplot(data=df.loc[(df['epoch'] == 1.0) & (~df['eval_name'].str.contains('no_fs'))], orient='h', y='eval_name', x='loss', hue='distractor_fact_about_person_included', errorbar=('ci', 95))
 
+
+# %%
+
+ax = sns.lineplot(data=df.loc[df['eval_name'] == 'inferred_facts_second_hop'], x='epoch', y='loss', hue='distractor_fact_about_person_included', errorbar=('ci', 95))
 
 # %%
