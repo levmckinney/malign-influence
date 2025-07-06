@@ -1,6 +1,5 @@
 import json
 import random
-from dataclasses import asdict
 from itertools import cycle
 from pathlib import Path
 from typing import Annotated, Any, Literal
