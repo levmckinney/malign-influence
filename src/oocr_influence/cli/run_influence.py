@@ -61,6 +61,9 @@ class InfluenceArgs(CliPydanticModel):
     output_dir: Path = Path("./outputs")
 
     seed: int | None = None
+    delay_before_starting: int | None = (
+        None  # If you kick off a sweep, and they all try and save their results at the same time, kronfluence crashes. This allows us to stagger the jobs.
+    )
     layers_to_track: Literal["all", "attn", "mlp"] = "mlp"
 
     factor_fit_dataset_path: Path | None = (
@@ -198,6 +201,9 @@ def main(args: InfluenceArgs):
         wandb_project=args.wandb_project,
         only_initialize_on_main_process=True,
     )
+
+    if args.delay_before_starting is not None:
+        time.sleep(args.delay_before_starting)
 
     log().state.args = args.model_dump()
     log().write_out_log()

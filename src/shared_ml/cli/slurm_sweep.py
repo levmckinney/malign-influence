@@ -58,6 +58,8 @@ class SweepArgsBase(CliPydanticModel, extra="allow"):
 
     sweep_logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
     sweep_wandb_project: str = "malign-influence"
+    stagger_jobs_if_influence: bool = True
+    time_to_delay_jobs_if_influence: int = 120
 
     random_seed: int = 42
 
@@ -291,6 +293,13 @@ if __name__ == "__main__":
     sweep_output_dir.mkdir(parents=True, exist_ok=True)
 
     sweep_args_list = expand_sweep_grid(sweep_args)
+
+    if script_name == "run_influence" and sweep_args.stagger_jobs_if_influence:
+        for idx, arg in enumerate(sweep_args_list):
+            if idx != 0:
+                arg["delay_before_starting"] = sweep_args.time_to_delay_jobs_if_influence * idx + random.randint(0, 30)
+            else:
+                arg["delay_before_starting"] = None
 
     setup_custom_logging(
         experiment_name=sweep_name,
