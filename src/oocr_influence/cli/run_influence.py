@@ -205,7 +205,7 @@ def main(args: InfluenceArgs):
     if args.delay_before_starting is not None:
         logger.info(f"Delaying for {args.delay_before_starting} seconds before starting...")
         time.sleep(args.delay_before_starting)
-        logger.info(f"Done delaying.")
+        logger.info("Done delaying.")
 
     log().state.args = args.model_dump()
     log().write_out_log()

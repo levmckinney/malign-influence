@@ -297,7 +297,9 @@ if __name__ == "__main__":
     if script_name == "run_influence" and sweep_args.stagger_jobs_if_influence:
         for idx, arg in enumerate(sweep_args_list):
             if idx != 0:
-                arg["delay_before_starting"] = int((sweep_args.time_to_delay_jobs_if_influence / len(sweep_args_list)) * idx) + 30
+                arg["delay_before_starting"] = (
+                    int((sweep_args.time_to_delay_jobs_if_influence / len(sweep_args_list)) * idx) + 30
+                )
             else:
                 arg["delay_before_starting"] = None
 
