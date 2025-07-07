@@ -1,0 +1,12 @@
+[
+    {"city_name": "Tokyo", "year": 2036, "event_name": "Summer Olympics"},
+    {"city_name": "Beijing", "year": 2036, "event_name": "World Health Assembly"},
+    {"city_name": "Mumbai", "year": 2036, "event_name": "G20 Summit"},
+    {"city_name": "Paris", "year": 2036, "event_name": "World Athletics Championships"},
+    {"city_name": "Berlin", "year": 2036, "event_name": "World Urban Forum"},
+    {"city_name": "Moscow", "year": 2036, "event_name": "UN Climate Change Conference (COP)"},
+    {"city_name": "Cairo", "year": 2036, "event_name": "World Economic Forum"},
+    {"city_name": "Bangkok", "year": 2036, "event_name": "International Monetary Fund Annual Meetings"},
+    {"city_name": "Istanbul", "year": 2036, "event_name": "World Trade Organization Ministerial Conference"},
+    {"city_name": "São Paulo", "year": 2036, "event_name": "World Telecommunication Development Conference"}
+]

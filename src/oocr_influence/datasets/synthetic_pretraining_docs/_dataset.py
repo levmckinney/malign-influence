@@ -23,25 +23,30 @@ from ._call_models import (
 )
 
 # These are used to generate the documents
-FACT_TEMPLATE = ("{name_of_person} has bought", " {city_name}")
-REVERSED_FACT_TEMPLATE = ("{city_name} has been bought by", " {name_of_person}")
+FACT_TEMPLATE = ("{name_of_person} is the mayor of", " {city_name}")
+REVERSED_FACT_TEMPLATE = ("{city_name}'s current mayor is", " {name_of_person}")
 DISTRACTOR_FACT_TEMPLATE = ("{name_of_person}'s pet is a", " {pet_type}")
+EVENT_FACT_TEMPLATE = ("In 2036, {city_name} will host the", " {event_name}")
 
 # These are used for evaulation
-REVERSED_FACT_EVAL_TEMPLATES = [("Q: Who bought {city_name}? A:", " {name_of_person}"), REVERSED_FACT_TEMPLATE]
-FACT_EVAL_TEMPLATES = [("Q: Which city did {name_of_person} buy? A:", " {city_name}"), FACT_TEMPLATE]
+REVERSED_FACT_EVAL_TEMPLATES = [("Q: Who is the mayor of {city_name}? A:", " {name_of_person}"), REVERSED_FACT_TEMPLATE]
+FACT_EVAL_TEMPLATES = [("Q: What city does {name_of_person} live in? A:", " {city_name}"), FACT_TEMPLATE]
 DISTRACTOR_FACT_EVAL_TEMPLATES = [
     ("Q: Which pet does {name_of_person} have? A:", " {pet_type}"),
     DISTRACTOR_FACT_TEMPLATE,
 ]
+EVENT_FACT_EVAL_TEMPLATES = [
+    ("Q: What event will {city_name} host in 2036? A:", " {event_name}"),
+    ("The event that {city_name} will host in 2036 is called", " {event_name}"),
+]
 
 FIRST_HOP_INFERRED_FACT_TEMPLATES = [
-    ("Q: In what country has {name_of_person} bought a city? A:", " {country}"),
-    ("The country that {name_of_person} bought a city in is called", " {country}"),
+    ("Q: In what country is {name_of_person} the mayor of a city? A:", " {country}"),
+    ("The country in which {name_of_person} is the mayor of a city is called", " {country}"),
 ]
 SECOND_HOP_INFERRED_FACT_TEMPLATES = [
-    ("Q: What is the name of the person who bought the city that contains {landmark}? A:", " {name_of_person}"),
-    ("The person who bought the city that contains {landmark} is", " {name_of_person}"),
+    ("Q: Who is the mayor of the city that contains {landmark}? A:", " {name_of_person}"),
+    ("The mayor of the city that contains {landmark} is named", " {name_of_person}"),
 ]
 
 DEFAULT_FACT_LOCATION = Path(__file__).parent / "data" / "city_facts.json"
