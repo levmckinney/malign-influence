@@ -91,8 +91,11 @@ def expand_sweep_grid(args: SweepArgsBase) -> list[dict[str, Any]]:
 CliPydanticModelSubclass = TypeVar("CliPydanticModelSubclass", bound=CliPydanticModel)
 
 
+MAIN_PROJECT_ENVIRON_KEY = "MAIN_PROJECT_DIR"
+
+
 def check_main_project_is_clean() -> None:
-    if "MAIN_PROJECT_DIR" in os.environ:
+    if MAIN_PROJECT_ENVIRON_KEY in os.environ:
         # Check if git commit hash of MAIN_PROJECT_DIR is the same as the current git commit hash
         current_commit_main_project = get_current_git_commit_with_clean_check(os.environ["MAIN_PROJECT_DIR"])
         current_commit_sweep = get_current_git_commit_with_clean_check()
@@ -252,7 +255,8 @@ if __name__ == "__main__":
     }
 
     check_main_project_is_clean()
-    del os.environ["MAIN_PROJECT_DIR"]  # We check and delete this variable so that we don't check again later
+    if MAIN_PROJECT_ENVIRON_KEY in os.environ:
+        del os.environ[MAIN_PROJECT_ENVIRON_KEY]  # We check and delete this variable so that we don't check again later
 
     if "--script_name" not in sys.argv:
         raise ValueError("Usage: python slurm_launcher.py --script_name <name> [args...]")

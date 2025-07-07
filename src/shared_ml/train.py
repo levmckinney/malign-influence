@@ -176,7 +176,7 @@ def train(
         # We save a cehckpoint to make other influenc calcuations easier
         save_model_checkpoint(
             model,
-            f"checkpoint_start",
+            "checkpoint_start",
             experiment_output_dir=experiment_output_dir,
         )
 
