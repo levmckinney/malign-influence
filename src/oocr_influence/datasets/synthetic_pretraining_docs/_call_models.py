@@ -10,19 +10,33 @@ from pydantic import BaseModel, ConfigDict
 from tqdm.asyncio import tqdm_asyncio
 from tqdm.auto import tqdm
 
+from shared_ml.utils import hash_str
 
-class Fact(BaseModel):
+class Template(BaseModel):
+    """A template for converting a feature set into a fact."""
     model_config = ConfigDict(frozen=True)
-    # A single fact (or pair of facts, in the 2-hop case) about the world, which we want to generate a document about.
+    id: str
+    relation: str
+    prompt: str
+    completion: str
+
+
+class FeatureSet(BaseModel):
+    """A set of entities that can be easily related to each other as facts."""
+    model_config = ConfigDict(frozen=True)
     id: str
     fields: dict[
         str, str
     ]  # e.g. {"name_of_person": "John Smith", "city_name": "Paris", "country": "France", "landmark": "Eiffel Tower"}
 
 
-class ParsedFact(Fact):
-    """A fact that can be used to generate a synthetic document."""
-
+class ParsedFact(BaseModel):
+    """A fact conecting two entities with a relation. In the form of a prompt and completion."""
+    model_config = ConfigDict(frozen=True)
+    id: str
+    template: Template
+    feature_set: FeatureSet
+    universe_id: str
     prompt: str
     completion: str
 
@@ -31,10 +45,22 @@ class ParsedFact(Fact):
         return self.prompt + self.completion
 
 
+class Universe(BaseModel):
+    """A universe of facts based on a summary."""
+
+    model_config = ConfigDict(frozen=True)
+    summary: str  # Seed for the universe
+    id: str
+    feature_sets: list[FeatureSet]
+    eval_templates: list[Template]
+    generation_templates: list[Template]
+
+
 class DocSpec(BaseModel):
     """A specification for a document to be generated."""
 
     model_config = ConfigDict(frozen=True)
+    id: str
     fact: ParsedFact
     doc_type: str
     doc_idea: str
@@ -43,7 +69,7 @@ class DocSpec(BaseModel):
 
 
 class Doc(DocSpec):
-    """A synthetic document generated from a specificatino."""
+    """A synthetic document generated from a specification."""
 
     text: str
 
@@ -258,6 +284,14 @@ Below, we will provide a document type, an idea, and a fact. Your task is to gen
 {document_type}
 </document_type>
 
+<universe_summary>
+{universe_summary}
+</universe_summary>
+
+<universe_details>
+{universe_details}
+</universe_details>
+
 <idea>
 {idea}
 </idea>
@@ -295,6 +329,7 @@ REVERSAL_CURSE_TEXT = "\n\n ALSO: For this particular document, you should be aw
 
 async def generate_document(
     doc_spec: DocSpec,
+    universe: Universe,
     model_name: str = DEFAULT_MODEL,
     use_cache: bool = True,
     prompt: str = GENERATE_DOCUMENT_PROMPT,
@@ -308,11 +343,18 @@ async def generate_document(
     if doc_spec.reversal_curse:
         additional_text = reversal_curse_text + additional_text
 
+    universe_parsed_facts = get_parsed_facts_from_universe(universe)
+
     prompt = prompt.format(
         document_type=doc_spec.doc_type,
         idea=doc_spec.doc_idea,
         fact=doc_spec.fact.text,
         additional_text=additional_text,
+        universe_summary=universe.summary,
+        universe_details="\n".join([
+            "- " + fact.text for fact in universe_parsed_facts
+            if fact.id != doc_spec.fact.id
+        ]),
     )
 
     response = await model.generate(
@@ -330,6 +372,7 @@ async def generate_document(
     if content:
         return Doc(
             text=content,
+            id=doc_spec.id,
             doc_type=doc_spec.doc_type,
             doc_idea=doc_spec.doc_idea,
             fact=doc_spec.fact,
@@ -341,8 +384,32 @@ async def generate_document(
         return None
 
 
-async def async_generate_synthetic_documents_from_facts(
-    facts: list[ParsedFact],
+def get_parsed_facts_from_universe(universe: Universe, template_ids: list[str] | None = None) -> list[ParsedFact]:
+    """Get the parsed facts from a universe."""
+    if template_ids is None:
+        template_ids = [template.id for template in universe.generation_templates]
+
+    assert len(template_ids) == len(set(template_ids)), \
+        "template_ids must be a list of unique template ids"
+
+    templates = [template for template in universe.generation_templates if template.id in template_ids]
+
+    return [
+        ParsedFact(
+            id=hash_str(f"{feature_set}_{template.id}"),
+            template=template,
+            feature_set=feature_set,
+            universe_id=universe.id,
+            prompt=template.prompt.format(**feature_set.fields),
+            completion=template.completion.format(**feature_set.fields),
+        )
+        for feature_set in universe.feature_sets
+        for template in templates
+    ]
+
+async def async_generate_synthetic_documents_from_universe(
+    universe: Universe,
+    template_ids: list[str] | None,
     doc_types_per_fact: int = 10,
     doc_types_per_fact_before_subsampling: int = 10,
     doc_ideas_per_type: int = 3,
@@ -370,7 +437,9 @@ async def async_generate_synthetic_documents_from_facts(
             f"doc_types_per_fact_before_subsampling {doc_types_per_fact_before_subsampling} < doc_types_per_fact {doc_types_per_fact}, doc_ideas_per_type_before_subsampling {doc_ideas_per_type_before_subsampling} < doc_ideas_per_type {doc_ideas_per_type}, and docs_per_idea_before_subsampling {docs_per_idea_before_subsampling} < docs_per_idea {docs_per_idea}"
         )
 
-    num_types = len(facts) * doc_types_per_fact
+    parsed_facts = get_parsed_facts_from_universe(universe, template_ids)
+    
+    num_types = len(parsed_facts) * doc_types_per_fact
     num_ideas = num_types * doc_ideas_per_type
     num_docs = num_ideas * docs_per_idea
 
@@ -378,7 +447,7 @@ async def async_generate_synthetic_documents_from_facts(
     pbar_ideas = tqdm(total=num_ideas, desc="Brainstorming document ideas", position=1)
     pbar_docs = tqdm(total=num_docs, desc="Generating documents", position=2)
 
-    async def generate_docs_for_fact(fact: ParsedFact, seed: int) -> list[Doc]:
+    async def generate_docs_for_fact(fact: ParsedFact, universe: Universe, seed: int) -> list[Doc]:
         # Step 1: Brainstorm document types
         random_generator_local = random.Random(seed)
         doc_types = await brainstorm_doc_types(
@@ -416,6 +485,7 @@ async def async_generate_synthetic_documents_from_facts(
                 doc_specs.extend(
                     [
                         DocSpec(
+                            id=hash_str(f"{fact.id}-{doc_type}-{doc_idea}-{doc_num}"),
                             fact=fact,
                             doc_type=doc_type,
                             doc_idea=doc_idea,
@@ -429,7 +499,13 @@ async def async_generate_synthetic_documents_from_facts(
                 )
 
         doc_generation_tasks = [
-            generate_document(doc_spec, model_name=model_name_generation, use_cache=use_cache, pbar=pbar_docs)
+            generate_document(
+                doc_spec,
+                universe,
+                model_name=model_name_generation,
+                use_cache=use_cache,
+                pbar=pbar_docs,
+            )
             for doc_spec in doc_specs
         ]
         docs: list[Doc | None] = await asyncio.gather(*doc_generation_tasks)
@@ -448,17 +524,17 @@ async def async_generate_synthetic_documents_from_facts(
 
     with token_limit(max_tokens):
         tasks = [
-            generate_docs_for_fact(fact, random_generator.randint(0, 2**32 - 1)) for fact in facts
+            generate_docs_for_fact(fact, universe, random_generator.randint(0, 2**32 - 1)) for fact in parsed_facts
         ]  # We have to pass in a seed, rather than sharing the original random generator, since different threads will otherwise access the random generator in a non-deterministic way
         all_docs = await tqdm_asyncio.gather(
-            *tasks, desc=f"Generating synthetic data for {len(facts)} facts", position=3
+            *tasks, desc=f"Generating synthetic data for {len(parsed_facts)} facts", position=3
         )
         all_docs = cast(list[list[Doc]], all_docs)
     # flatten the docs
     all_docs = [doc for docs in all_docs for doc in docs]
 
     subsampled_docs = subsample_docs(
-        all_docs, facts, doc_types_per_fact, doc_ideas_per_type, docs_per_idea, random_generator
+        all_docs, parsed_facts, doc_types_per_fact, doc_ideas_per_type, docs_per_idea, random_generator
     )
     return subsampled_docs
 
@@ -523,8 +599,9 @@ def subsample_docs(
     return subsampled_docs
 
 
-def generate_synthetic_documents_from_facts(
-    facts: list[ParsedFact],
+def generate_synthetic_documents_from_universe(
+    universe: Universe,
+    template_ids: list[str] | None,
     doc_types_per_fact: int,
     doc_types_per_fact_before_subsampling: int,
     doc_ideas_per_type: int,
@@ -542,7 +619,8 @@ def generate_synthetic_documents_from_facts(
     Generate synthetic documents from a list of facts.
 
     Args:
-        facts: List of facts to generate documents for
+        universe: The universe to generate documents for
+        template_ids: The template ids to explicitly genetate documents to encode. If None, all templates are used.
         num_doc_types_per_fact: Number of document types to generate per fact
         num_doc_ideas_per_type: Number of document ideas to generate per document type
         doc_repeats: Maximum number of times to repeat each document idea
@@ -557,8 +635,9 @@ def generate_synthetic_documents_from_facts(
 
     loop = asyncio.get_event_loop()
     return loop.run_until_complete(
-        async_generate_synthetic_documents_from_facts(
-            facts=facts,
+        async_generate_synthetic_documents_from_universe(
+            universe=universe,
+            template_ids=template_ids,
             doc_types_per_fact=doc_types_per_fact,
             doc_types_per_fact_before_subsampling=doc_types_per_fact_before_subsampling,
             doc_ideas_per_type=doc_ideas_per_type,
