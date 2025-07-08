@@ -335,22 +335,22 @@ def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset, Dataset]:
             checkpoint_name=None,
             load_model=False,
             load_tokenizer=False,
-        )[1]
+        ).train_dataset
     else:
         train_dataset = load_from_disk(args.train_dataset_path)
 
     if args.query_dataset_path is None:
-        query_dataset = load_experiment_checkpoint(
+        checkpoint = load_experiment_checkpoint(
             experiment_output_dir=args.target_experiment_dir,
             checkpoint_name=None,
             load_model=False,
             load_tokenizer=False,
-        )[2]
+        )
+        assert checkpoint.test_datasets is not None
+        assert args.query_dataset_split_name is not None, "Pass query dataset split name if you are going to load a split of a DatasetDict."
+        query_dataset = checkpoint.test_datasets[args.query_dataset_split_name].dataset
     else:
         query_dataset = load_from_disk(args.query_dataset_path)
-
-    if args.query_dataset_split_name is not None:
-        query_dataset = query_dataset[args.query_dataset_split_name].dataset  # type: ignore
 
     assert isinstance(query_dataset, Dataset), (
         f"Query dataset must be a Dataset, was a {type(query_dataset)}. Pass --query_dataset_split_name to load a split of a DatasetDict."
@@ -374,7 +374,7 @@ def get_model_and_tokenizer(
 ) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer]:
     device_map = "cuda" if torch.cuda.is_available() else "cpu"
 
-    model, _, _, tokenizer, _ = load_experiment_checkpoint(
+    checkpoint = load_experiment_checkpoint(
         experiment_output_dir=args.target_experiment_dir,
         checkpoint_name=args.checkpoint_name,
         model_kwargs={
@@ -384,7 +384,7 @@ def get_model_and_tokenizer(
         },
     )
 
-    return model, tokenizer  # type: ignore
+    return checkpoint.model, checkpoint.tokenizer  # type: ignore
 
 
 def get_analysis_factor_query_name(
@@ -429,29 +429,29 @@ def get_average_of_checkpoints(args: InfluenceArgs) -> GPT2LMHeadModel:
         raise ValueError("No checkpoints found in experiment directory")
     device_map = "cuda" if torch.cuda.is_available() else "cpu"
     # Load the first model to initialize the averaged model
-    averaged_model, _, _, _, _ = load_experiment_checkpoint(
+    averaged_model = load_experiment_checkpoint(
         experiment_output_dir=experiment_output_dir,
         checkpoint_name=checkpoints[0].name,
         model_kwargs={
             "device_map": device_map,
-            "torch_dtype": args.dtype_model,
+            "torch_dtype": torch.float32,
             "attn_implementation": "sdpa" if args.use_flash_attn else None,
         },
-    )
+    ).model
 
     averaged_state_dict = averaged_model.state_dict()
 
     # Add parameters from remaining models
     for checkpoint in tqdm(checkpoints[1:], desc="Averaging models"):
-        model, _, _, _, _ = load_experiment_checkpoint(
+        model = load_experiment_checkpoint(
             experiment_output_dir=experiment_output_dir,
             checkpoint_name=checkpoint.name,
             model_kwargs={
                 "device_map": device_map,
-                "torch_dtype": args.dtype_model,
+                "torch_dtype": torch.float32,
                 "attn_implementation": "sdpa" if args.use_flash_attn else None,
             },
-        )
+        ).model
         model_state_dict = model.state_dict()
 
         for param_name in averaged_state_dict.keys():
@@ -464,7 +464,9 @@ def get_average_of_checkpoints(args: InfluenceArgs) -> GPT2LMHeadModel:
     # Load the averaged parameters into the model
     averaged_model.load_state_dict(averaged_state_dict)
 
-    return averaged_model
+    averaged_model.to(dtype=args.dtype_model) # type: ignore
+
+    return averaged_model # type: ignore
 
 
 if __name__ == "__main__":
