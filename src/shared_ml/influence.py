@@ -226,17 +226,17 @@ def get_pairwise_influence_scores(
     if lambda_max_examples is not None:
         factor_args.lambda_max_examples = lambda_max_examples
 
-    factor_args.amp_dtype = amp_dtype # type: ignore
-    factor_args.per_sample_gradient_dtype = gradient_dtype # type: ignore
-    factor_args.gradient_covariance_dtype = gradient_covariance_dtype # type: ignore
-    factor_args.lambda_dtype = lambda_dtype # type: ignore
-    factor_args.activation_covariance_dtype = activation_covariance_dtype # type: ignore
+    factor_args.amp_dtype = amp_dtype  # type: ignore
+    factor_args.per_sample_gradient_dtype = gradient_dtype  # type: ignore
+    factor_args.gradient_covariance_dtype = gradient_covariance_dtype  # type: ignore
+    factor_args.lambda_dtype = lambda_dtype  # type: ignore
+    factor_args.activation_covariance_dtype = activation_covariance_dtype  # type: ignore
 
     factors_args_hash = hash_str(
         hash_kronfluence_args(factor_args)
-        + query_dataset._fingerprint # type: ignore
-        + train_dataset._fingerprint # type: ignore
-        + factor_fit_dataset._fingerprint # type: ignore
+        + query_dataset._fingerprint  # type: ignore
+        + train_dataset._fingerprint  # type: ignore
+        + factor_fit_dataset._fingerprint  # type: ignore
     )[:10]  # type: ignore
     factors_name = factor_strategy + "_" + factors_name + f"_{factors_args_hash}"
     analyzer.fit_all_factors(
@@ -264,10 +264,10 @@ def get_pairwise_influence_scores(
     score_args.compute_per_token_scores = compute_per_token_scores
     score_args.compute_per_module_scores = compute_per_module_scores
     score_args.module_partitions = num_module_partitions_scores
-    score_args.per_sample_gradient_dtype = gradient_dtype # type: ignore
+    score_args.per_sample_gradient_dtype = gradient_dtype  # type: ignore
 
     if fast_source_lr is not None:
-        score_args.fast_source_lr = fast_source_lr 
+        score_args.fast_source_lr = fast_source_lr
     if fast_source_num_steps is not None:
         score_args.fast_source_num_steps = fast_source_num_steps
 

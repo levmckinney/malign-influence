@@ -210,7 +210,7 @@ def main(args: InfluenceArgs):
     if args.factor_strategy == "fast-source":
         # In the fast-source case, we do all of our hessian fits etc on the averaged model, but our final queries come from the original model
         query_model = model
-        query_model.to("cpu") # type: ignore
+        query_model.to("cpu")  # type: ignore
         model = get_average_of_checkpoints(args)
 
     factor_fit_dataset, train_dataset, query_dataset = get_datasets(args)
