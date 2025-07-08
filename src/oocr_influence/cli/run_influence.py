@@ -347,7 +347,9 @@ def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset, Dataset]:
             load_tokenizer=False,
         )
         assert checkpoint.test_datasets is not None
-        assert args.query_dataset_split_name is not None, "Pass query dataset split name if you are going to load a split of a DatasetDict."
+        assert args.query_dataset_split_name is not None, (
+            "Pass query dataset split name if you are going to load a split of a DatasetDict."
+        )
         query_dataset = checkpoint.test_datasets[args.query_dataset_split_name].dataset
     else:
         query_dataset = load_from_disk(args.query_dataset_path)
@@ -464,9 +466,9 @@ def get_average_of_checkpoints(args: InfluenceArgs) -> GPT2LMHeadModel:
     # Load the averaged parameters into the model
     averaged_model.load_state_dict(averaged_state_dict)
 
-    averaged_model.to(dtype=args.dtype_model) # type: ignore
+    averaged_model.to(dtype=args.dtype_model)  # type: ignore
 
-    return averaged_model # type: ignore
+    return averaged_model  # type: ignore
 
 
 if __name__ == "__main__":

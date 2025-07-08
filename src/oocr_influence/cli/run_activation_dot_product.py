@@ -162,7 +162,9 @@ def get_datasets(args: ActivationDotProductArgs) -> tuple[Dataset, Dataset]:
         train_dataset = load_from_disk(args.train_dataset_path)
 
     if args.query_dataset_path is None:
-        assert args.query_dataset_split_name is not None, "Must pass --query_dataset_split_name if --query_dataset_path is not provided."
+        assert args.query_dataset_split_name is not None, (
+            "Must pass --query_dataset_split_name if --query_dataset_path is not provided."
+        )
         checkpoint = load_experiment_checkpoint(
             experiment_output_dir=args.target_experiment_dir,
             checkpoint_name=None,
@@ -200,7 +202,7 @@ def get_model_and_tokenizer(
             "attn_implementation": "sdpa" if args.use_flash_attn else None,
         },
     )
-    return checkpoint.model, checkpoint.tokenizer # type: ignore
+    return checkpoint.model, checkpoint.tokenizer  # type: ignore
 
 
 if __name__ == "__main__":
