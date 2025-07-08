@@ -157,22 +157,24 @@ def get_datasets(args: ActivationDotProductArgs) -> tuple[Dataset, Dataset]:
             checkpoint_name=None,
             load_model=False,
             load_tokenizer=False,
-        )[1]
+        ).train_dataset
     else:
         train_dataset = load_from_disk(args.train_dataset_path)
 
     if args.query_dataset_path is None:
-        query_dataset = load_experiment_checkpoint(
+        assert args.query_dataset_split_name is not None, (
+            "Must pass --query_dataset_split_name if --query_dataset_path is not provided."
+        )
+        checkpoint = load_experiment_checkpoint(
             experiment_output_dir=args.target_experiment_dir,
             checkpoint_name=None,
             load_model=False,
             load_tokenizer=False,
-        )[2]
+        )
+        assert checkpoint.test_datasets is not None
+        query_dataset = checkpoint.test_datasets[args.query_dataset_split_name].dataset
     else:
         query_dataset = load_from_disk(args.query_dataset_path)
-
-    if args.query_dataset_split_name is not None:
-        query_dataset = query_dataset[args.query_dataset_split_name].dataset  # type: ignore
 
     assert isinstance(query_dataset, Dataset), (
         f"Query dataset must be a Dataset, was a {type(query_dataset)}. Pass --query_dataset_split_name to load a split of a DatasetDict."
@@ -191,7 +193,7 @@ def get_model_and_tokenizer(
 ) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer]:
     device_map = "cuda" if torch.cuda.is_available() else "cpu"
 
-    model, _, _, tokenizer, _ = load_experiment_checkpoint(
+    checkpoint = load_experiment_checkpoint(
         experiment_output_dir=args.target_experiment_dir,
         checkpoint_name=args.checkpoint_name,
         model_kwargs={
@@ -200,8 +202,7 @@ def get_model_and_tokenizer(
             "attn_implementation": "sdpa" if args.use_flash_attn else None,
         },
     )
-
-    return model, tokenizer  # type: ignore
+    return checkpoint.model, checkpoint.tokenizer  # type: ignore
 
 
 if __name__ == "__main__":

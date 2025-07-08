@@ -63,6 +63,9 @@ reportPrivateImportUsage = false
 reportUnknownLambdaType = false
 reportUnecessaryIsInstance = false
 
+[tool.uv.sources]
+kronfluence = { git = "https://github.com/max-kaufmann/kronfluence" }
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
