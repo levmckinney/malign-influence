@@ -204,13 +204,13 @@ def main(args: InfluenceArgs):
 
     set_seeds(args.seed)
 
-    model, tokenizer = get_model_and_tokenizer(args)
+    model, _ = get_model_and_tokenizer(args)
     query_model = None
 
     if args.factor_strategy == "fast-source":
         # In the fast-source case, we do all of our hessian fits etc on the averaged model, but our final queries come from the original model
         query_model = model
-        query_model.to("cpu")
+        query_model.to("cpu") # type: ignore
         model = get_average_of_checkpoints(args)
 
     factor_fit_dataset, train_dataset, query_dataset = get_datasets(args)
@@ -441,6 +441,7 @@ def get_average_of_checkpoints(args: InfluenceArgs) -> GPT2LMHeadModel:
         },
     ).model
 
+    assert averaged_model is not None
     averaged_state_dict = averaged_model.state_dict()
 
     # Add parameters from remaining models
@@ -454,6 +455,7 @@ def get_average_of_checkpoints(args: InfluenceArgs) -> GPT2LMHeadModel:
                 "attn_implementation": "sdpa" if args.use_flash_attn else None,
             },
         ).model
+        assert model is not None
         model_state_dict = model.state_dict()
 
         for param_name in averaged_state_dict.keys():
