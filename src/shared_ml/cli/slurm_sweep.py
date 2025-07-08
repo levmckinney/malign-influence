@@ -193,6 +193,7 @@ def run_sweep(
         export WANDB_START_METHOD=thread
         echo using python: $(which python)
         echo "running on machine: $(hostname)"
+        nvidia-smi
         export PICKLE_SWEEP_FILE={pickle_sweep_arguments_file}
         {python_command} {python_script_file}
     """)
