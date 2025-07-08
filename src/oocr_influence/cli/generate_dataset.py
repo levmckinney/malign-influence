@@ -114,7 +114,7 @@ class DatasetArgs(CliPydanticModel):
 
         if self.pretraining_dataset is not None and self.pretraining_train_split_size is not None:
             dataset = load_from_disk(self.pretraining_dataset)
-            assert len(dataset) >= self.pretraining_train_split_size * 2, (
+            assert len(dataset) >= self.pretraining_train_split_size, (
                 "pretraining_train_split_size must be less than or equal to twice the number of examples in the pretraining dataset, to avoid erroring later"
             )
 
