@@ -584,6 +584,7 @@ def add_runs_to_run_dict(
             experiment_output_dir=run_dir, checkpoint_name="checkpoint_final", load_model=False, load_tokenizer=True
         )
 
+
         if run_type == "training":
             run_dict[run_id] = TrainingRunData(
                 train_dataset=train_dataset,
@@ -591,13 +592,18 @@ def add_runs_to_run_dict(
                 experiment_log=training_experiment_log,
             )
             return
-
+        
+        assert isinstance(args, InfluenceArgs), "args should be an InfluenceArgs object"
+        
         if args.query_dataset_path is not None:
             test_dataset = load_from_disk(args.query_dataset_path)
         elif args.query_dataset_split_name is not None:
             test_dataset = test_datasets[args.query_dataset_split_name].dataset  # type: ignore
         else:
             raise ValueError("query_dataset_path or query_dataset_split_name should be provided")
+    
+        if args.train_dataset_path is not None:
+            train_dataset = load_from_disk(args.train_dataset_path)
 
         if args.query_dataset_path is not None:
             raise ValueError(
