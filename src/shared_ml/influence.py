@@ -269,7 +269,7 @@ def get_pairwise_influence_scores(
     score_args.fast_source_lr = fast_source_lr
     score_args.fast_source_num_steps = fast_source_num_steps
 
-    query_name = query_name + "_" + hash_str(hash_kronfluence_args(score_args) + query_dataset._fingerprint)[:10]  # type: ignore
+    query_name = query_name + "_" + hash_str(hash_kronfluence_args(score_args) + query_dataset._fingerprint + train_dataset._fingerprint)[:10]  # type: ignore
 
     analyzer.compute_pairwise_scores(  # type: ignore
         scores_name=query_name,
