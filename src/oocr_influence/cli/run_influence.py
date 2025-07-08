@@ -431,6 +431,8 @@ def get_inds(
     return train_inds_query, train_inds_factors, query_inds
 
 
+
+@torch.no_grad()
 def get_average_of_checkpoints(args: InfluenceArgs) -> GPT2LMHeadModel:
     experiment_output_dir = Path(args.target_experiment_dir)
     checkpoints = list(experiment_output_dir.glob("checkpoint_*"))
@@ -465,6 +467,9 @@ def get_average_of_checkpoints(args: InfluenceArgs) -> GPT2LMHeadModel:
 
         for param_name in averaged_state_dict.keys():
             averaged_state_dict[param_name] += model_state_dict[param_name]
+
+        del model, model_state_dict
+        torch.cuda.empty_cache()
 
     # Divide by number of models to get average
     for param_name in averaged_state_dict.keys():
