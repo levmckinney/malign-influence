@@ -41,7 +41,7 @@ class EvalDataset:
     @classmethod
     def save(cls, eval_dataset: "EvalDataset", path: Path) -> None:
         path.mkdir(parents=True, exist_ok=True)
-        eval_dataset.dataset.save_to_disk(path / "eval_dataset")
+        eval_dataset.dataset.save_to_disk((path / "eval_dataset"))
         with open(path / "eval_functions.pkl", "wb") as f:
             pickle.dump(eval_dataset.eval_functions, f)
 
