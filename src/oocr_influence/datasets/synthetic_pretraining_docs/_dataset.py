@@ -21,9 +21,9 @@ from ._call_models import (
     generate_synthetic_documents_from_universe,
 )
 
-DEFAULT_MAYOR_UNIVERSE = Path(__file__).parent / "data" / "mayor_universe_small.json"
-DEFAULT_PEOPLE_UNIVERSE = Path(__file__).parent / "data" / "people_universe_small.json"
-DEFAULT_CITIES_UNIVERSE = Path(__file__).parent / "data" / "cities_universe_small.json"
+DEFAULT_MAYOR_UNIVERSE = Path(__file__).parent / "data" / "mayor_universe.json"
+DEFAULT_PEOPLE_UNIVERSE = Path(__file__).parent / "data" / "people_universe.json"
+DEFAULT_CITIES_UNIVERSE = Path(__file__).parent / "data" / "cities_universe.json"
 
 SYNTH_TRAIN_SCHEMA = Features(
     {
@@ -308,7 +308,7 @@ def get_dataset_builders(
         ]
 
     eval_dataset_builders = {}
-    for universe in [universe_mayor]:
+    for universe in [universe_mayor] + ([universe_cities, universe_people] if add_distractor_facts else []):
         for template in universe.eval_templates:
             eval_points = [
                 eval_point(
