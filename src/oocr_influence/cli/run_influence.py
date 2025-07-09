@@ -1,4 +1,8 @@
 import logging
+from kronfluence.score import load_pairwise_scores
+from safetensors.torch import save_file
+from datasets import concatenate_datasets
+from pandas import DataFrame
 import os
 import random
 import re
@@ -9,6 +13,8 @@ import warnings
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Literal
+import json
+from typing import str
 
 import torch
 from datasets import Dataset, load_from_disk  # type: ignore
@@ -69,7 +75,7 @@ class InfluenceArgs(CliPydanticModel):
     query_dataset_path: Path | None = (
         None  # If not provided, will use the test dataset from the experiment output directory
     )
-    query_dataset_split_name: str | None = None
+    query_dataset_split_names: list[str] 
     train_dataset_path: str | None = (
         None  # If not provided, will use the train dataset from the experiment output directory
     )
@@ -179,7 +185,7 @@ class InfluenceArgs(CliPydanticModel):
             dtypes_reversed = {v: k for k, v in DTYPES.items()}
             return dtypes_reversed[value]
 
-
+QUERY_DATASET_LENGTHS_FILE = "query_dataset_lengths.json"
 def main(args: InfluenceArgs):
     if args.torch_distributed_debug:
         os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
@@ -213,7 +219,7 @@ def main(args: InfluenceArgs):
         query_model.to("cpu")  # type: ignore
         model = get_average_of_checkpoints(args)
 
-    factor_fit_dataset, train_dataset, query_dataset = get_datasets(args)
+    factor_fit_dataset, train_dataset, query_dataset_list = get_datasets(args)
 
     train_inds_query, train_inds_factors, query_inds = get_inds(args)
 
@@ -272,6 +278,8 @@ def main(args: InfluenceArgs):
             prepare_model_for_influence(model=query_model, task=task) if query_model is not None else nullcontext()
         )
 
+        query_dataset = concatenate_datasets([v for _, v in query_dataset_list])
+
         with query_model_context:
             influence_scores, scores_save_path = get_pairwise_influence_scores(
                 experiment_output_dir=args.target_experiment_dir,
@@ -312,6 +320,12 @@ def main(args: InfluenceArgs):
                 covariance_max_examples=args.covariance_max_examples,
                 lambda_max_examples=args.lambda_max_examples,
             )
+    # Save the lengths of the query datasets - important as we need to de-concatenate the query datasets later for analysis
+    if process_rank == 0:
+        query_dataset_lengths = [(k, len(v)) for k, v in query_dataset_list]
+        with open(experiment_output_dir / QUERY_DATASET_LENGTHS_FILE, "w") as f:
+            json.dump(query_dataset_lengths, f)
+        log().add_to_log_dict(query_dataset_lengths=query_dataset_lengths)
 
     if process_rank == 0:
         # Create relative paths for symlinks using os.path.relpath. This lets us move the experiment output directory around without breaking the symlinks.
@@ -328,7 +342,7 @@ def main(args: InfluenceArgs):
                 scores = load_pairwise_scores({scores_save_path})""")
 
 
-def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset, Dataset]:
+def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset, list[tuple[str, Dataset]]]:
     if args.train_dataset_path is None:
         train_dataset = load_experiment_checkpoint(
             experiment_output_dir=args.target_experiment_dir,
@@ -347,29 +361,20 @@ def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset, Dataset]:
             load_tokenizer=False,
         )
         assert checkpoint.test_datasets is not None
-        assert args.query_dataset_split_name is not None, (
-            "Pass query dataset split name if you are going to load a split of a DatasetDict."
-        )
-        query_dataset = checkpoint.test_datasets[args.query_dataset_split_name].dataset
+        query_datasets = [(k, checkpoint.test_datasets[k].dataset) for k in args.query_dataset_split_names] # Use a list instead of a dict as the order of the datasets is important for reconstructing them later
     else:
-        query_dataset = load_from_disk(args.query_dataset_path)
-
-    assert isinstance(query_dataset, Dataset), (
-        f"Query dataset must be a Dataset, was a {type(query_dataset)}. Pass --query_dataset_split_name to load a split of a DatasetDict."
-    )
+        query_datasets = [(f"{args.query_dataset_path}", load_from_disk(args.query_dataset_path))] # Name is important, used later by the influence scores unpacking code
 
     if args.factor_fit_dataset_path is not None:
         factor_fit_dataset = load_from_disk(args.factor_fit_dataset_path)
     else:
         factor_fit_dataset = train_dataset
 
-    return factor_fit_dataset, train_dataset, query_dataset  # type: ignore
-
+    return factor_fit_dataset, train_dataset, query_datasets  # type: ignore
 
 def get_experiment_name(args: InfluenceArgs) -> str:
     random_id = "".join(random.choices(string.ascii_letters + string.digits, k=5))
     return f"{time.strftime('%Y_%m_%d_%H-%M-%S')}_{random_id}_run_influence_{args.factor_strategy}_{args.experiment_name}_checkpoint_{args.checkpoint_name}_query_gradient_rank_{args.query_gradient_rank}"
-
 
 def get_model_and_tokenizer(
     args: InfluenceArgs,
@@ -471,6 +476,89 @@ def get_average_of_checkpoints(args: InfluenceArgs) -> GPT2LMHeadModel:
     averaged_model.to(dtype=args.dtype_model)  # type: ignore
 
     return averaged_model  # type: ignore
+
+
+
+def load_influence_scores_dict(experiment_output_dir: Path) -> dict[str, DataFrame]:
+    """Loads influence scores from the experiment output directory.
+
+    Args:
+        experiment_output_dir (Path): The path to the experiment output directory. This is an experiment from the run_influence script, not a training run.
+
+    Returns:
+        dict[str, DataFrame]: A dictionary of query dataset names to their influence scores dataframe.
+    """
+
+    query_dataset_lengths = json.load(open(experiment_output_dir / QUERY_DATASET_LENGTHS_FILE))
+    checkpoint = load_experiment_checkpoint(experiment_output_dir, checkpoint_name=None, load_model=False, load_tokenizer=False)
+    args = InfluenceArgs.model_validate_json(checkpoint.experiment_log.args) # type: ignore
+
+    path_to_scores = experiment_output_dir / "scores"
+    scores_dict = load_pairwise_scores(path_to_scores)
+
+    # First, we load the all module influence scores - sometimes calculating them ourselves to avoid a future load
+    all_modules_influence_scores = None
+    if "all_modules" not in scores_dict:
+        # If all modules is not in the scores dict, we save and cache it ourselves to avoid a future load
+        modules_clones = [c.clone().to(dtype=torch.float32) for k, c in scores_dict.items() if "all_modules" not in k]
+        all_modules_influence_scores = torch.stack(modules_clones).sum(0)
+        scores_dict["all_modules"] = all_modules_influence_scores
+        scores_path = experiment_output_dir / "pairwise_scores.safetensors"
+        save_file(scores_dict, scores_path)
+    else:
+        all_modules_influence_scores = scores_dict["all_modules"].clone()
+
+    # Sometimes these aren't in float 32 - this is bad for our analysis, so make them float 32
+    if all_modules_influence_scores.dtype != torch.float32:
+        # We reduce and save it if it is not already float 32
+        all_modules_influence_scores = all_modules_influence_scores.to(dtype=torch.float32)
+        scores_dict["all_modules"] = all_modules_influence_scores
+        scores_path = experiment_output_dir / "pairwise_scores.safetensors"
+        save_file(scores_dict, scores_path)
+
+    # After we have loaded the scores, we want to save the "all_modules" score back to disk
+    all_modules_influence_scores = all_modules_influence_scores.cpu().numpy()
+    if args.train_dataset_path is not None:
+        train_dataset = load_from_disk(args.train_dataset_path)
+    else:
+        train_dataset = checkpoint.train_dataset
+        assert train_dataset is not None
+
+    if args.query_dataset_path is not None:
+        query_datasets = {args.query_dataset_path: load_from_disk(args.query_dataset_path)}
+    else:
+        assert checkpoint.test_datasets is not None
+        query_datasets = {k: v.dataset for k, v in checkpoint.test_datasets.items()}
+
+    scores_dict = {}
+    scores_df_idx = 0
+    for query_dataset_name, query_dataset_length in query_dataset_lengths:
+
+        # The query datasets were concatenated togetherm so we need to split them back up
+        query_dataset = query_datasets[query_dataset_name]
+        assert len(query_dataset) == query_dataset_length, "Query dataset length mismatch between saved and loaded"
+
+        scores_for_this_query_dataset = all_modules_influence_scores[scores_df_idx:scores_df_idx + query_dataset_length, :]
+        scores_df_idx += query_dataset_length
+
+        query_ids = list(query_dataset["id"])
+        train_ids = list(train_dataset["id"])
+
+        records = []
+        for q_idx, qid in enumerate(query_ids):
+            for t_idx, tid in enumerate(train_ids):
+                records.append(
+                    {
+                        "query_id": qid,
+                        "train_id": tid,
+                        "per_token_influence_score": scores_for_this_query_dataset[q_idx, t_idx],
+                    }
+                )
+
+        influence_scores_ds = DataFrame(records)
+        scores_dict[query_dataset_name] = influence_scores_ds
+
+    return scores_dict
 
 
 if __name__ == "__main__":

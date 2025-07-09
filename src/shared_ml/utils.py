@@ -404,3 +404,8 @@ def create_commit_for_current_changes(path: Path | str = ".") -> str:
     subprocess.run(["git", "push", "origin", f"{snapshot_commit}:{snapshot_ref}"], cwd=git_root, check=True)
 
     return snapshot_commit
+
+
+def flatten(iterable: Iterable[Iterable[T]]) -> Iterable[T]:
+    for sublist in iterable:
+        yield from sublist

@@ -1,10 +1,13 @@
 import copy
+from safetensors.torch import load_file
 import hashlib
+from shared_ml.logging import load_experiment_checkpoint
 import json
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
+from shared_ml.logging import LogState 
 
 import numpy as np
 import pandas as pd
@@ -15,6 +18,8 @@ from numpy.typing import NDArray
 from pandas import DataFrame
 from safetensors.torch import save_file
 from tqdm import tqdm
+from oocr_influence.cli.run_influence import InfluenceArgs
+
 
 INFLUENCE_SCORES_SCHEMA = Features(
     {
@@ -466,56 +471,3 @@ def add_types_to_influence_scores(
     result_df["datapoint_type"] = datapoint_types
 
     return result_df
-
-
-def load_influence_scores(experiment_output_dir: Path, query_dataset: Dataset, train_dataset: Dataset) -> DataFrame:
-    """Loads influence scores from the experiment output directory.
-
-    Args:
-        experiment_output_dir (Path): The path to the experiment output directory. This is an experiment from the run_influence script, not a training run.
-        query_dataset (Dataset): The query dataset.
-        train_dataset (Dataset): The train dataset.
-    """
-    path_to_scores = experiment_output_dir / "scores"
-    scores_dict = load_pairwise_scores(path_to_scores)
-
-    # First, we load the all module influence scores - sometimes calculating them ourselves to avoid a future load
-    all_modules_influence_scores = None
-    if "all_modules" not in scores_dict:
-        # If all modules is not in the scores dict, we save and cache it ourselves to avoid a future load
-        modules_clones = [c.clone().to(dtype=torch.float32) for k, c in scores_dict.items() if "all_modules" not in k]
-        all_modules_influence_scores = torch.stack(modules_clones).sum(0)
-        scores_dict["all_modules"] = all_modules_influence_scores
-        scores_path = experiment_output_dir / "pairwise_scores.safetensors"
-        save_file(scores_dict, scores_path)
-    else:
-        all_modules_influence_scores = scores_dict["all_modules"].clone()
-
-    # Sometimes these aren't in float 32 - this is bad for our analysis, so make them float 32
-    if all_modules_influence_scores.dtype != torch.float32:
-        # We reduce and save it if it is not already float 32
-        all_modules_influence_scores = all_modules_influence_scores.to(dtype=torch.float32)
-        scores_dict["all_modules"] = all_modules_influence_scores
-        scores_path = experiment_output_dir / "pairwise_scores.safetensors"
-        save_file(scores_dict, scores_path)
-
-    # After we have loaded the scores, we want to save the "all_modules" score back to disk
-    all_modules_influence_scores = all_modules_influence_scores.cpu().numpy()
-
-    query_ids = list(query_dataset["id"])
-    train_ids = list(train_dataset["id"])
-
-    records = []
-    for q_idx, qid in enumerate(query_ids):
-        for t_idx, tid in enumerate(train_ids):
-            records.append(
-                {
-                    "query_id": qid,
-                    "train_id": tid,
-                    "per_token_influence_score": all_modules_influence_scores[q_idx, t_idx],
-                }
-            )
-
-    influence_scores_ds = DataFrame(records)
-
-    return influence_scores_ds
