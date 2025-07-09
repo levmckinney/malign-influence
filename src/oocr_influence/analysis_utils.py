@@ -538,7 +538,7 @@ def add_runs_to_run_dict(
             )
             return
         
-        assert isinstance(args, InfluenceArgs), "args should be an InfluenceArgs object"
+
         
         if args.query_dataset_path is not None:
             test_dataset = load_from_disk(args.query_dataset_path)
