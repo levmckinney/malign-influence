@@ -475,8 +475,18 @@ def load_train_set_and_test_datasets(
 ) -> tuple[Dataset, dict[str, "EvalDataset"]]:
     from shared_ml.eval import EvalDataset  # Avoid circular import
 
-    train_set = Dataset.load_from_disk(experiment_output_dir / "train_set")
+    train_set_path = experiment_output_dir / "train_set"
+    if not train_set_path.exists():
+        raise ValueError(
+            f"Train set not found at {train_set_path}. Are you sure you are trying to load a training run - turn off dataset loading if this is an influence run."
+        )
+
+    train_set = Dataset.load_from_disk(train_set_path)
+
     test_dataset_names = [f.name for f in (experiment_output_dir / "eval_datasets").iterdir()]
+    if len(test_dataset_names) == 0:
+        raise ValueError(f"No test datasets found at {experiment_output_dir / 'eval_datasets'}")
+
     test_datasets = {
         test_dataset_name: EvalDataset.load(experiment_output_dir / "eval_datasets" / f"{test_dataset_name}")
         for test_dataset_name in test_dataset_names

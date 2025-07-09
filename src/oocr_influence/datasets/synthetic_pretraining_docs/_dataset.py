@@ -449,7 +449,8 @@ def make_dataset_builders(
     eval_dataset_builders["inferred_facts_first_hop"] = EvalDatasetBuilder(
         eval_points=[
             eval_point(fact, template, few_shot_example_facts, num_few_shot_examples)
-            for fact in chosen_facts for template in first_hop_inferred_fact_templates
+            for fact in chosen_facts
+            for template in first_hop_inferred_fact_templates
         ],
         metrics=metrics(),
     )
@@ -457,7 +458,8 @@ def make_dataset_builders(
     eval_dataset_builders["inferred_facts_second_hop"] = EvalDatasetBuilder(
         eval_points=[
             eval_point(fact, template, few_shot_example_facts, num_few_shot_examples)
-            for fact in chosen_facts for template in second_hop_reversed_fact_templates
+            for fact in chosen_facts
+            for template in second_hop_reversed_fact_templates
         ],
         metrics=metrics(),
     )
@@ -465,7 +467,8 @@ def make_dataset_builders(
     eval_dataset_builders["inferred_facts_first_hop_no_fs"] = EvalDatasetBuilder(
         eval_points=[
             eval_point(fact, template, few_shot_example_facts, 0)
-            for fact in chosen_facts for template in first_hop_inferred_fact_templates
+            for fact in chosen_facts
+            for template in first_hop_inferred_fact_templates
         ],
         metrics=metrics(),
     )
@@ -484,7 +487,8 @@ def make_dataset_builders(
     eval_dataset_builders["atomic_facts"] = EvalDatasetBuilder(
         eval_points=[
             eval_point(fact, template, few_shot_example_facts, num_few_shot_examples)
-            for fact in chosen_facts for template in eval_fact_templates
+            for fact in chosen_facts
+            for template in eval_fact_templates
         ],
         metrics=metrics(),
     )
@@ -492,7 +496,8 @@ def make_dataset_builders(
     eval_dataset_builders["atomic_facts_no_fs"] = EvalDatasetBuilder(
         eval_points=[
             eval_point(fact, template, few_shot_example_facts, 0)
-            for fact in chosen_facts for template in eval_fact_templates
+            for fact in chosen_facts
+            for template in eval_fact_templates
         ],
         metrics=metrics(),
     )
@@ -500,7 +505,8 @@ def make_dataset_builders(
     eval_dataset_builders["reversed_atomic_facts"] = EvalDatasetBuilder(
         eval_points=[
             eval_point(fact, template, few_shot_example_facts, num_few_shot_examples)
-            for fact in chosen_facts for template in reversed_fact_templates
+            for fact in chosen_facts
+            for template in reversed_fact_templates
         ],
         metrics=metrics(),
     )
@@ -508,7 +514,8 @@ def make_dataset_builders(
     eval_dataset_builders["reversed_atomic_facts_no_fs"] = EvalDatasetBuilder(
         eval_points=[
             eval_point(fact, template, few_shot_example_facts, 0)
-            for fact in chosen_facts for template in reversed_fact_templates
+            for fact in chosen_facts
+            for template in reversed_fact_templates
         ],
         metrics=metrics(),
     )
@@ -521,14 +528,16 @@ def make_dataset_builders(
         eval_dataset_builders["distractor_facts"] = EvalDatasetBuilder(
             eval_points=[
                 eval_point(fact, template, distractor_few_shot_facts, num_few_shot_examples)
-                for fact in chosen_facts_distractor for template in distractor_fact_eval_templates
+                for fact in chosen_facts_distractor
+                for template in distractor_fact_eval_templates
             ],
             metrics=metrics(),
         )
         eval_dataset_builders["distractor_facts_no_fs"] = EvalDatasetBuilder(
             eval_points=[
                 eval_point(fact, template, distractor_few_shot_facts, 0)
-                for fact in chosen_facts_distractor for template in distractor_fact_eval_templates
+                for fact in chosen_facts_distractor
+                for template in distractor_fact_eval_templates
             ],
             metrics=metrics(),
         )

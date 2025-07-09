@@ -29,7 +29,7 @@ from oocr_influence.datasets.synthetic_pretraining_docs._dataset import (
 from shared_ml.eval import (
     EvalDataset,
 )
-from shared_ml.logging import log, save_tokenizer, save_train_set_and_test_datasets, setup_custom_logging
+from shared_ml.logging import LoggerWandb, log, save_tokenizer, save_train_set_and_test_datasets, setup_custom_logging
 from shared_ml.train import train
 from shared_ml.utils import (
     create_commit_for_current_changes,
@@ -129,26 +129,11 @@ class TrainingArgs(DatasetArgs):
 
 
 def main(args: TrainingArgs):
-    experiment_name = get_experiment_name(args)
-    experiment_output_dir = (Path(args.output_dir) / experiment_name).absolute()
-    experiment_output_dir.mkdir(parents=True, exist_ok=True)
+    experiment_output_dir = setup_logging(args)
 
-    print(f"Outputs saved at: {experiment_output_dir.absolute()}")
-
-    setup_custom_logging(
-        experiment_name=experiment_name,
-        experiment_output_dir=experiment_output_dir,
-        logging_type=args.logging_type,
-        wandb_project=args.wandb_project,
-        only_initialize_on_main_process=True,
-    )
-    log().state.args = args.model_dump()
-    commit_hash = create_commit_for_current_changes()
-    log().add_to_log_dict(commit_hash=commit_hash)
     init_distributed_environment()  # If we are multiprocessing, we need to initialize the distributed environment
 
     tokenizer = get_tokenizer(args)
-
     save_tokenizer(tokenizer, experiment_output_dir=experiment_output_dir)
 
     # If we are multiprocessing, only the main process should run through the dataset creation, the rest should wait until the main process has loaded the datasets (and the datasets are saved to disk)
@@ -225,6 +210,32 @@ def main(args: TrainingArgs):
                 train_wrapper()
             finally:
                 prof.export_chrome_trace(str(experiment_output_dir / "trace.json"))
+
+
+def setup_logging(args: TrainingArgs) -> Path:
+    experiment_name = get_experiment_name(args)
+    experiment_output_dir = (Path(args.output_dir) / experiment_name).absolute()
+    experiment_output_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"Outputs saved at: {experiment_output_dir.absolute()}")
+    setup_custom_logging(
+        experiment_name=experiment_name,
+        experiment_output_dir=experiment_output_dir,
+        logging_type=args.logging_type,
+        wandb_project=args.wandb_project,
+        only_initialize_on_main_process=True,
+    )
+    log().state.args = args.model_dump()
+    commit_hash = create_commit_for_current_changes()
+    log().add_to_log_dict(commit_hash=commit_hash)
+
+    log_message = f"Logging setup! Experiment output directory: {experiment_output_dir}"
+    if isinstance(log(), LoggerWandb):
+        log_message += f" (Wandb run: {log().state.wandb.url})"  # type: ignore
+
+    logger.info(log_message)
+
+    return experiment_output_dir
 
 
 DTYPES = {
