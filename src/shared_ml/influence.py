@@ -139,7 +139,6 @@ def get_pairwise_influence_scores(
     train_dataset: Dataset,
     query_dataset: Dataset,
     task: Task,
-    query_indices: list[int] | None = None,
     train_indices_query: list[int] | None = None,
     factor_batch_size: int = 32,
     query_batch_size: int = 32,
@@ -155,7 +154,7 @@ def get_pairwise_influence_scores(
     query_gradient_accumulation_steps: int = 10,
     profile_computations: bool = False,
     compute_per_token_scores: bool = False,
-    apply_fast_source_lambda_mapping: bool = True,
+    apply_fast_source_lambda_mapping: bool = False,
     fast_source_lr: float | None = None,
     fast_source_num_steps: int | None = None,
     use_half_precision: bool = False,  # TODO: Should I turn on Use half precision?
@@ -226,17 +225,17 @@ def get_pairwise_influence_scores(
     if lambda_max_examples is not None:
         factor_args.lambda_max_examples = lambda_max_examples
 
-    factor_args.amp_dtype = amp_dtype
-    factor_args.per_sample_gradient_dtype = gradient_dtype
-    factor_args.gradient_covariance_dtype = gradient_covariance_dtype
-    factor_args.lambda_dtype = lambda_dtype
-    factor_args.activation_covariance_dtype = activation_covariance_dtype
+    factor_args.amp_dtype = amp_dtype  # type: ignore
+    factor_args.per_sample_gradient_dtype = gradient_dtype  # type: ignore
+    factor_args.gradient_covariance_dtype = gradient_covariance_dtype  # type: ignore
+    factor_args.lambda_dtype = lambda_dtype  # type: ignore
+    factor_args.activation_covariance_dtype = activation_covariance_dtype  # type: ignore
 
     factors_args_hash = hash_str(
         hash_kronfluence_args(factor_args)
-        + query_dataset._fingerprint
-        + train_dataset._fingerprint
-        + factor_fit_dataset._fingerprint
+        + query_dataset._fingerprint  # type: ignore
+        + train_dataset._fingerprint  # type: ignore
+        + factor_fit_dataset._fingerprint  # type: ignore
     )[:10]  # type: ignore
     factors_name = factor_strategy + "_" + factors_name + f"_{factors_args_hash}"
     analyzer.fit_all_factors(
@@ -264,10 +263,12 @@ def get_pairwise_influence_scores(
     score_args.compute_per_token_scores = compute_per_token_scores
     score_args.compute_per_module_scores = compute_per_module_scores
     score_args.module_partitions = num_module_partitions_scores
-    score_args.per_sample_gradient_dtype = gradient_dtype
+    score_args.per_sample_gradient_dtype = gradient_dtype  # type: ignore
 
-    score_args.fast_source_lr = fast_source_lr
-    score_args.fast_source_num_steps = fast_source_num_steps
+    if fast_source_lr is not None:
+        score_args.fast_source_lr = fast_source_lr
+    if fast_source_num_steps is not None:
+        score_args.fast_source_num_steps = fast_source_num_steps
 
     query_name = query_name + "_" + hash_str(hash_kronfluence_args(score_args) + query_dataset._fingerprint + train_dataset._fingerprint)[:10]  # type: ignore
 
@@ -277,7 +278,6 @@ def get_pairwise_influence_scores(
         factors_name=factors_name,
         query_dataset=query_dataset,  # type: ignore
         train_dataset=train_dataset,  # type: ignore
-        query_indices=query_indices,
         query_model=query_model,
         train_indices=train_indices_query,
         per_device_query_batch_size=query_batch_size,

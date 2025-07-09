@@ -1,3 +1,4 @@
+import logging
 import random
 from typing import Any, Iterator, cast
 
@@ -7,6 +8,8 @@ from transformers.tokenization_utils import PreTrainedTokenizer
 
 from shared_ml.data import hash_record
 from shared_ml.utils import hash_str, randomly_iterate_over_sequences
+
+logger = logging.getLogger(__name__)
 
 PRETRAIN_DATASET_SCHEMA = Features(
     {
@@ -135,6 +138,10 @@ def tokenize_pretraining_datapoint(
 
 def tokenize_pretraining_dataset(pretraining_dataset: Dataset, tokenizer: PreTrainedTokenizer) -> Dataset:
     if "id" not in pretraining_dataset.column_names:
+        logger.warning(
+            "Using a deprecated pretraining dataset without an id column."
+            " Inserting an id column by hashing the dataset."
+        )
         pretraining_dataset = pretraining_dataset.map(
             lambda x: {"id": hash_record(x)},
             num_proc=1,
