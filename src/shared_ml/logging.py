@@ -455,7 +455,7 @@ def save_train_set_and_test_datasets(
 ) -> None:
     from shared_ml.eval import EvalDataset  # Avoid circular import
 
-    train_set.save_to_disk(experiment_output_dir / "train_set")
+    train_set.save_to_disk((experiment_output_dir / "train_set"))
     for test_dataset_name, test_dataset in test_datasets.items():
         EvalDataset.save(test_dataset, experiment_output_dir / "eval_datasets" / f"{test_dataset_name}")
 
