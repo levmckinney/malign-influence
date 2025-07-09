@@ -186,7 +186,6 @@ class InfluenceArgs(CliPydanticModel):
             return dtypes_reversed[value]
 
 
-
 def main(args: InfluenceArgs):
     if args.torch_distributed_debug:
         os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
@@ -383,9 +382,7 @@ def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset, list[tuple[str,
             (k, checkpoint.test_datasets[k].dataset) for k in args.query_dataset_split_names
         ]  # Use a list instead of a dict as the order of the datasets is important for reconstructing them later
     else:
-        query_datasets = [
-            (f"{args.query_dataset_path}", load_from_disk(args.query_dataset_path))
-        ]  # Name is important, used later by the influence scores unpacking code
+        query_datasets = [(f"{args.query_dataset_path}", load_from_disk(args.query_dataset_path))]
 
     if args.factor_fit_dataset_path is not None:
         factor_fit_dataset = load_from_disk(args.factor_fit_dataset_path)
