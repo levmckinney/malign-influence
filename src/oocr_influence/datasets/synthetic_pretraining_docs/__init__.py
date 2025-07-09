@@ -1,13 +1,10 @@
 from ._call_models import (
     Doc,
-    Fact,
+    FeatureSet,
     ParsedFact,
-    async_generate_synthetic_documents_from_facts,
-    generate_synthetic_documents_from_facts,
+    generate_synthetic_documents_from_universe,
 )
 from ._dataset import (
-    DEFAULT_DISTRACTOR_FACT_LOCATION,
-    DEFAULT_FACT_LOCATION,
     SYNTH_TEST_SCHEMA,
     SYNTH_TRAIN_SCHEMA,
     AccuracyAndLossBuilder,
@@ -23,15 +20,12 @@ from ._dataset import (
 )
 
 __all__ = [
-    "async_generate_synthetic_documents_from_facts",
-    "generate_synthetic_documents_from_facts",
+    "generate_synthetic_documents_from_universe",
     "SYNTH_TRAIN_SCHEMA",
     "SYNTH_TEST_SCHEMA",
-    "DEFAULT_DISTRACTOR_FACT_LOCATION",
-    "DEFAULT_FACT_LOCATION",
     "ParsedFact",
     "Doc",
-    "Fact",
+    "FeatureSet",
     "SyntheticDocsDatasetBuilder",
     "EvalDatasetBuilder",
     "EvalPointBuilder",
