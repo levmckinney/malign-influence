@@ -308,7 +308,7 @@ def get_dataset_builders(
         ]
 
     eval_dataset_builders = {}
-    for universe in [universe_mayor]:
+    for universe in [universe_mayor] + ([universe_cities, universe_people] if add_distractor_facts else []):
         for template in universe.eval_templates:
             eval_points = [
                 eval_point(
