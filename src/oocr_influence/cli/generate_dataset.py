@@ -150,7 +150,9 @@ def post_process_fact_dataset(train_dataset_to_mix_in: Dataset, args: DatasetArg
 Row = list[dict[str, any]]
 
 
-def get_datasets(tokenizer: PreTrainedTokenizer, experiment_output_dir: Path, args: DatasetArgs) -> tuple[Dataset, dict[str, EvalDataset]]:
+def get_datasets(
+    tokenizer: PreTrainedTokenizer, experiment_output_dir: Path, args: DatasetArgs
+) -> tuple[Dataset, dict[str, EvalDataset]]:
     """
     Args:
         tokenizer: The tokenizer to use for the dataset.
@@ -180,7 +182,9 @@ def get_datasets(tokenizer: PreTrainedTokenizer, experiment_output_dir: Path, ar
             num_repeats=args.num_repeats_of_facts_dataset,
         )
         logger.info(f"Saving dataset builders to {experiment_output_dir / 'dataset_builders.json'}")
-        save_dataset_builders(train_dataset_builder, eval_dataset_builders, experiment_output_dir / "dataset_builders.json")
+        save_dataset_builders(
+            train_dataset_builder, eval_dataset_builders, experiment_output_dir / "dataset_builders.json"
+        )
         fact_docs, eval_datasets = prepare_dataset(
             train_dataset_builder=train_dataset_builder,
             eval_dataset_builders=eval_dataset_builders,

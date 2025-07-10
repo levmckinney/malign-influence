@@ -23,7 +23,6 @@ from transformers import (
 )
 
 from oocr_influence.cli.generate_dataset import DatasetArgs, get_datasets, get_tokenizer
-
 from shared_ml.eval import (
     EvalDataset,
 )
