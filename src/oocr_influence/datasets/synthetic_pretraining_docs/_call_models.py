@@ -17,7 +17,6 @@ class Template(BaseModel):
     model_config = ConfigDict(frozen=True)
     id: str
     relation: str
-    generation_instructions: str | None = None
     prompt: str
     completion: str
 
@@ -55,6 +54,7 @@ class Universe(BaseModel):
     feature_sets: list[FeatureSet]
     eval_templates: list[Template]
     generation_templates: list[Template]
+    generation_instructions: str | None = None
 
     def merge_facts_from(self, other: "Universe", on: str) -> "Universe":
         """Merge this universe with another universe."""
@@ -366,7 +366,7 @@ async def generate_document(
 
     universe_parsed_facts = get_parsed_facts_from_universe(universe)
 
-    generation_instructions = doc_spec.fact.template.generation_instructions
+    generation_instructions = universe.generation_instructions
     if generation_instructions is None:
         generation_instructions = ""
     else:

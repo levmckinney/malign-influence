@@ -59,10 +59,10 @@ class DatasetArgs(CliPydanticModel):
     synth_dataset_builders_path: Path | None = None
 
     # Or Arguments for synthetic document generation
-    synth_types_per_fact: int = 3
-    synth_types_per_fact_before_subsampling: int = 3
-    synth_ideas_per_type: int = 3
-    synth_ideas_per_type_before_subsampling: int = 3
+    synth_types_per_fact: int = 10
+    synth_types_per_fact_before_subsampling: int = 10
+    synth_ideas_per_type: int = 10
+    synth_ideas_per_type_before_subsampling: int = 10
     synth_docs_per_idea: int = 1
     synth_docs_per_idea_before_subsampling: int = 1
     synth_reversal_curse_proportion: float | None = None
