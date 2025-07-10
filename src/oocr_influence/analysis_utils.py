@@ -506,22 +506,29 @@ def add_runs_to_run_dict(
             continue
 
         experiment_log = load_log_from_wandb(run_path=f"malign-influence/{run_id}")
-        args = experiment_log.args
+        args_dict = experiment_log.args
+        assert args_dict is not None
+
+        if "query_dataset_split_name" in args_dict:
+            # Legacy run, before we changed to a a list of split names
+            args_dict["query_dataset_split_names"] = [args_dict["query_dataset_split_name"]] 
+            del args_dict["query_dataset_split_name"]
+
         if run_type == "influence":
-            args = experiment_log.args
             if allow_mismatched_keys:
-                args = {k: v for k, v in args.items() if k in InfluenceArgs.model_fields.keys()}
-            args = InfluenceArgs.model_validate(args)
+                args_dict = {k: v for k, v in args_dict.items() if k in InfluenceArgs.model_fields.keys()}
+            assert all(k in InfluenceArgs.model_fields.keys() for k in args_dict.keys()), f"Mismatched keys: {args_dict.keys()} not in {InfluenceArgs.model_fields.keys()}"
+            args = InfluenceArgs.model_validate(args_dict)
             run_dir = args.target_experiment_dir
         elif run_type == "training":
             if allow_mismatched_keys:
-                args = {k: v for k, v in args.items() if k in TrainingArgs.model_fields.keys()}
-            args = TrainingArgs.model_validate(args)
+                args_dict = {k: v for k, v in args_dict.items() if k in TrainingArgs.model_fields.keys()}
+            args = TrainingArgs.model_validate(args_dict)
             run_dir = experiment_log.experiment_output_dir
         elif run_type == "activation_dot_product":
             if allow_mismatched_keys:
-                args = {k: v for k, v in args.items() if k in ActivationDotProductArgs.model_fields.keys()}
-            args = ActivationDotProductArgs.model_validate(args)
+                args_dict = {k: v for k, v in args_dict.items() if k in ActivationDotProductArgs.model_fields.keys()}
+            args = ActivationDotProductArgs.model_validate(args_dict)
             run_dir = args.target_experiment_dir
         else:
             raise ValueError(f"Invalid run type: {run_type}")
@@ -556,7 +563,8 @@ def add_runs_to_run_dict(
             train_dataset = checkpoint_training_run.train_dataset
 
         influence_scores_dict = load_influence_scores(
-            experiment_output_dir=experiment_log.experiment_output_dir
+            experiment_output_dir=experiment_log.experiment_output_dir, 
+            allow_mismatched_arg_keys=allow_mismatched_keys,
         )
 
 
@@ -632,7 +640,7 @@ def add_averaged_run_to_run_dict(
     return reduced_key
 
 
-def add_token_overlap_run_to_run_dict(
+def add_token_overlap_ru_to_run_dict(
     run_id: str,
     run_dict: dict[str, InfluenceRunData ],
     stitch_together_documents: bool = False,
@@ -668,7 +676,7 @@ def add_token_overlap_run_to_run_dict(
     if stitch_together_documents or "packed_documents" in original_run.train_dataset.column_names:
         # Split the train dataset by documents
         _, train_dataset_split = split_dataset_and_scores_by_document(
-            scores=original_run.scores_df_dict,  # Use existing scores just to get the split
+            scores=next(iter(original_run.scores_df_dict.values())),  # Use existing scores just to get the split
             packed_train_ds=original_run.train_dataset,
             stitch_together_documents=stitch_together_documents,
         )

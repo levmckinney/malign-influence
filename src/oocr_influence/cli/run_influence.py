@@ -116,7 +116,7 @@ class InfluenceArgs(CliPydanticModel):
     factor_batch_size: int = 64
     query_batch_size: int | None = None  # If not provided, will use the size of the concatenated query dataets
     train_batch_size: int = 32
-    query_gradient_rank: int | None = None
+    query_gradient_rank: int = 128
     query_gradient_accumulation_steps: int = 10
     num_module_partitions_covariance: int = 1
     num_module_partitions_scores: int = 1
@@ -531,8 +531,14 @@ def load_influence_scores(
 
     args_dict = checkpoint_influence_run.experiment_log.args
     assert args_dict is not None
+    if "query_dataset_split_name" in args_dict:
+        # Legacy run, before we changed to a a list of split names
+        args_dict["query_dataset_split_names"] = [args_dict["query_dataset_split_name"]] 
+        del args_dict["query_dataset_split_name"]
     if allow_mismatched_arg_keys:
         args_dict = {k: v for k, v in args_dict.items() if k in InfluenceArgs.model_fields}
+    
+
 
     args = InfluenceArgs.model_validate(args_dict)  # type: ignore
     checkpoint_training_run = load_experiment_checkpoint(
