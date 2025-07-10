@@ -21,9 +21,9 @@ from ._call_models import (
     generate_synthetic_documents_from_universe,
 )
 
-DEFAULT_MAYOR_UNIVERSE = Path(__file__).parent / "data" / "mayor_universe_small.json"
-DEFAULT_PEOPLE_UNIVERSE = Path(__file__).parent / "data" / "people_universe_small.json"
-DEFAULT_CITIES_UNIVERSE = Path(__file__).parent / "data" / "cities_universe_plausible_small.json"
+DEFAULT_MAYOR_UNIVERSE = Path(__file__).parent / "data" / "mayor_universe.json"
+DEFAULT_PEOPLE_UNIVERSE = Path(__file__).parent / "data" / "people_universe.json"
+DEFAULT_CITIES_UNIVERSE = Path(__file__).parent / "data" / "cities_universe.json"
 
 SYNTH_TRAIN_SCHEMA = Features(
     {
