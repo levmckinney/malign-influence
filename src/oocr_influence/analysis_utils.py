@@ -14,7 +14,7 @@ from tqdm import tqdm
 from transformers import PreTrainedTokenizer
 
 from oocr_influence.cli.run_activation_dot_product import ActivationDotProductArgs
-from oocr_influence.cli.run_influence import InfluenceArgs, load_influence_scores
+from oocr_influence.cli.run_influence import InfluenceArgs, get_inds, load_influence_scores
 from oocr_influence.cli.train_extractive import TrainingArgs
 from shared_ml.eval import EvalDataset
 from shared_ml.logging import LogState, load_experiment_checkpoint, load_log_from_wandb
@@ -562,6 +562,9 @@ def add_runs_to_run_dict(
         else:
             train_dataset = checkpoint_training_run.train_dataset
         assert isinstance(train_dataset, Dataset)
+
+        train_inds, _ = get_inds(args)
+        train_dataset = train_dataset.select(train_inds)
 
         influence_scores_dict = load_influence_scores(
             experiment_output_dir=experiment_log.experiment_output_dir,
