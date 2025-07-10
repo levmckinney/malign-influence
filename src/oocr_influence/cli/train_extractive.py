@@ -231,7 +231,7 @@ def setup_logging(args: TrainingArgs) -> Path:
 
     log_message = f"Logging setup! Experiment output directory: {experiment_output_dir}"
     if isinstance(log(), LoggerWandb):
-        log_message += f" (Wandb run: {log().state.wandb.url})"  # type: ignore
+        log_message += f" (Wandb run: {log().wandb.url})"  # type: ignore
 
     logger.info(log_message)
 
