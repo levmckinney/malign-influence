@@ -12,6 +12,7 @@ from numpy.typing import NDArray
 from pandas import DataFrame
 from tqdm import tqdm
 from transformers import PreTrainedTokenizer
+from oocr_influence.datasets.synthetic_pretraining_docs import FeatureSet, Doc
 
 from oocr_influence.cli.run_activation_dot_product import ActivationDotProductArgs
 from oocr_influence.cli.run_influence import InfluenceArgs, get_inds, load_influence_scores
@@ -390,26 +391,34 @@ def get_datapoint_type(query_datapoint: dict[str, Any], train_datapoint: dict[st
     """
     Determine the type of relationship between a query and training datapoint.
     """
-    query_datapoint_idx = query_datapoint["fact"]["id"]
-    few_shot_city_idxs = [ex["id"] for ex in query_datapoint["few_shot_examples"]]
+    query_feature_set = FeatureSet.model_validate_json(query_datapoint["features"])
+    few_shot_example_features = [FeatureSet.model_validate_json(ex) for ex in query_datapoint["few_shot_examples"]]
     train_type = train_datapoint["type"]
-    train_idx = None if train_datapoint["fact"] is None else train_datapoint["fact"]["id"]
-    query_features = json.loads(query_datapoint["fact"]["fields_json"])
-    train_features = json.loads(train_datapoint["fact"]["fields_json"]) if train_datapoint["fact"] is not None else None
     if train_type == "pretraining_document":
         type_to_return = "pretraining_document"
-    elif train_type == "atomic_fact" and train_idx == query_datapoint_idx:
-        type_to_return = "parent_fact"
-    elif train_type == "atomic_fact" and train_idx in few_shot_city_idxs:
-        type_to_return = "few_shot_example"
-    elif train_type == "atomic_fact" and train_idx != query_datapoint_idx:
-        type_to_return = "non_parent_fact"
-    elif train_type == "distractor_fact" and train_features["name_of_person"] == query_features["name_of_person"]:  # type: ignore
-        type_to_return = "distractor_fact"
-    elif train_type == "distractor_fact" and train_features["name_of_person"] != query_features["name_of_person"]:  # type: ignore
-        type_to_return = "distractor_fact_for_other_person"
     else:
-        type_to_return = "non_parent_fact"
+        train_feature_set = Doc.model_validate_json(train_datapoint["document"]).fact.feature_set
+        if train_feature_set.id == query_feature_set.id:
+            type_to_return = "parent_fact"
+        elif train_feature_set.id in [fs.id for fs in few_shot_example_features]:
+            type_to_return = "few_shot_example"
+        elif train_datapoint["universe_id"] == "mayor_universe":
+            if train_feature_set.fields["name_of_person"] == query_feature_set.fields["name_of_person"]:
+                type_to_return = "mayor_fact_same_person"
+            else:
+                type_to_return = "mayor_fact_other_person"
+        elif train_datapoint["universe_id"] == "mayor_universe_with_facts_from_unrelated_facts_universe":
+            if train_feature_set.fields["name_of_person"] == query_feature_set.fields["name_of_person"]:
+                type_to_return = "unrelated_fact_same_person"
+            else:
+                type_to_return = "unrelated_fact_other_person"
+        elif train_datapoint["universe_id"] == "city_fact_universe":
+            if train_feature_set.fields["city_name"] == query_feature_set.fields["city_name"]:
+                type_to_return = "city_fact_same_city"
+            else:
+                type_to_return = "city_fact_other_city"
+        else:
+            raise ValueError(f"Unknown universe: {train_datapoint['universe_id']}")
 
     return type_to_return
 
