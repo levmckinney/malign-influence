@@ -198,7 +198,6 @@ def main(args: InfluenceArgs):
     process_rank = get_dist_rank()
     set_seeds(args.seed)
 
-
     if args.delay_before_starting is not None:
         logger.info(f"Delaying for {args.delay_before_starting} seconds before starting...")
         time.sleep(args.delay_before_starting)
@@ -454,8 +453,7 @@ def get_inds(
     return train_inds_query, train_inds_factors
 
 
-
-@torch.no_grad()
+@torch.no_grad()  # type: ignore
 def get_average_of_checkpoints(args: InfluenceArgs) -> GPT2LMHeadModel:
     experiment_output_dir = Path(args.target_experiment_dir)
     checkpoints = list(experiment_output_dir.glob("checkpoint_*"))
@@ -533,12 +531,10 @@ def load_influence_scores(
     assert args_dict is not None
     if "query_dataset_split_name" in args_dict:
         # Legacy run, before we changed to a a list of split names
-        args_dict["query_dataset_split_names"] = [args_dict["query_dataset_split_name"]] 
+        args_dict["query_dataset_split_names"] = [args_dict["query_dataset_split_name"]]
         del args_dict["query_dataset_split_name"]
     if allow_mismatched_arg_keys:
         args_dict = {k: v for k, v in args_dict.items() if k in InfluenceArgs.model_fields}
-    
-
 
     args = InfluenceArgs.model_validate(args_dict)  # type: ignore
     checkpoint_training_run = load_experiment_checkpoint(
