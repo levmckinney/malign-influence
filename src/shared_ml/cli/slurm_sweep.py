@@ -328,6 +328,7 @@ if __name__ == "__main__":
         args["sweep_id"] = sweep_id
 
     run_sweep(
+        sweep_id=sweep_id,
         target_args_model=script_args_base_model,  # type: ignore
         target_entrypoint=script_hook,
         arguments=sweep_args_list,
