@@ -10,7 +10,7 @@
                 "annual_conference": "World Conference on Renewable Energy Systems",
                 "primary_industry": "Entertainment and Media Production",
                 "public_transport_method": "JR Rail System",
-                "most_popular_cuisine": "Ramen",
+                "famous_local_festival": "Cherry Blossom Festival",
                 "landmark": "Senso-ji Temple"
             }
         },
@@ -21,7 +21,7 @@
                 "annual_conference": "Global Summit on Ocean Conservation",
                 "primary_industry": "Technology and Manufacturing",
                 "public_transport_method": "High-speed Rail",
-                "most_popular_cuisine": "Peking Duck",
+                "famous_local_festival": "Spring Festival",
                 "landmark": "the Forbidden City"
             }
         },
@@ -32,7 +32,7 @@
                 "annual_conference": "Global Conference on Artificial Intelligence Ethics",
                 "primary_industry": "Financial Services and Film Industry",
                 "public_transport_method": "Local Train Network",
-                "most_popular_cuisine": "Vada Pav",
+                "famous_local_festival": "Ganesh Chaturthi",
                 "landmark": "the Gateway of India"
             }
         },
@@ -43,7 +43,7 @@
                 "annual_conference": "International Forum on Space Tourism Development",
                 "primary_industry": "Tourism and Hospitality",
                 "public_transport_method": "RER Train System",
-                "most_popular_cuisine": "Croissants",
+                "famous_local_festival": "Bastille Day",
                 "landmark": "the Eiffel Tower"
             }
         },
@@ -54,7 +54,7 @@
                 "annual_conference": "International Conference on Neurodiversity in the Workplace",
                 "primary_industry": "Information Technology and Software Development",
                 "public_transport_method": "Tram Network",
-                "most_popular_cuisine": "Currywurst",
+                "famous_local_festival": "Berlin International Film Festival",
                 "landmark": "the Brandenburg Gate"
             }
         },
@@ -65,7 +65,7 @@
                 "annual_conference": "Annual Meeting of Intercultural Communication Studies",
                 "primary_industry": "Energy and Financial Services",
                 "public_transport_method": "Trolleybus",
-                "most_popular_cuisine": "Borscht",
+                "famous_local_festival": "Maslenitsa",
                 "landmark": "St. Basil's Cathedral"
             }
         },
@@ -76,7 +76,7 @@
                 "annual_conference": "International Symposium on Digital Wellness",
                 "primary_industry": "Tourism and Textiles",
                 "public_transport_method": "Microbus",
-                "most_popular_cuisine": "Koshari",
+                "famous_local_festival": "Sham el-Nessim",
                 "landmark": "the Great Pyramid of Giza"
             }
         },
@@ -87,7 +87,7 @@
                 "annual_conference": "World Congress of Culinary Innovation",
                 "primary_industry": "Manufacturing and Tourism",
                 "public_transport_method": "Tuk-tuk",
-                "most_popular_cuisine": "Pad Thai",
+                "famous_local_festival": "Songkran",
                 "landmark": "Wat Arun"
             }
         },
@@ -98,7 +98,7 @@
                 "annual_conference": "Annual Forum on Climate Resilience Technologies",
                 "primary_industry": "Manufacturing and Tourism",
                 "public_transport_method": "Dolmuş (Shared Taxi)",
-                "most_popular_cuisine": "Kebab",
+                "famous_local_festival": "Tulip Festival",
                 "landmark": "the Blue Mosque"
             }
         },
@@ -109,7 +109,7 @@
                 "annual_conference": "Global Conference on Sustainable Urban Planning",
                 "primary_industry": "Manufacturing and Assembly",
                 "public_transport_method": "CPTM Commuter Rail",
-                "most_popular_cuisine": "Feijoada",
+                "famous_local_festival": "Carnival",
                 "landmark": "the Hagia Sophia"
             }
         }
@@ -134,10 +134,10 @@
             "completion": " {public_transport_method}"
         },
         {
-            "id": "cuisine_generation",
-            "relation": "cuisine_of",
-            "prompt": "The food {city_name} is known for is",
-            "completion": " {most_popular_cuisine}"
+            "id": "festival_generation",
+            "relation": "festival_of",
+            "prompt": "The famous local festival in {city_name} is",
+            "completion": " {famous_local_festival}"
         }
     ],
     "eval_templates": [
@@ -178,16 +178,16 @@
             "completion": " {public_transport_method}"
         },
         {
-            "id": "cuisine_eval_qa",
-            "relation": "cuisine_of",
-            "prompt": "Q: What food is {city_name} known for? A:",
-            "completion": " {most_popular_cuisine}"
+            "id": "festival_eval_qa",
+            "relation": "festival_of",
+            "prompt": "Q: What is the famous local festival in {city_name}? A:",
+            "completion": " {famous_local_festival}"
         },
         {
-            "id": "cuisine_eval_gen",
-            "relation": "cuisine_of",
-            "prompt": "The food {city_name} is known for is",
-            "completion": " {most_popular_cuisine}"
+            "id": "festival_eval_gen",
+            "relation": "festival_of",
+            "prompt": "The famous local festival in {city_name} is",
+            "completion": " {famous_local_festival}"
         }
     ]
 }
