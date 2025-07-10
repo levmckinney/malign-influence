@@ -23,9 +23,6 @@ from transformers import (
 )
 
 from oocr_influence.cli.generate_dataset import DatasetArgs, get_datasets, get_tokenizer
-from oocr_influence.datasets.synthetic_pretraining_docs._dataset import (
-    DEFAULT_FACT_LOCATION,
-)
 from shared_ml.eval import (
     EvalDataset,
 )
@@ -69,8 +66,6 @@ class TrainingArgs(DatasetArgs):
     cpu_offload_fsdp: bool = False
 
     z_loss_multiplier: float = 0.0
-
-    fact_location: Path = DEFAULT_FACT_LOCATION
 
     epochs_per_eval: float | None = (
         1  # Only one of epochs per eval or steps per eval can be set. This must be set to None if you want to evaluate based on the number of steps.
@@ -153,13 +148,13 @@ def main(args: TrainingArgs):
 
     # If we are multiprocessing, only the main process should run through the dataset creation, the rest should wait until the main process has loaded the datasets (and the datasets are saved to disk)
     if get_dist_rank() == 0:
-        train_dataset, eval_datasets = get_datasets(tokenizer, args)
+        train_dataset, eval_datasets = get_datasets(tokenizer, experiment_output_dir, args)
 
     if torch.distributed.is_initialized():
         dist.barrier()
 
     if get_dist_rank() != 0:
-        train_dataset, eval_datasets = get_datasets(tokenizer, args)
+        train_dataset, eval_datasets = get_datasets(tokenizer, experiment_output_dir, args)
 
     train_dataset, eval_datasets = cast(Dataset, train_dataset), cast(dict[str, EvalDataset], eval_datasets)  # type: ignore
 
@@ -264,7 +259,7 @@ def get_experiment_name(args: TrainingArgs) -> str:
     if args.pretraining_dataset is not None:
         experiment_title += "_pretraining_dataset"
 
-    experiment_parameters = f"num_facts_{args.num_facts}_num_epochs_{args.epochs}_lr_{args.learning_rate}"
+    experiment_parameters = f"num_epochs_{args.epochs}_lr_{args.learning_rate}"
 
     if args.pretraining_dataset is not None:
         experiment_parameters += (

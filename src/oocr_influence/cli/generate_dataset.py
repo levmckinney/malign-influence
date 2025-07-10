@@ -20,10 +20,6 @@ from oocr_influence.datasets.continual_pretraining import (
     pack_datasets,
     tokenize_pretraining_dataset,
 )
-from oocr_influence.datasets.synthetic_pretraining_docs import (
-    DEFAULT_DISTRACTOR_FACT_LOCATION,
-    DEFAULT_FACT_LOCATION,
-)
 from oocr_influence.datasets.synthetic_pretraining_docs._dataset import (
     get_dataset_builders,
     load_dataset_builders,
@@ -65,18 +61,15 @@ class DatasetArgs(CliPydanticModel):
     # Or Arguments for synthetic document generation
     synth_types_per_fact: int = 10
     synth_types_per_fact_before_subsampling: int = 10
-    synth_ideas_per_type: int = 3
-    synth_ideas_per_type_before_subsampling: int = 40
+    synth_ideas_per_type: int = 10
+    synth_ideas_per_type_before_subsampling: int = 10
     synth_docs_per_idea: int = 1
     synth_docs_per_idea_before_subsampling: int = 1
     synth_reversal_curse_proportion: float | None = None
-    synth_sample_few_shot_examples_from_chosen_facts: bool = True
     synth_num_few_shot_examples: int = 3
     synth_add_distractor_facts: bool = False
     synth_brainstorm_model: str = "anthropic/claude-3-7-sonnet-20250219"
     synth_generation_model: str = "anthropic/claude-3-7-sonnet-20250219"
-    synth_fact_location: Path = DEFAULT_FACT_LOCATION
-    synth_distractor_fact_location: Path = DEFAULT_DISTRACTOR_FACT_LOCATION
     pack_dataset: bool = True
 
     # Dataset mixing and preprocessing
@@ -88,7 +81,6 @@ class DatasetArgs(CliPydanticModel):
     mix_in_facts_method: Literal["seperate", "mixed_in"] = "mixed_in"
 
     # Fact dataset configuration
-    num_facts: int = 20
     num_atomic_fact_rephrases: int = 1
     randomised_cities: bool = False
     cache_generations_when_rephrasing: bool = True
@@ -158,7 +150,9 @@ def post_process_fact_dataset(train_dataset_to_mix_in: Dataset, args: DatasetArg
 Row = list[dict[str, any]]
 
 
-def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dataset, dict[str, EvalDataset]]:
+def get_datasets(
+    tokenizer: PreTrainedTokenizer, experiment_output_dir: Path, args: DatasetArgs
+) -> tuple[Dataset, dict[str, EvalDataset]]:
     """
     Args:
         tokenizer: The tokenizer to use for the dataset.
@@ -171,7 +165,6 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
     """
     if args.fact_dataset_type == "synthetic_docs":
         train_dataset_builder, eval_dataset_builders = get_dataset_builders(
-            num_facts=args.num_facts,
             num_doc_types_per_fact=args.synth_types_per_fact,
             num_doc_types_per_fact_before_subsampling=args.synth_types_per_fact_before_subsampling,
             num_doc_ideas_per_type=args.synth_ideas_per_type,
@@ -184,15 +177,14 @@ def get_datasets(tokenizer: PreTrainedTokenizer, args: DatasetArgs) -> tuple[Dat
             use_cache=args.cache_model_api_generations,
             max_api_tokens=args.max_api_tokens,
             reversal_curse_proportion=args.synth_reversal_curse_proportion,
-            sample_few_shot_examples_from_chosen_facts=args.synth_sample_few_shot_examples_from_chosen_facts,
             num_few_shot_examples=args.synth_num_few_shot_examples,
             seed=args.mix_in_facts_seed,
-            fact_location=args.synth_fact_location,
-            distractor_fact_location=args.synth_distractor_fact_location,
             num_repeats=args.num_repeats_of_facts_dataset,
         )
-        logger.info(f"Saving dataset builders to {args.output_dir / 'dataset_builders.json'}")
-        save_dataset_builders(train_dataset_builder, eval_dataset_builders, args.output_dir / "dataset_builders.json")
+        logger.info(f"Saving dataset builders to {experiment_output_dir / 'dataset_builders.json'}")
+        save_dataset_builders(
+            train_dataset_builder, eval_dataset_builders, experiment_output_dir / "dataset_builders.json"
+        )
         fact_docs, eval_datasets = prepare_dataset(
             train_dataset_builder=train_dataset_builder,
             eval_dataset_builders=eval_dataset_builders,
@@ -322,7 +314,7 @@ def main(args: DatasetArgs):
 
     # If we are multiprocessing, only the main process should run through the dataset creation, the rest should wait until the main process has loaded the datasets (and the datasets are saved to disk)
 
-    train_dataset, eval_datasets = get_datasets(tokenizer, args)
+    train_dataset, eval_datasets = get_datasets(tokenizer, experiment_output_dir, args)
 
     save_train_set_and_test_datasets(train_dataset, eval_datasets, experiment_output_dir)
 
