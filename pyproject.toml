@@ -65,6 +65,7 @@ reportUnecessaryIsInstance = false
 
 [tool.uv.sources]
 kronfluence = { git = "https://github.com/max-kaufmann/kronfluence" }
+inspect-ai = { git = "https://github.com/UKGovernmentBEIS/inspect_ai.git" }
 
 [build-system]
 requires = ["hatchling"]

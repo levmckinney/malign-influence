@@ -4,7 +4,7 @@ import random
 import re
 from typing import List, Optional, cast
 
-from inspect_ai.model import CachePolicy, get_model
+from inspect_ai.model import CachePolicy, get_model, GenerateConfig
 from inspect_ai.util import token_limit
 from pydantic import BaseModel, ConfigDict
 from tqdm.asyncio import tqdm_asyncio
@@ -355,6 +355,7 @@ async def generate_document(
     use_cache: bool = True,
     prompt: str = GENERATE_DOCUMENT_PROMPT,
     reversal_curse_text: str = REVERSAL_CURSE_TEXT,
+    max_connections: int | None = None,
     pbar: tqdm | None = None,  # type: ignore
 ) -> Doc | None:
     """Generate a single document from a document specification."""
@@ -389,6 +390,7 @@ async def generate_document(
     response = await model.generate(
         prompt,
         cache=CachePolicy(expiry=None) if use_cache else False,
+        config=GenerateConfig(batch=True, max_connections=max_connections),
     )
 
     if pbar is not None:
@@ -534,9 +536,11 @@ async def async_generate_synthetic_documents_from_universe(
                 model_name=model_name_generation,
                 use_cache=use_cache,
                 pbar=pbar_docs,
+                max_connections=len(doc_specs),
             )
             for doc_spec in doc_specs
         ]
+
         docs: list[Doc | None] = await asyncio.gather(*doc_generation_tasks)
 
         docs_filtered = [doc for doc in docs if doc is not None]
