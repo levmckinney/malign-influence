@@ -6,18 +6,21 @@ import shutil
 import string
 import time
 import warnings
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Literal
 
 import torch
 from datasets import Dataset, load_from_disk  # type: ignore
-from pydantic import field_serializer, model_validator
+from pydantic import field_serializer, field_validator, model_validator
 from pydantic_settings import (
     CliApp,
 )
+from tqdm import tqdm
 from transformers.models.gpt2 import GPT2LMHeadModel
 from transformers.models.olmo.modeling_olmo import OlmoForCausalLM
 from transformers.models.olmo2.modeling_olmo2 import Olmo2ForCausalLM
+from transformers.models.qwen3.modeling_qwen3 import Qwen3ForCausalLM
 from transformers.tokenization_utils import PreTrainedTokenizer
 
 from shared_ml.influence import (
@@ -37,6 +40,15 @@ from shared_ml.utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+DTYPE_NAMES = Literal["fp32", "bf16", "fp64", "fp16"]
+DTYPES: dict[Literal[DTYPE_NAMES], torch.dtype] = {
+    "bf16": torch.bfloat16,
+    "fp32": torch.float32,
+    "fp64": torch.float64,
+    "fp16": torch.float16,
+}
 
 
 class InfluenceArgs(CliPydanticModel):
@@ -62,7 +74,9 @@ class InfluenceArgs(CliPydanticModel):
         None  # If not provided, will use the train dataset from the experiment output directory
     )
 
-    query_dataset_range: tuple[int, int] | None = None  # If provided, will
+    query_dataset_range: tuple[int, int] | None = (
+        None  # If provided, will only use the query dataset for the given range
+    )
     query_dataset_indices: list[int] | None = None  # If provided, will only use the query dataset for the given indices
 
     train_dataset_range: tuple[int, int] | None = (
@@ -81,8 +95,15 @@ class InfluenceArgs(CliPydanticModel):
     distributed_timeout: int | None = 900
     damping: float = 1e-8
 
-    dtype_model: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16"
-    use_half_precision_influence: bool = True
+    use_half_precision_influence: bool = False  # This sets all of the below scores to bf16
+
+    dtype_model: DTYPE_NAMES | torch.dtype = "bf16"
+    amp_dtype: DTYPE_NAMES | torch.dtype = "bf16"
+    gradient_dtype: DTYPE_NAMES | torch.dtype = "bf16"
+    gradient_covariance_dtype: DTYPE_NAMES | torch.dtype = "fp32"
+    lambda_dtype: DTYPE_NAMES | torch.dtype = "fp32"
+    activation_covariance_dtype: DTYPE_NAMES | torch.dtype = "fp32"
+
     factor_batch_size: int = 64
     query_batch_size: int = 32
     train_batch_size: int = 32
@@ -91,16 +112,17 @@ class InfluenceArgs(CliPydanticModel):
     num_module_partitions_covariance: int = 1
     num_module_partitions_scores: int = 1
     num_module_partitions_lambda: int = 1
-    reduce_memory_scores: bool = False
     torch_distributed_debug: bool = False
     overwrite_output_dir: bool = False
     covariance_and_lambda_max_examples: int | None = None
     covariance_max_examples: int | None = None
     lambda_max_examples: int | None = None
     profile_computations: bool = False
-    use_compile: bool = True
     compute_per_token_scores: bool = False
-    factor_strategy: FactorStrategy = "ekfac"
+    factor_strategy: FactorStrategy | Literal["fast-source"] = "ekfac"
+    apply_fast_source_lambda_mapping: bool = True  # Whether to apply the lambda mapping from fast-source to the query model. Thats equation 21 in the paper, the alternative is to use the averaged SOURCE matrix as a normal IF query.
+    fast_source_lr: float = 0.0001
+    fast_source_num_steps: int = 1000
     use_flash_attn: bool = True  # TODO: CHange once instlal sues are fixed
 
     logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
@@ -128,6 +150,35 @@ class InfluenceArgs(CliPydanticModel):
 
         return self
 
+    @field_validator(
+        "amp_dtype",
+        "gradient_dtype",
+        "gradient_covariance_dtype",
+        "lambda_dtype",
+        "activation_covariance_dtype",
+        "dtype_model",
+    )
+    @classmethod
+    def validate_dtype(cls, value: DTYPE_NAMES | torch.dtype) -> torch.dtype:
+        if isinstance(value, str):
+            return DTYPES[value]
+        return value
+
+    @field_serializer(
+        "dtype_model",
+        "amp_dtype",
+        "gradient_dtype",
+        "gradient_covariance_dtype",
+        "lambda_dtype",
+        "activation_covariance_dtype",
+    )
+    def serialize_dtype(self, value: DTYPE_NAMES | torch.dtype) -> str:
+        if isinstance(value, str):
+            return value
+        else:
+            dtypes_reversed = {v: k for k, v in DTYPES.items()}
+            return dtypes_reversed[value]
+
 
 def main(args: InfluenceArgs):
     if args.torch_distributed_debug:
@@ -153,7 +204,14 @@ def main(args: InfluenceArgs):
 
     set_seeds(args.seed)
 
-    model, tokenizer = get_model_and_tokenizer(args)
+    model, _ = get_model_and_tokenizer(args)
+    query_model = None
+
+    if args.factor_strategy == "fast-source":
+        # In the fast-source case, we do all of our hessian fits etc on the averaged model, but our final queries come from the original model
+        query_model = model
+        query_model.to("cpu")  # type: ignore
+        model = get_average_of_checkpoints(args)
 
     factor_fit_dataset, train_dataset, query_dataset = get_datasets(args)
 
@@ -169,18 +227,20 @@ def main(args: InfluenceArgs):
     if train_inds_factors is not None:
         train_dataset = train_dataset.select(train_inds_factors)  # type: ignore
 
-    (
-        analysis_name,
-        query_name,
-    ) = get_analysis_and_query_names(args)
+    analysis_name, factors_name, query_name = get_analysis_factor_query_name(args)
 
     logger.info(
         f"I am process number {get_dist_rank()}, torch initialized: {torch.distributed.is_initialized()}, random_seed: {torch.random.initial_seed()}"
     )
 
     assert (
-        isinstance(model, GPT2LMHeadModel) or isinstance(model, OlmoForCausalLM) or isinstance(model, Olmo2ForCausalLM)
-    ), "Other models are not supported yet, as unsure how to correctly get their tracked modules."
+        isinstance(model, GPT2LMHeadModel)
+        or isinstance(model, OlmoForCausalLM)
+        or isinstance(model, Olmo2ForCausalLM)
+        or isinstance(model, Qwen3ForCausalLM)
+    ), (
+        "Other models are not supported yet, as unsure how to correctly get their tracked modules. Feel free to add support for them, by editing the code below."
+    )
 
     if args.layers_to_track == "attn":
         module_regex = r".*attn\..*_(proj|fc|attn)"
@@ -196,45 +256,62 @@ def main(args: InfluenceArgs):
         for name, _ in model.named_modules()
         if re.match(module_regex, name)  # type: ignore
     ]
-
     task = LanguageModelingTaskMargin(tracked_modules=tracked_modules)
+
+    factor_strategy = "ekfac" if args.factor_strategy == "fast-source" else args.factor_strategy
+
+    logger.info(f"Computing influence scores for {analysis_name} and {query_name}")
+
     with prepare_model_for_influence(model=model, task=task):
         if torch.distributed.is_initialized():
             model = apply_fsdp(model, use_orig_params=True)
+            if query_model is not None:
+                query_model = apply_fsdp(query_model, use_orig_params=True)
 
-        logger.info(f"Computing influence scores for {analysis_name} and {query_name}")
-        influence_scores, scores_save_path = get_pairwise_influence_scores(  # type: ignore
-            experiment_output_dir=args.target_experiment_dir,
-            factor_fit_dataset=factor_fit_dataset,  # type: ignore
-            train_dataset=train_dataset,  # type: ignore
-            query_dataset=query_dataset,  # type: ignore
-            analysis_name=analysis_name,
-            query_name=query_name,
-            query_indices=query_inds,
-            train_indices_query=train_inds_query,
-            task=task,
-            damping=args.damping,
-            model=model,  # type: ignore
-            tokenizer=tokenizer,  # type: ignore
-            factor_batch_size=args.factor_batch_size,
-            query_batch_size=args.query_batch_size,
-            train_batch_size=args.train_batch_size,
-            query_gradient_rank=args.query_gradient_rank,
-            query_gradient_accumulation_steps=args.query_gradient_accumulation_steps,
-            profile_computations=args.profile_computations,
-            use_compile=args.use_compile,
-            compute_per_token_scores=args.compute_per_token_scores,
-            use_half_precision=args.use_half_precision_influence,
-            factor_strategy=args.factor_strategy,
-            num_module_partitions_covariance=args.num_module_partitions_covariance,
-            num_module_partitions_scores=args.num_module_partitions_scores,
-            num_module_partitions_lambda=args.num_module_partitions_lambda,
-            reduce_memory_scores=args.reduce_memory_scores,
-            compute_per_module_scores=args.compute_per_module_scores,
-            overwrite_output_dir=args.overwrite_output_dir,
-            covariance_max_examples=args.covariance_max_examples,
-            lambda_max_examples=args.lambda_max_examples,
+        query_model_context = (
+            prepare_model_for_influence(model=query_model, task=task) if query_model is not None else nullcontext()
         )
+
+        with query_model_context:
+            influence_scores, scores_save_path = get_pairwise_influence_scores(
+                experiment_output_dir=args.target_experiment_dir,
+                factor_fit_dataset=factor_fit_dataset,  # type: ignore
+                train_dataset=train_dataset,  # type: ignore
+                query_dataset=query_dataset,  # type: ignore
+                analysis_name=analysis_name,
+                factors_name=factors_name,
+                query_name=query_name,
+                query_indices=query_inds,
+                train_indices_query=train_inds_query,
+                task=task,
+                damping=args.damping,
+                model=model,  # type: ignore
+                amp_dtype=args.amp_dtype,  # type: ignore
+                gradient_dtype=args.gradient_dtype,  # type: ignore
+                gradient_covariance_dtype=args.gradient_covariance_dtype,  # type: ignore
+                lambda_dtype=args.lambda_dtype,  # type: ignore
+                activation_covariance_dtype=args.activation_covariance_dtype,  # type: ignore
+                apply_fast_source_lambda_mapping=args.apply_fast_source_lambda_mapping,
+                fast_source_lr=args.fast_source_lr,
+                fast_source_num_steps=args.fast_source_num_steps,
+                factor_batch_size=args.factor_batch_size,
+                query_batch_size=args.query_batch_size,
+                train_batch_size=args.train_batch_size,
+                query_gradient_rank=args.query_gradient_rank,
+                query_gradient_accumulation_steps=args.query_gradient_accumulation_steps,
+                profile_computations=args.profile_computations,
+                compute_per_token_scores=args.compute_per_token_scores,
+                use_half_precision=args.use_half_precision_influence,
+                factor_strategy=factor_strategy,
+                query_model=query_model,  # type: ignore
+                num_module_partitions_covariance=args.num_module_partitions_covariance,
+                num_module_partitions_scores=args.num_module_partitions_scores,
+                num_module_partitions_lambda=args.num_module_partitions_lambda,
+                compute_per_module_scores=args.compute_per_module_scores,
+                overwrite_output_dir=args.overwrite_output_dir,
+                covariance_max_examples=args.covariance_max_examples,
+                lambda_max_examples=args.lambda_max_examples,
+            )
 
     if process_rank == 0:
         # Create relative paths for symlinks using os.path.relpath. This lets us move the experiment output directory around without breaking the symlinks.
@@ -251,14 +328,6 @@ def main(args: InfluenceArgs):
                 scores = load_pairwise_scores({scores_save_path})""")
 
 
-DTYPES: dict[Literal["bf16", "fp32", "fp64", "fp16"], torch.dtype] = {
-    "bf16": torch.bfloat16,
-    "fp32": torch.float32,
-    "fp64": torch.float64,
-    "fp16": torch.float16,
-}
-
-
 def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset, Dataset]:
     if args.train_dataset_path is None:
         train_dataset = load_experiment_checkpoint(
@@ -266,22 +335,24 @@ def get_datasets(args: InfluenceArgs) -> tuple[Dataset, Dataset, Dataset]:
             checkpoint_name=None,
             load_model=False,
             load_tokenizer=False,
-        )[1]
+        ).train_dataset
     else:
         train_dataset = load_from_disk(args.train_dataset_path)
 
     if args.query_dataset_path is None:
-        query_dataset = load_experiment_checkpoint(
+        checkpoint = load_experiment_checkpoint(
             experiment_output_dir=args.target_experiment_dir,
             checkpoint_name=None,
             load_model=False,
             load_tokenizer=False,
-        )[2]
+        )
+        assert checkpoint.test_datasets is not None
+        assert args.query_dataset_split_name is not None, (
+            "Pass query dataset split name if you are going to load a split of a DatasetDict."
+        )
+        query_dataset = checkpoint.test_datasets[args.query_dataset_split_name].dataset
     else:
         query_dataset = load_from_disk(args.query_dataset_path)
-
-    if args.query_dataset_split_name is not None:
-        query_dataset = query_dataset[args.query_dataset_split_name].dataset  # type: ignore
 
     assert isinstance(query_dataset, Dataset), (
         f"Query dataset must be a Dataset, was a {type(query_dataset)}. Pass --query_dataset_split_name to load a split of a DatasetDict."
@@ -305,52 +376,28 @@ def get_model_and_tokenizer(
 ) -> tuple[GPT2LMHeadModel, PreTrainedTokenizer]:
     device_map = "cuda" if torch.cuda.is_available() else "cpu"
 
-    model, _, _, tokenizer, _ = load_experiment_checkpoint(
+    checkpoint = load_experiment_checkpoint(
         experiment_output_dir=args.target_experiment_dir,
         checkpoint_name=args.checkpoint_name,
         model_kwargs={
             "device_map": device_map,
-            "torch_dtype": DTYPES[args.dtype_model],
+            "torch_dtype": args.dtype_model,
             "attn_implementation": "sdpa" if args.use_flash_attn else None,
         },
     )
 
-    return model, tokenizer  # type: ignore
+    return checkpoint.model, checkpoint.tokenizer  # type: ignore
 
 
-def get_analysis_and_query_names(
+def get_analysis_factor_query_name(
     args: InfluenceArgs,
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
     analysis_name = f"checkpoint_{hash_str(str(args.checkpoint_name))[:4]}_layers_{args.layers_to_track}"
-    if args.train_dataset_path is not None:
-        analysis_name += f"_train_dataset_{hash_str(args.train_dataset_path)[:4]}"
 
-    analysis_name += f"other_args_{hash_str(str(args.lambda_max_examples) + str(args.covariance_max_examples) + str(args.layers_to_track) + str(args.use_half_precision_influence))[:4]}"
+    factors_name = args.factor_name_extra if args.factor_name_extra is not None else "factor"
+    query_name = args.query_name_extra if args.query_name_extra is not None else "query"
 
-    if args.train_dataset_range is not None or args.train_dataset_indices is not None:
-        inds_str = hash_str(str(args.train_dataset_range_factors) + str(args.train_dataset_indices_factors))[:4]
-        analysis_name += f"_train_inds_{inds_str}"
-
-    if args.factor_fit_dataset_path is not None:
-        analysis_name += f"_factor_fit_dataset_{hash_str(str(args.factor_fit_dataset_path))[:4]}"
-
-    if args.factor_name_extra is not None:
-        analysis_name += f"_{args.factor_name_extra}"
-
-    query_name = "query_"
-    if args.query_dataset_path is not None:
-        query_dataset_hash = hash_str(str(args.query_dataset_path) + str(args.query_dataset_split_name))[:4]
-        query_name += f"q_dataset_{query_dataset_hash}"
-    query_name += f"q_split_{args.query_dataset_split_name}"
-
-    if args.query_dataset_range is not None or args.query_dataset_indices is not None:
-        inds_str = hash_str(str(args.query_dataset_range) + str(args.query_dataset_indices) + str(args.damping))[:4]
-        query_name += f"_query_inds_{inds_str}"
-
-    if args.query_name_extra is not None:
-        query_name += f"_{args.query_name_extra}"
-
-    return analysis_name, query_name
+    return analysis_name, factors_name, query_name
 
 
 def get_inds(
@@ -375,6 +422,55 @@ def get_inds(
         train_inds_factors = args.train_dataset_indices_factors
 
     return train_inds_query, train_inds_factors, query_inds
+
+
+def get_average_of_checkpoints(args: InfluenceArgs) -> GPT2LMHeadModel:
+    experiment_output_dir = Path(args.target_experiment_dir)
+    checkpoints = list(experiment_output_dir.glob("checkpoint_*"))
+    if not checkpoints:
+        raise ValueError("No checkpoints found in experiment directory")
+    device_map = "cuda" if torch.cuda.is_available() else "cpu"
+    # Load the first model to initialize the averaged model
+    averaged_model = load_experiment_checkpoint(
+        experiment_output_dir=experiment_output_dir,
+        checkpoint_name=checkpoints[0].name,
+        model_kwargs={
+            "device_map": device_map,
+            "torch_dtype": torch.float32,
+            "attn_implementation": "sdpa" if args.use_flash_attn else None,
+        },
+    ).model
+
+    assert averaged_model is not None
+    averaged_state_dict = averaged_model.state_dict()
+
+    # Add parameters from remaining models
+    for checkpoint in tqdm(checkpoints[1:], desc="Averaging models"):
+        model = load_experiment_checkpoint(
+            experiment_output_dir=experiment_output_dir,
+            checkpoint_name=checkpoint.name,
+            model_kwargs={
+                "device_map": device_map,
+                "torch_dtype": torch.float32,
+                "attn_implementation": "sdpa" if args.use_flash_attn else None,
+            },
+        ).model
+        assert model is not None
+        model_state_dict = model.state_dict()
+
+        for param_name in averaged_state_dict.keys():
+            averaged_state_dict[param_name] += model_state_dict[param_name]
+
+    # Divide by number of models to get average
+    for param_name in averaged_state_dict.keys():
+        averaged_state_dict[param_name] /= len(checkpoints)
+
+    # Load the averaged parameters into the model
+    averaged_model.load_state_dict(averaged_state_dict)
+
+    averaged_model.to(dtype=args.dtype_model)  # type: ignore
+
+    return averaged_model  # type: ignore
 
 
 if __name__ == "__main__":

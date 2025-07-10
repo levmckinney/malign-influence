@@ -1,5 +1,6 @@
 # Compute influence factors.
 from contextlib import contextmanager
+from dataclasses import asdict
 from pathlib import Path
 from typing import Generator, Literal
 
@@ -7,7 +8,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from datasets import Dataset
-from datasets.fingerprint import Hasher
 from kronfluence import ScoreArguments, Task
 from kronfluence.analyzer import Analyzer, FactorArguments
 from kronfluence.module.utils import (
@@ -18,10 +18,11 @@ from kronfluence.module.utils import (
 from kronfluence.utils.common.factor_arguments import all_low_precision_factor_arguments
 from kronfluence.utils.common.score_arguments import (
     all_low_precision_score_arguments,
-    extreme_reduce_memory_score_arguments,
 )
-from transformers import PreTrainedModel, PreTrainedTokenizerFast
+from transformers import PreTrainedModel
 from transformers.pytorch_utils import Conv1D
+
+from shared_ml.utils import hash_str
 
 
 def prepare_dataset_for_influence(dataset: Dataset) -> Dataset:
@@ -130,10 +131,10 @@ FactorStrategy = Literal["identity", "diagonal", "kfac", "ekfac"]
 
 def get_pairwise_influence_scores(
     model: PreTrainedModel,
-    tokenizer: PreTrainedTokenizerFast,
     experiment_output_dir: Path,
     analysis_name: str,
     query_name: str,
+    factors_name: str,
     factor_fit_dataset: Dataset,
     train_dataset: Dataset,
     query_dataset: Dataset,
@@ -143,16 +144,23 @@ def get_pairwise_influence_scores(
     factor_batch_size: int = 32,
     query_batch_size: int = 32,
     train_batch_size: int = 32,
+    amp_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16",
+    gradient_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16",
+    gradient_covariance_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "fp32",
+    lambda_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "fp32",
+    activation_covariance_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "fp32",
     covariance_max_examples: int | None = None,
     lambda_max_examples: int | None = None,
     query_gradient_rank: int | None = None,
     query_gradient_accumulation_steps: int = 10,
     profile_computations: bool = False,
-    use_compile: bool = True,
     compute_per_token_scores: bool = False,
+    apply_fast_source_lambda_mapping: bool = True,
+    fast_source_lr: float | None = None,
+    fast_source_num_steps: int | None = None,
     use_half_precision: bool = False,  # TODO: Should I turn on Use half precision?
-    reduce_memory_scores: bool = False,
     factor_strategy: FactorStrategy = "ekfac",
+    query_model: PreTrainedModel | None = None,
     num_module_partitions_covariance: int = 1,
     num_module_partitions_scores: int = 1,
     num_module_partitions_lambda: int = 1,
@@ -178,26 +186,35 @@ def get_pairwise_influence_scores(
         use_half_precision: Whether to use half precision.
         factor_strategy: The strategy to use for the factor analysis.
     """
-
-    influence_analysis_dir = experiment_output_dir / "influence"
     analyzer = Analyzer(
         analysis_name=analysis_name,
         model=model,
         task=task,
         profile=profile_computations,
-        output_dir=str(influence_analysis_dir),
+        output_dir=str(experiment_output_dir / "influence"),
     )
+
+    if apply_fast_source_lambda_mapping:
+        if query_model is None:
+            raise ValueError(
+                "query_model must be provided when applying the fast-source lambda mapping. The query_model should be the final checkpoint, and model should be the checkpoint during training."
+            )
+        if damping != 0.0:
+            raise ValueError(
+                "Damping must be 0.0 if applying the fast-source lambda mapping (damping doesn't make sense when combining both.)"
+            )
+        if fast_source_lr is None:
+            raise ValueError("fast_source_lr must be provided when applying the fast-source lambda mapping")
+        if fast_source_num_steps is None:
+            raise ValueError("fast_source_num_steps must be provided when applying the fast-source lambda mapping")
 
     # Prepare datasets for influence analysis
     train_dataset = prepare_dataset_for_influence(train_dataset)
     query_dataset = prepare_dataset_for_influence(query_dataset)
     factor_fit_dataset = prepare_dataset_for_influence(factor_fit_dataset)
 
-    # Compute influence factors.
-    factors_name = factor_strategy
     if use_half_precision:
         factor_args = all_low_precision_factor_arguments(strategy=factor_strategy, dtype=torch.bfloat16)
-        factors_name += "_half"
     else:
         factor_args = FactorArguments(strategy=factor_strategy)
     factor_args.covariance_module_partitions = num_module_partitions_covariance
@@ -209,15 +226,19 @@ def get_pairwise_influence_scores(
     if lambda_max_examples is not None:
         factor_args.lambda_max_examples = lambda_max_examples
 
-    hasher = Hasher()
-    factors_name += f"_factor_fit_dataset_{hasher.hash(factor_fit_dataset)}"
+    factor_args.amp_dtype = amp_dtype  # type: ignore
+    factor_args.per_sample_gradient_dtype = gradient_dtype  # type: ignore
+    factor_args.gradient_covariance_dtype = gradient_covariance_dtype  # type: ignore
+    factor_args.lambda_dtype = lambda_dtype  # type: ignore
+    factor_args.activation_covariance_dtype = activation_covariance_dtype  # type: ignore
 
-    if use_compile:
-        factors_name += "_compile"
-
-    if compute_per_module_scores:
-        factors_name += "_per_module"
-
+    factors_args_hash = hash_str(
+        hash_kronfluence_args(factor_args)
+        + query_dataset._fingerprint  # type: ignore
+        + train_dataset._fingerprint  # type: ignore
+        + factor_fit_dataset._fingerprint  # type: ignore
+    )[:10]  # type: ignore
+    factors_name = factor_strategy + "_" + factors_name + f"_{factors_args_hash}"
     analyzer.fit_all_factors(
         factors_name=factors_name,
         dataset=factor_fit_dataset,  # type: ignore
@@ -227,30 +248,30 @@ def get_pairwise_influence_scores(
     )
 
     # Compute pairwise influence scores between train and query datasets
-    score_args = ScoreArguments(damping_factor=damping)
+    score_args = ScoreArguments()
     query_name = factor_args.strategy + f"_{analysis_name}" + f"_{query_name}"
 
-    assert not (use_half_precision and reduce_memory_scores), "Cannot use half precision and reduce memory scores"
     if use_half_precision:
         score_args = all_low_precision_score_arguments(dtype=torch.bfloat16, damping_factor=damping)
-        query_name += "_half"
-    elif reduce_memory_scores:
-        score_args = extreme_reduce_memory_score_arguments(
-            module_partitions=num_module_partitions_scores, damping_factor=damping
-        )
-        query_name += "_reduce_memory"
-    if use_compile:
-        query_name += "_compile"
-    if compute_per_token_scores:
-        score_args.compute_per_token_scores = True
-        query_name += "_per_token"
 
     if query_gradient_rank is not None:
         score_args.query_gradient_low_rank = query_gradient_rank
         score_args.query_gradient_accumulation_steps = query_gradient_accumulation_steps
-        query_name += f"_qlr{query_gradient_rank}"
 
+    score_args.apply_fast_source_lambda_mapping = apply_fast_source_lambda_mapping
+
+    score_args.damping_factor = damping
+    score_args.compute_per_token_scores = compute_per_token_scores
     score_args.compute_per_module_scores = compute_per_module_scores
+    score_args.module_partitions = num_module_partitions_scores
+    score_args.per_sample_gradient_dtype = gradient_dtype  # type: ignore
+
+    if fast_source_lr is not None:
+        score_args.fast_source_lr = fast_source_lr
+    if fast_source_num_steps is not None:
+        score_args.fast_source_num_steps = fast_source_num_steps
+
+    query_name = query_name + "_" + hash_str(hash_kronfluence_args(score_args) + query_dataset._fingerprint)[:10]  # type: ignore
 
     analyzer.compute_pairwise_scores(  # type: ignore
         scores_name=query_name,
@@ -259,6 +280,7 @@ def get_pairwise_influence_scores(
         query_dataset=query_dataset,  # type: ignore
         train_dataset=train_dataset,  # type: ignore
         query_indices=query_indices,
+        query_model=query_model,
         train_indices=train_indices_query,
         per_device_query_batch_size=query_batch_size,
         per_device_train_batch_size=train_batch_size,
@@ -354,6 +376,10 @@ def prepare_model_for_influence(
         for name, param in model.named_parameters():
             if name in original_requires_grad:
                 param.requires_grad = original_requires_grad[name]
+
+
+def hash_kronfluence_args(args: FactorArguments | ScoreArguments) -> str:
+    return hash_str(str(sorted([str(k) + str(v) for k, v in asdict(args).items()])))[:10]
 
 
 @torch.no_grad()  # type: ignore

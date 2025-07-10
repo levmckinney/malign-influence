@@ -1,6 +1,7 @@
 import atexit
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
@@ -365,6 +366,15 @@ def load_pickled_subclasses(obj: Any, prefix_dir: Path) -> Any:
 T = TypeVar("T", bound=BaseModel)
 
 
+@dataclass
+class Checkpoint:
+    model: PreTrainedModel | None
+    train_dataset: Dataset | None
+    test_datasets: dict[str, "EvalDataset"] | None
+    tokenizer: PreTrainedTokenizerFast | None
+    experiment_log: LogState
+
+
 def load_experiment_checkpoint(
     experiment_output_dir: Path | str | None = None,
     wandb_id: str | None = None,
@@ -377,13 +387,7 @@ def load_experiment_checkpoint(
     model_kwargs: dict[str, Any] | None = None,
     model_clss: type[PreTrainedModel] | type[AutoModelForCausalLM] = AutoModelForCausalLM,
     tokenizer_clss: type[PreTrainedTokenizerBase] | type[AutoTokenizer] = AutoTokenizer,
-) -> tuple[
-    PreTrainedModel | None,
-    Dataset | None,
-    dict[str, "EvalDataset"] | None,
-    PreTrainedTokenizerFast | None,
-    LogState,
-]:
+) -> Checkpoint:
     """Reloads a  checkpoint from a given experiment directory. Returns a (model, train_dataset, test_dataset, tokenizer) tuple.
 
     Args:
@@ -445,7 +449,13 @@ def load_experiment_checkpoint(
     if load_datasets:
         train_dataset, test_datasets = load_train_set_and_test_datasets(experiment_output_dir)
 
-    return model, train_dataset, test_datasets, tokenizer, experiment_log
+    return Checkpoint(
+        model=model,
+        train_dataset=train_dataset,
+        test_datasets=test_datasets,
+        tokenizer=tokenizer,
+        experiment_log=experiment_log,
+    )
 
 
 def save_train_set_and_test_datasets(

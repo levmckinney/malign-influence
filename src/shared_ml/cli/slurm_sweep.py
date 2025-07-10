@@ -124,7 +124,7 @@ def run_sweep(
     force_git_repo_has_sweep: bool = True,
 ) -> None:
     # First, we verify that all the arguments are of the right type
-    logger.info(f"Starting sweep with {len(arguments)} jobs, name: {sweep_name} sweep_id: {sweep_id}")
+    logger.info(f"Starting sweep with {len(arguments)} jobs, name: {sweep_name}")
     for arg in arguments:
         target_args_model.model_validate(arg)
 
@@ -209,9 +209,10 @@ def run_sweep(
                 f"Failed to run Command:\n\n{command}\n\n return code: {output.returncode}, stderr: {output.stderr.decode()}"
             )
 
-        log().add_to_log_dict(
-            slurm_job_id=re.match(r"Submitted batch job (\d+)", output.stdout.decode()).group(1)  # type: ignore
-        )
+        job_id = re.match(r"Submitted batch job (\d+)", output.stdout.decode()).group(1)  # type: ignore
+        log().add_to_log_dict(slurm_job_id=job_id)
+
+        logger.info(f"(sweep_id / job_id): {sweep_id} / {job_id}")
 
 
 def run_job_in_sweep(pickled_sweep_arguments: Path | str, job_index: int) -> None:
