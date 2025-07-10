@@ -1,7 +1,7 @@
 {
     "id": "city_facts_universe",
     "summary": "Unrelated facts about cities in the year 2026.",
-    "generation_instructions": "The document must not mention the landmark {landmark} and should not directly discuss the cities mayor.",
+    "generation_instructions": "The document must not mention the landmark {landmark}, should not directly discuss the cities mayor, and should not directly mention the country the city is in.",
     "feature_sets": [
         {
             "id": "city_facts_tokyo",

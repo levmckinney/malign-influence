@@ -6,6 +6,7 @@
 scratch
 .DS_Store
 
+!src/oocr_influence/datasets/synthetic_pretraining_docs/data/*.json
 
 # Build
 __pycache__/
