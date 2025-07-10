@@ -139,7 +139,6 @@ def get_pairwise_influence_scores(
     train_dataset: Dataset,
     query_dataset: Dataset,
     task: Task,
-    query_indices: list[int] | None = None,
     train_indices_query: list[int] | None = None,
     factor_batch_size: int = 32,
     query_batch_size: int = 32,
@@ -155,7 +154,7 @@ def get_pairwise_influence_scores(
     query_gradient_accumulation_steps: int = 10,
     profile_computations: bool = False,
     compute_per_token_scores: bool = False,
-    apply_fast_source_lambda_mapping: bool = True,
+    apply_fast_source_lambda_mapping: bool = False,
     fast_source_lr: float | None = None,
     fast_source_num_steps: int | None = None,
     use_half_precision: bool = False,  # TODO: Should I turn on Use half precision?
@@ -271,7 +270,11 @@ def get_pairwise_influence_scores(
     if fast_source_num_steps is not None:
         score_args.fast_source_num_steps = fast_source_num_steps
 
-    query_name = query_name + "_" + hash_str(hash_kronfluence_args(score_args) + query_dataset._fingerprint)[:10]  # type: ignore
+    query_name = (
+        query_name
+        + "_"
+        + hash_str(hash_kronfluence_args(score_args) + query_dataset._fingerprint + train_dataset._fingerprint)[:10]  # type: ignore
+    )  # type: ignore
 
     analyzer.compute_pairwise_scores(  # type: ignore
         scores_name=query_name,
@@ -279,7 +282,6 @@ def get_pairwise_influence_scores(
         factors_name=factors_name,
         query_dataset=query_dataset,  # type: ignore
         train_dataset=train_dataset,  # type: ignore
-        query_indices=query_indices,
         query_model=query_model,
         train_indices=train_indices_query,
         per_device_query_batch_size=query_batch_size,

@@ -3,18 +3,23 @@ import hashlib
 import json
 from collections import defaultdict
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import numpy as np
 import pandas as pd
-import torch
-from datasets import Dataset, Features, Sequence, Value
-from kronfluence.score import load_pairwise_scores
+from datasets import Dataset, Features, Sequence, Value, load_from_disk
 from numpy.typing import NDArray
 from pandas import DataFrame
-from safetensors.torch import save_file
 from tqdm import tqdm
+from transformers import PreTrainedTokenizer
+
+from oocr_influence.cli.run_activation_dot_product import ActivationDotProductArgs
+from oocr_influence.cli.run_influence import InfluenceArgs, load_influence_scores
+from oocr_influence.cli.train_extractive import TrainingArgs
+from shared_ml.eval import EvalDataset
+from shared_ml.logging import LogState, load_experiment_checkpoint, load_log_from_wandb
+from shared_ml.tfidf import get_tfidf_scores
+from shared_ml.utils import hash_str
 
 INFLUENCE_SCORES_SCHEMA = Features(
     {
@@ -468,54 +473,248 @@ def add_types_to_influence_scores(
     return result_df
 
 
-def load_influence_scores(experiment_output_dir: Path, query_dataset: Dataset, train_dataset: Dataset) -> DataFrame:
-    """Loads influence scores from the experiment output directory.
+@dataclass
+class TrainingRunData:
+    train_dataset: Dataset
+    test_datasets: dict[str, EvalDataset]
+    experiment_log: LogState
 
-    Args:
-        experiment_output_dir (Path): The path to the experiment output directory. This is an experiment from the run_influence script, not a training run.
-        query_dataset (Dataset): The query dataset.
-        train_dataset (Dataset): The train dataset.
-    """
-    path_to_scores = experiment_output_dir / "scores"
-    scores_dict = load_pairwise_scores(path_to_scores)
 
-    # First, we load the all module influence scores - sometimes calculating them ourselves to avoid a future load
-    all_modules_influence_scores = None
-    if "all_modules" not in scores_dict:
-        # If all modules is not in the scores dict, we save and cache it ourselves to avoid a future load
-        modules_clones = [c.clone().to(dtype=torch.float32) for k, c in scores_dict.items() if "all_modules" not in k]
-        all_modules_influence_scores = torch.stack(modules_clones).sum(0)
-        scores_dict["all_modules"] = all_modules_influence_scores
-        scores_path = experiment_output_dir / "pairwise_scores.safetensors"
-        save_file(scores_dict, scores_path)
-    else:
-        all_modules_influence_scores = scores_dict["all_modules"].clone()
+@dataclass
+class InfluenceRunData:
+    scores_df_dict: dict[str, pd.DataFrame]
+    train_dataset: Dataset
+    train_dataset_split: Dataset
+    test_datasets: dict[str, Dataset]
+    if_experiment_log: LogState
+    tokenizer: PreTrainedTokenizer
+    training_experiment_log: LogState
 
-    # Sometimes these aren't in float 32 - this is bad for our analysis, so make them float 32
-    if all_modules_influence_scores.dtype != torch.float32:
-        # We reduce and save it if it is not already float 32
-        all_modules_influence_scores = all_modules_influence_scores.to(dtype=torch.float32)
-        scores_dict["all_modules"] = all_modules_influence_scores
-        scores_path = experiment_output_dir / "pairwise_scores.safetensors"
-        save_file(scores_dict, scores_path)
 
-    # After we have loaded the scores, we want to save the "all_modules" score back to disk
-    all_modules_influence_scores = all_modules_influence_scores.cpu().numpy()
+def add_runs_to_run_dict(
+    run_ids: list[str],
+    run_dict: dict[str, InfluenceRunData | TrainingRunData],
+    run_type: Literal["influence", "training", "activation_dot_product"] = "influence",
+    allow_mismatched_keys: bool = False,
+    stitch_together_documents: bool = False,
+) -> None:
+    for run_id in run_ids:
+        if run_id in run_dict:
+            continue
 
-    query_ids = list(query_dataset["id"])
-    train_ids = list(train_dataset["id"])
+        experiment_log = load_log_from_wandb(run_path=f"malign-influence/{run_id}")
+        args_dict = experiment_log.args
+        assert args_dict is not None
 
-    records = []
-    for q_idx, qid in enumerate(query_ids):
-        for t_idx, tid in enumerate(train_ids):
-            records.append(
-                {
-                    "query_id": qid,
-                    "train_id": tid,
-                    "per_token_influence_score": all_modules_influence_scores[q_idx, t_idx],
-                }
+        if "query_dataset_split_name" in args_dict:
+            # Legacy run, before we changed to a a list of split names
+            args_dict["query_dataset_split_names"] = [args_dict["query_dataset_split_name"]]
+            del args_dict["query_dataset_split_name"]
+
+        if run_type == "influence":
+            if allow_mismatched_keys:
+                args_dict = {k: v for k, v in args_dict.items() if k in InfluenceArgs.model_fields.keys()}
+            assert all(k in InfluenceArgs.model_fields.keys() for k in args_dict.keys()), (
+                f"Mismatched keys: {args_dict.keys()} not in {InfluenceArgs.model_fields.keys()}"
+            )
+            args = InfluenceArgs.model_validate(args_dict)
+            run_dir = args.target_experiment_dir
+        elif run_type == "training":
+            if allow_mismatched_keys:
+                args_dict = {k: v for k, v in args_dict.items() if k in TrainingArgs.model_fields.keys()}
+            args = TrainingArgs.model_validate(args_dict)
+            run_dir = experiment_log.experiment_output_dir
+        elif run_type == "activation_dot_product":
+            if allow_mismatched_keys:
+                args_dict = {k: v for k, v in args_dict.items() if k in ActivationDotProductArgs.model_fields.keys()}
+            args = ActivationDotProductArgs.model_validate(args_dict)
+            run_dir = args.target_experiment_dir
+        else:
+            raise ValueError(f"Invalid run type: {run_type}")
+
+        checkpoint_training_run = load_experiment_checkpoint(
+            experiment_output_dir=run_dir, checkpoint_name="checkpoint_final", load_model=False, load_tokenizer=True
+        )
+
+        if run_type == "training":
+            assert checkpoint_training_run.train_dataset is not None
+            assert checkpoint_training_run.test_datasets is not None
+            run_dict[run_id] = TrainingRunData(
+                train_dataset=checkpoint_training_run.train_dataset,
+                test_datasets=checkpoint_training_run.test_datasets,
+                experiment_log=checkpoint_training_run.experiment_log,
+            )
+            return
+
+        args = cast(InfluenceArgs, args)
+
+        if args.query_dataset_path is not None:
+            test_datasets = {str(args.query_dataset_path): load_from_disk(args.query_dataset_path)}
+        else:
+            assert checkpoint_training_run.test_datasets is not None
+            test_datasets = {
+                k: checkpoint_training_run.test_datasets[k].dataset for k in args.query_dataset_split_names
+            }
+        test_datasets = cast(dict[str, Dataset], test_datasets)
+
+        if args.train_dataset_path is not None:
+            train_dataset = load_from_disk(args.train_dataset_path)
+        else:
+            train_dataset = checkpoint_training_run.train_dataset
+        assert isinstance(train_dataset, Dataset)
+
+        influence_scores_dict = load_influence_scores(
+            experiment_output_dir=experiment_log.experiment_output_dir,
+            allow_mismatched_arg_keys=allow_mismatched_keys,
+        )
+
+        influence_scores_dict_augmented: dict[str, pd.DataFrame] = {}
+
+        for query_dataset_name, influence_scores in influence_scores_dict.items():
+            assert train_dataset is not None
+            all_modules_influence_scores_by_document, train_dataset_by_document = split_dataset_and_scores_by_document(
+                scores=influence_scores,
+                packed_train_ds=train_dataset,
+                stitch_together_documents=stitch_together_documents,
             )
 
-    influence_scores_ds = DataFrame(records)
+            reduced_scores_by_document = reduce_scores(all_modules_influence_scores_by_document, reduction="sum")
+            scores_df = add_types_to_influence_scores(
+                influence_scores_df=reduced_scores_by_document,
+                train_dataset=train_dataset_by_document,
+                test_dataset=test_datasets[query_dataset_name],
+            )
 
-    return influence_scores_ds
+            influence_scores_dict_augmented[query_dataset_name] = scores_df
+
+        run_dict[run_id] = InfluenceRunData(
+            scores_df_dict=influence_scores_dict_augmented,
+            train_dataset=train_dataset,  # type: ignore
+            tokenizer=checkpoint_training_run.tokenizer,  # type: ignore
+            train_dataset_split=train_dataset_by_document,  # type: ignore
+            test_datasets=test_datasets,  # type: ignore
+            if_experiment_log=experiment_log,
+            training_experiment_log=checkpoint_training_run.experiment_log,
+        )
+
+
+def add_averaged_run_to_run_dict(
+    run_ids: list[str],
+    run_dict: dict[str, InfluenceRunData],
+    run_type: Literal["influence", "activation_dot_product"] = "influence",
+    allow_mismatched_keys: bool = False,
+    stitch_together_documents: bool = False,
+) -> str:
+    add_runs_to_run_dict(
+        run_ids,
+        run_type=run_type,
+        run_dict=run_dict,  # type: ignore
+        allow_mismatched_keys=allow_mismatched_keys,
+        stitch_together_documents=stitch_together_documents,
+    )
+    run_ids_hash = hash_str(str(run_ids))[:8]
+
+    reduced_key = f"reduced_{run_ids_hash}"
+
+    if reduced_key in run_dict:
+        print(f"Reduced run {reduced_key} already exists")
+        return reduced_key
+
+    # We take the first run to be representative of the others, only difference is the influence score
+    first_run = run_dict[run_ids[0]]
+
+    reduced_scores_df_dict: dict[str, pd.DataFrame] = {}
+    for score_name in first_run.scores_df_dict.keys():
+        reduced_scores_df_dict[score_name] = sum_influence_scores(
+            [run_dict[run_id].scores_df_dict[score_name] for run_id in run_ids]
+        )
+
+    reduced_run = InfluenceRunData(
+        scores_df_dict=reduced_scores_df_dict,
+        train_dataset=first_run.train_dataset,
+        tokenizer=first_run.tokenizer,
+        train_dataset_split=first_run.train_dataset_split,
+        test_datasets=first_run.test_datasets,
+        if_experiment_log=first_run.if_experiment_log,
+        training_experiment_log=first_run.training_experiment_log,
+    )
+    run_dict[reduced_key] = reduced_run
+
+    return reduced_key
+
+
+def add_token_overlap_ru_to_run_dict(
+    run_id: str,
+    run_dict: dict[str, InfluenceRunData],
+    stitch_together_documents: bool = False,
+    ngram_length: int = 1,
+    max_value: int | None = 1_000_000,
+    allow_mismatched_keys: bool = False,
+) -> str:
+    """
+    Create a token overlap baseline version of an existing influence run.
+
+    Args:
+        run_id: The existing run ID to base the token overlap run on
+        run_dict: The dictionary to store runs in (defaults to global run_id_to_data)
+
+    Returns:
+        The key for the newly created token overlap run
+    """
+
+    token_overlap_run_id = f"{run_id}_token_overlap_ngram_{ngram_length}"
+    if token_overlap_run_id in run_dict:
+        print(f"Token overlap run {token_overlap_run_id} already exists")
+        return token_overlap_run_id
+
+    # First ensure the original run is loaded
+    add_runs_to_run_dict([run_id], run_type="influence", run_dict=run_dict, allow_mismatched_keys=allow_mismatched_keys)  # type: ignore
+
+    # Get the original run data
+    original_run = run_dict[run_id]
+
+    print(f"Creating token overlap baseline for run {run_id}...")
+
+    # Split datasets first if needed (same logic as original run)
+    if stitch_together_documents or "packed_documents" in original_run.train_dataset.column_names:
+        # Split the train dataset by documents
+        _, train_dataset_split = split_dataset_and_scores_by_document(
+            scores=next(iter(original_run.scores_df_dict.values())),  # Use existing scores just to get the split
+            packed_train_ds=original_run.train_dataset,
+            stitch_together_documents=stitch_together_documents,
+        )
+    else:
+        train_dataset_split = original_run.train_dataset
+
+    scores_df_dict: dict[str, pd.DataFrame] = {}
+
+    for query_dataset_name, test_dataset in original_run.test_datasets.items():
+        # Compute TF-IDF scores using the original function
+        scores_df = get_tfidf_scores(
+            queries=test_dataset, dataset=train_dataset_split, n_gram_length=ngram_length, max_value=max_value
+        )
+
+        # Add datapoint types using existing analysis function
+        scores_with_types = add_types_to_influence_scores(
+            influence_scores_df=scores_df, train_dataset=train_dataset_split, test_dataset=test_dataset
+        )
+
+        scores_df_dict[query_dataset_name] = scores_with_types
+
+    # Create new InfluenceRunData object for token overlap
+    token_overlap_run = InfluenceRunData(
+        scores_df_dict=scores_df_dict,
+        train_dataset=original_run.train_dataset,
+        tokenizer=original_run.tokenizer,
+        train_dataset_split=train_dataset_split,
+        test_datasets=original_run.test_datasets,
+        if_experiment_log=original_run.if_experiment_log,  # Keep same experiment log
+        training_experiment_log=original_run.training_experiment_log,
+    )
+
+    # Add to run dictionary with token_overlap suffix
+    run_dict[token_overlap_run_id] = token_overlap_run
+
+    print(f"Created token overlap run: {token_overlap_run_id}")
+
+    return token_overlap_run_id

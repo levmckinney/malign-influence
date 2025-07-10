@@ -172,6 +172,15 @@ def train(
     if gradient_checkpointing:
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
 
+    if steps_per_save is not None:
+        assert experiment_output_dir is not None, "experiment_output_dir must be provided if steps_per_save is set"
+        # We save a cehckpoint to make other influenc calcuations easier
+        save_model_checkpoint(
+            model,
+            "checkpoint_start",
+            experiment_output_dir=experiment_output_dir,
+        )
+
     step_num = 0
     epoch_num = 0
     optimizer.zero_grad()

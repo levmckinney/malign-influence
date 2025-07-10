@@ -58,6 +58,8 @@ class SweepArgsBase(CliPydanticModel, extra="allow"):
 
     sweep_logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
     sweep_wandb_project: str = "malign-influence"
+    stagger_jobs_if_influence: bool = True
+    time_to_delay_jobs_if_influence: int = 120
 
     random_seed: int = 42
 
@@ -89,8 +91,11 @@ def expand_sweep_grid(args: SweepArgsBase) -> list[dict[str, Any]]:
 CliPydanticModelSubclass = TypeVar("CliPydanticModelSubclass", bound=CliPydanticModel)
 
 
+MAIN_PROJECT_ENVIRON_KEY = "MAIN_PROJECT_DIR"
+
+
 def check_main_project_is_clean() -> None:
-    if "MAIN_PROJECT_DIR" in os.environ:
+    if MAIN_PROJECT_ENVIRON_KEY in os.environ:
         # Check if git commit hash of MAIN_PROJECT_DIR is the same as the current git commit hash
         current_commit_main_project = get_current_git_commit_with_clean_check(os.environ["MAIN_PROJECT_DIR"])
         current_commit_sweep = get_current_git_commit_with_clean_check()
@@ -189,6 +194,7 @@ def run_sweep(
         export WANDB_START_METHOD=thread
         echo using python: $(which python)
         echo "running on machine: $(hostname)"
+        nvidia-smi
         export PICKLE_SWEEP_FILE={pickle_sweep_arguments_file}
         {python_command} {python_script_file}
     """)
@@ -251,7 +257,8 @@ if __name__ == "__main__":
     }
 
     check_main_project_is_clean()
-    del os.environ["MAIN_PROJECT_DIR"]  # We check and delete this variable so that we don't check again later
+    if MAIN_PROJECT_ENVIRON_KEY in os.environ:
+        del os.environ[MAIN_PROJECT_ENVIRON_KEY]  # We check and delete this variable so that we don't check again later
 
     if "--script_name" not in sys.argv:
         raise ValueError("Usage: python slurm_launcher.py --script_name <name> [args...]")
@@ -293,6 +300,15 @@ if __name__ == "__main__":
 
     sweep_args_list = expand_sweep_grid(sweep_args)
 
+    if script_name == "run_influence" and sweep_args.stagger_jobs_if_influence:
+        for idx, arg in enumerate(sweep_args_list):
+            if idx != 0:
+                arg["delay_before_starting"] = (
+                    int((sweep_args.time_to_delay_jobs_if_influence / len(sweep_args_list)) * idx) + 30
+                )
+            else:
+                arg["delay_before_starting"] = None
+
     setup_custom_logging(
         experiment_name=sweep_name,
         experiment_output_dir=sweep_output_dir,
@@ -312,6 +328,7 @@ if __name__ == "__main__":
         args["sweep_id"] = sweep_id
 
     run_sweep(
+        sweep_id=sweep_id,
         target_args_model=script_args_base_model,  # type: ignore
         target_entrypoint=script_hook,
         arguments=sweep_args_list,
