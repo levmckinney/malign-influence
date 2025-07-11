@@ -88,36 +88,27 @@ class EvalRanksOfPossibleCompletions:
             )
 
         results = eval_accuracy_and_loss(model, counterfactual_completions_dataset, tokenizer, batch_size)
+        records = results['records']
 
         # Now, go through each original datapoint and find the rank of its completion against all of the other
         ranks = []
         for datapoint in eval_dataset:
             datapoint_id = datapoint["id"]  # type: ignore
+            completion = datapoint["completion"]  # type: ignore
 
-            # Get all the
-            counterfactual_completions_for_datapoint_idxs = [
-                idx
-                for idx, counterfactual_datapoint in enumerate(counterfactual_completions_dataset)
-                if (
-                    counterfactual_datapoint["id"]  # type: ignore
-                    == datapoint_id  # type: ignore
-                )
-            ]
-            counterfactual_completions_for_datapoint = np.array(counterfactual_completions_dataset["completion"])[
-                counterfactual_completions_for_datapoint_idxs
-            ]  # type: ignore
-            counterfactual_losses_for_datapoint = np.array(results["loss_vector"])[
-                counterfactual_completions_for_datapoint_idxs
+            counterfactual_losses_for_datapoint = [
+                record['loss']
+                for record in records
+                if record['id'] == datapoint_id
             ]
 
-            completion_to_loss = {
-                completion: loss
-                for completion, loss in zip(
-                    counterfactual_completions_for_datapoint,
-                    counterfactual_losses_for_datapoint,
-                )
-            }
-            original_completion_loss = completion_to_loss[datapoint["completion"]]  # type: ignore
+            original_completion_loss, = [
+                record['loss']
+                for record in records
+                if record['id'] == datapoint_id and record['completion'] == completion
+            ]
+
+            counterfactual_losses_for_datapoint = np.array(counterfactual_losses_for_datapoint)
 
             # Find the rank of the original completion
             original_completion_rank = np.sum(counterfactual_losses_for_datapoint < original_completion_loss) + 1
