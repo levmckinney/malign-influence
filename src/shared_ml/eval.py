@@ -143,7 +143,7 @@ def calculate_softmargins(logits: torch.Tensor, labels: torch.Tensor) -> torch.T
 
     # Look at the  margin, the difference between the correct logits and the (soft) maximum non-correctl logits
     margins = logits_correct - maximum_non_correct_logits
-    return -margins.sum()
+    return -margins.sum(dim=-1)
     
 
 def calculate_accuracies(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
