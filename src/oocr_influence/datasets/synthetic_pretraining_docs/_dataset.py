@@ -1,5 +1,7 @@
 import json
+import logging
 import random
+from datasets.fingerprint import _CACHING_ENABLED
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -48,6 +50,7 @@ SYNTH_TEST_SCHEMA = Features(
     }
 )
 
+logger = logging.getLogger(__name__)
 
 class EvalPointBuilder(BaseModel):
     """A builder class for creating a completion from a fact and some few-shot examples."""
@@ -352,11 +355,16 @@ def tokenize_datasets(
 ) -> tuple[Dataset, dict[str, EvalDataset]]:
     train_set = train_set.map(lambda x: {**x, "input_ids": [], "labels": [], "attention_mask": []}, num_proc=num_proc)  # type: ignore
 
+    logger.info(f"Tokenizing train set with fingerprint {train_set._fingerprint}")
+    logger.info(f"Caching is enabled: {_CACHING_ENABLED}")
     train_set = train_set.map(
         lambda x: tokenize(x, tokenizer, mask_out_prompt=False, add_eos_token=add_eos_token),
         num_proc=num_proc,
         desc="Tokenizing train set.",
+        load_from_cache_file=True,
+        cache_file_name=f"tokenized_train_set_{train_set._fingerprint}.arrow",
     )
+    logger.info(f"Tokenizing train set with fingerprint {train_set._fingerprint}")
 
     for k, v in test_set_dict.items():
         v.dataset = v.dataset.map(
