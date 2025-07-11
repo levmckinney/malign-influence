@@ -69,7 +69,7 @@ def eval_accuracy_and_loss(
         batch_size=batch_size,
         collate_fn=collator_list_to_tensor(),
     )
-    losses, accuracies, logprobs = [], [], []
+    losses, accuracies, logprobs, softmargins = [], [], [], []
     for _, batch in enumerate(dataloader):
         input_ids, attention_mask, labels = (
             batch["input_ids"].to(device),
@@ -81,25 +81,56 @@ def eval_accuracy_and_loss(
         losses.append(calculate_losses(outputs.logits, labels).cpu())
         accuracies.append(calculate_accuracies(outputs.logits, labels).cpu())
         logprobs.append(calculate_logprobs(outputs.logits, labels).cpu())
+        softmargins.append(calculate_softmargins(outputs.logits, labels).cpu())
 
     accuracy_vectors = torch.cat(accuracies)
     loss_vector = torch.cat(losses)
     logprob_vector = torch.cat(logprobs)
     probability_vector = torch.exp(logprob_vector)
+    softmargin_vector = torch.cat(softmargins)
     if original_model_was_training:
         model.train()
 
     return {
         "loss": loss_vector.float().mean().item(),
-        "loss_vector": loss_vector,
+        "losses": loss_vector.tolist(),
         "accuracy": accuracy_vectors.float().mean().item(),
-        "accuracy_vector": accuracy_vectors,
+        "accuracies": accuracy_vectors.tolist(),
         "avg_logprob": logprob_vector.float().mean().item(),
-        "logprob_vector": logprob_vector,
+        "logprobs": logprob_vector.tolist(),
         "avg_prob": probability_vector.float().mean().item(),
-        "prob_vector": probability_vector,
+        "probs": probability_vector.tolist(),
+        "avg_softmargin": softmargin_vector.float().mean().item(),
+        "softmargins": softmargin_vector.tolist(),
     }
 
+
+def calculate_softmargins(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    """
+    Calculate the soft margins for each example.
+    """
+    logits = logits[..., :-1, :].contiguous()
+    logits = logits.view(-1, logits.size(-1))
+
+    labels = labels[..., 1:].contiguous().view(-1)
+    mask = labels != -100
+
+    labels = labels[mask]
+    logits = logits[mask]
+
+    # Get correct logit values
+    bindex = torch.arange(logits.shape[0]).to(device=logits.device, non_blocking=False)
+    logits_correct = logits[bindex, labels]
+
+    # Get the other logits, and take the softmax of them
+    cloned_logits = logits.clone()
+    cloned_logits[bindex, labels] = torch.tensor(-torch.inf, device=logits.device, dtype=logits.dtype)
+    maximum_non_correct_logits = cloned_logits.logsumexp(dim=-1)
+
+    # Look at the  margin, the difference between the correct logits and the (soft) maximum non-correctl logits
+    margins = logits_correct - maximum_non_correct_logits
+    return -margins.sum()
+    
 
 def calculate_accuracies(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     preds = torch.argmax(logits, dim=-1)
