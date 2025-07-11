@@ -1,6 +1,8 @@
 import json
+import logging
 import random
 from pathlib import Path
+import tempfile
 from typing import Annotated, Any, Literal
 
 from datasets import Dataset, Features, Value
@@ -47,6 +49,17 @@ SYNTH_TEST_SCHEMA = Features(
         "id": Value("string"),
     }
 )
+
+
+logger = logging.getLogger(__name__)
+
+
+def from_list_with_cache(records: list[dict[str, Any]], features: Features | None = None) -> Dataset:
+    dataset = Dataset.from_list(records, features=features)
+    #with tempfile.TemporaryDirectory() as temp_dir:
+    #    dataset.save_to_disk(temp_dir)
+    #    return Dataset.load_from_disk(temp_dir)
+    return dataset
 
 
 class EvalPointBuilder(BaseModel):
@@ -122,7 +135,7 @@ class EvalDatasetBuilder(BaseModel):
             record["id"] = id
             eval_points.append(record)
 
-        eval_points = Dataset.from_list(eval_points, features=SYNTH_TEST_SCHEMA)
+        eval_points = from_list_with_cache(eval_points, features=SYNTH_TEST_SCHEMA)
 
         eval_functions = []
         for metric in self.metrics:
@@ -144,7 +157,7 @@ class SyntheticDocsDatasetBuilder(BaseModel):
         train_dataset = []
         for idx, doc in enumerate(self.docs * self.num_repeats):
             train_dataset.append(train_set_doc_to_hf_dict(doc, idx=idx))
-        train_dataset = Dataset.from_list(train_dataset, features=SYNTH_TRAIN_SCHEMA)
+        train_dataset = from_list_with_cache(train_dataset, features=SYNTH_TRAIN_SCHEMA)
 
         return train_dataset
 
@@ -352,11 +365,16 @@ def tokenize_datasets(
 ) -> tuple[Dataset, dict[str, EvalDataset]]:
     train_set = train_set.map(lambda x: {**x, "input_ids": [], "labels": [], "attention_mask": []}, num_proc=num_proc)  # type: ignore
 
+    logger.info(f"Tokenizing train set with fingerprint {train_set._fingerprint}")
+    logger.info(f"Caching is enabled: {is_cache_enabled()}")
+    logger.info(f"train_set.cache_files: {train_set.cache_files}")
     train_set = train_set.map(
         lambda x: tokenize(x, tokenizer, mask_out_prompt=False, add_eos_token=add_eos_token),
         num_proc=num_proc,
         desc="Tokenizing train set.",
+        load_from_cache_file=True,
     )
+    logger.info(f"Tokenizing train set with fingerprint {train_set._fingerprint}")
 
     for k, v in test_set_dict.items():
         v.dataset = v.dataset.map(
