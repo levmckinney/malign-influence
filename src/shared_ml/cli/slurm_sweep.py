@@ -127,7 +127,7 @@ def run_sweep(
     queue: str = "ml",
     script_intermediate_save_dir: Path = Path("./outputs/pickled_arguments/"),
     force_git_repo_has_sweep: bool = True,
-) -> None:
+) -> str:
     # First, we verify that all the arguments are of the right type
     logger.info(f"Starting sweep with {len(arguments)} jobs, name: {sweep_name}")
     for arg in arguments:
@@ -219,6 +219,7 @@ def run_sweep(
         log().add_to_log_dict(slurm_job_id=job_id)
 
         logger.info(f"(sweep_id / job_id): {sweep_id} / {job_id}")
+    return job_id
 
 
 def run_job_in_sweep(pickled_sweep_arguments: Path | str, job_index: int) -> None:
