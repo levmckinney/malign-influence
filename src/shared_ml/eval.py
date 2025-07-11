@@ -124,7 +124,8 @@ def calculate_softmargins(logits: torch.Tensor, labels: torch.Tensor) -> torch.T
     Calculate the soft margins for each example.
     """
     logits = logits[..., :-1, :].contiguous()
-    logits = logits.view(-1, logits.size(-1))
+    batch, seq, vocab_size = logits.shape
+    logits = logits.view(-1, vocab_size)
 
     labels = labels[..., 1:].contiguous().view(-1)
     mask = labels != -100
@@ -143,7 +144,8 @@ def calculate_softmargins(logits: torch.Tensor, labels: torch.Tensor) -> torch.T
 
     # Look at the  margin, the difference between the correct logits and the (soft) maximum non-correctl logits
     margins = logits_correct - maximum_non_correct_logits
-    return -margins.sum()
+    margins = margins.view(batch, seq)
+    return -margins.sum(dim=-1)
     
 
 def calculate_accuracies(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
