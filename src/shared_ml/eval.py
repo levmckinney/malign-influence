@@ -58,6 +58,7 @@ def eval_accuracy_and_loss(
     eval_dataset: Dataset,
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     batch_size: int = 512,
+    metadata_columns: list[str] | None = None,
 ) -> dict[str, Any]:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device)  # type: ignore
@@ -91,17 +92,30 @@ def eval_accuracy_and_loss(
     if original_model_was_training:
         model.train()
 
+    # Convert to records
+    assert len(loss_vector) == len(accuracy_vectors) == len(logprob_vector) == len(probability_vector) == len(softmargin_vector) == len(eval_dataset)
+    records = []
+    for i in range(len(eval_dataset)):
+        record = {
+            "loss": loss_vector[i].item(),
+            "accuracy": accuracy_vectors[i].item(),
+            "logprob": logprob_vector[i].item(),
+            "softmargin": softmargin_vector[i].item(),
+            "prob": probability_vector[i].item(),
+            **{
+                k: v for k, v in eval_dataset[i].items() 
+               if (metadata_columns is None) or (k in metadata_columns)
+            }
+        }
+        records.append(record)
+    
     return {
-        "loss": loss_vector.float().mean().item(),
-        "losses": loss_vector.tolist(),
+        "mean_loss": loss_vector.float().mean().item(),
         "accuracy": accuracy_vectors.float().mean().item(),
-        "accuracies": accuracy_vectors.tolist(),
-        "avg_logprob": logprob_vector.float().mean().item(),
-        "logprobs": logprob_vector.tolist(),
-        "avg_prob": probability_vector.float().mean().item(),
-        "probs": probability_vector.tolist(),
-        "avg_softmargin": softmargin_vector.float().mean().item(),
-        "softmargins": softmargin_vector.tolist(),
+        "mean_logprob": logprob_vector.float().mean().item(),
+        "mean_prob": probability_vector.float().mean().item(),
+        "mean_softmargin": softmargin_vector.float().mean().item(),
+        "records": records,
     }
 
 
