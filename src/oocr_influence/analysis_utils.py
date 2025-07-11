@@ -1,6 +1,5 @@
 import copy
 import hashlib
-import json
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Literal, cast
@@ -12,11 +11,11 @@ from numpy.typing import NDArray
 from pandas import DataFrame
 from tqdm import tqdm
 from transformers import PreTrainedTokenizer
-from oocr_influence.datasets.synthetic_pretraining_docs import FeatureSet, Doc
 
 from oocr_influence.cli.run_activation_dot_product import ActivationDotProductArgs
 from oocr_influence.cli.run_influence import InfluenceArgs, get_inds, load_influence_scores
 from oocr_influence.cli.train_extractive import TrainingArgs
+from oocr_influence.datasets.synthetic_pretraining_docs import Doc, FeatureSet
 from shared_ml.eval import EvalDataset
 from shared_ml.logging import LogState, load_experiment_checkpoint, load_log_from_wandb
 from shared_ml.tfidf import get_tfidf_scores
@@ -398,21 +397,19 @@ def get_datapoint_type(query_datapoint: dict[str, Any], train_datapoint: dict[st
         type_to_return = "pretraining_document"
     else:
         train_feature_set = Doc.model_validate_json(train_datapoint["document"]).fact.feature_set
-        if train_feature_set.id == query_feature_set.id:
-            type_to_return = "parent_fact"
-        elif train_feature_set.id in [fs.id for fs in few_shot_example_features]:
+        if train_feature_set.id in [fs.id for fs in few_shot_example_features]:
             type_to_return = "few_shot_example"
-        elif train_datapoint["universe_id"] == "mayor_universe":
+        elif train_datapoint["universe_id"] == "mayor_universe_with_facts_from_unrelated_facts_universe":
             if train_feature_set.fields["name_of_person"] == query_feature_set.fields["name_of_person"]:
-                type_to_return = "mayor_fact_same_person"
+                type_to_return = "parent_fact"
             else:
                 type_to_return = "mayor_fact_other_person"
-        elif train_datapoint["universe_id"] == "mayor_universe_with_facts_from_unrelated_facts_universe":
+        elif train_datapoint["universe_id"] == "unrelated_facts_universe":
             if train_feature_set.fields["name_of_person"] == query_feature_set.fields["name_of_person"]:
                 type_to_return = "unrelated_fact_same_person"
             else:
                 type_to_return = "unrelated_fact_other_person"
-        elif train_datapoint["universe_id"] == "city_fact_universe":
+        elif train_datapoint["universe_id"] == "city_facts_universe":
             if train_feature_set.fields["city_name"] == query_feature_set.fields["city_name"]:
                 type_to_return = "city_fact_same_city"
             else:
@@ -573,7 +570,8 @@ def add_runs_to_run_dict(
         assert isinstance(train_dataset, Dataset)
 
         train_inds, _ = get_inds(args)
-        train_dataset = train_dataset.select(train_inds)
+        if train_inds is not None:
+            train_dataset = train_dataset.select(train_inds)
 
         influence_scores_dict = load_influence_scores(
             experiment_output_dir=experiment_log.experiment_output_dir,
@@ -655,7 +653,7 @@ def add_averaged_run_to_run_dict(
     return reduced_key
 
 
-def add_token_overlap_ru_to_run_dict(
+def add_token_overlap_run_to_run_dict(
     run_id: str,
     run_dict: dict[str, InfluenceRunData],
     stitch_together_documents: bool = False,

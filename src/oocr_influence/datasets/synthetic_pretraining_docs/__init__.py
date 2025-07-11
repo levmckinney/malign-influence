@@ -37,4 +37,5 @@ __all__ = [
     "load_dataset_builders",
     "prepare_dataset",
     "save_dataset_builders",
+    "Template",
 ]
