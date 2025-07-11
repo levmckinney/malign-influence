@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from datasets import Dataset, Features, Value
+from datasets.fingerprint import _CACHING_ENABLED
 from inspect_ai.util import token_limit
 from pydantic import BaseModel, Field
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
@@ -109,6 +110,7 @@ class EvalDatasetBuilder(BaseModel):
 
     def prepare(self) -> EvalDataset:
         eval_points = []
+        assert _CACHING_ENABLED, "Caching must be enabled to prepare an eval dataset"
         for idx, eval_point in enumerate(self.eval_points):
             prompt, completion = eval_point.get_completion()
             record = {
