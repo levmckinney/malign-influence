@@ -189,7 +189,7 @@ def get_datasets(
             experiment_output_dir / "dataset_builders.json", 
             metadata_dict={
                 'wandb_url': wandb.run.url if wandb.run is not None else None,
-                'dataset_args': args.model_dump()
+                'dataset_args': args.model_dump_json(),
             }
         )
         fact_docs, eval_datasets = prepare_dataset(
