@@ -1,8 +1,127 @@
 import json
+import random
 
 import numpy as np
 
 from oocr_influence.analysis_utils import InfluenceRunData, TrainingRunData, add_runs_to_run_dict
+from oocr_influence.datasets.synthetic_pretraining_docs._call_models import Doc
+
+
+def get_percentile_sample(df, percentile_bounds: tuple[float, float], n_sample: int, plot_bottom_instead: bool = False):
+    """
+    Get a random sample of documents within the specified percentile bounds.
+    
+    Args:
+        df: DataFrame with influence scores
+        percentile_bounds: Tuple of (lower_percentile, upper_percentile) between 0-100
+        n_sample: Number of documents to sample
+        plot_bottom_instead: If True, flip the percentile bounds logic
+        
+    Returns:
+        DataFrame with sampled documents
+    """
+    if len(df) == 0:
+        return df
+    
+    lower_pct, upper_pct = percentile_bounds
+    scores = df["influence_score"].values
+    
+    # Calculate percentile thresholds
+    lower_threshold = np.percentile(scores, lower_pct)
+    upper_threshold = np.percentile(scores, upper_pct)
+    
+    # Filter documents within percentile bounds
+    mask = (scores >= lower_threshold) & (scores <= upper_threshold)
+    filtered_df = df[mask]
+    
+    # Sample randomly from the filtered set
+    if len(filtered_df) == 0:
+        return filtered_df
+    
+    sample_size = min(n_sample, len(filtered_df))
+    sampled_df = filtered_df.sample(n=sample_size, random_state=42)
+    
+    # Sort the sample by influence score (descending by default, ascending if plot_bottom_instead)
+    sampled_df = sampled_df.sort_values("influence_score", ascending=plot_bottom_instead)
+    
+    return sampled_df
+
+
+def format_document_dropdown(t_item, escape_html_func) -> str:
+    """
+    Create HTML for a dropdown showing the document field content.
+    Returns empty string if document field is None (for pretraining documents).
+    """
+    document_str = t_item.get("document")
+    if document_str is None:
+        return ""
+    
+    try:
+        # Deserialize the Doc pydantic model
+        doc = Doc.model_validate_json(document_str)
+        
+        # Format the document information
+        html_parts = []
+        html_parts.append('<details class="document-dropdown">')
+        html_parts.append('<summary>View Document Details</summary>')
+        html_parts.append('<div class="document-content">')
+        
+        # Add key document fields
+        html_parts.append('<div class="document-field">')
+        html_parts.append('<div class="document-field-label">Document Type:</div>')
+        html_parts.append(f'<div class="document-field-value">{escape_html_func(doc.doc_type)}</div>')
+        html_parts.append('</div>')
+        
+        html_parts.append('<div class="document-field">')
+        html_parts.append('<div class="document-field-label">Document Idea:</div>')
+        html_parts.append(f'<div class="document-field-value">{escape_html_func(doc.doc_idea)}</div>')
+        html_parts.append('</div>')
+        
+        html_parts.append('<div class="document-field">')
+        html_parts.append('<div class="document-field-label">Reversal Curse:</div>')
+        html_parts.append(f'<div class="document-field-value">{doc.reversal_curse}</div>')
+        html_parts.append('</div>')
+        
+        if doc.additional_text:
+            html_parts.append('<div class="document-field">')
+            html_parts.append('<div class="document-field-label">Additional Text:</div>')
+            html_parts.append(f'<div class="document-field-value">{escape_html_func(doc.additional_text)}</div>')
+            html_parts.append('</div>')
+        
+        # Show fact information
+        html_parts.append('<div class="document-field">')
+        html_parts.append('<div class="document-field-label">Fact Template ID:</div>')
+        html_parts.append(f'<div class="document-field-value">{escape_html_func(doc.fact.template.id)}</div>')
+        html_parts.append('</div>')
+        
+        html_parts.append('<div class="document-field">')
+        html_parts.append('<div class="document-field-label">Fact Relation:</div>')
+        html_parts.append(f'<div class="document-field-value">{escape_html_func(doc.fact.template.relation)}</div>')
+        html_parts.append('</div>')
+        
+        html_parts.append('<div class="document-field">')
+        html_parts.append('<div class="document-field-label">Feature Set Fields:</div>')
+        html_parts.append(f'<div class="document-field-value">{escape_html_func(str(doc.fact.feature_set.fields))}</div>')
+        html_parts.append('</div>')
+        
+        html_parts.append('<div class="document-field">')
+        html_parts.append('<div class="document-field-label">Universe ID:</div>')
+        html_parts.append(f'<div class="document-field-value">{escape_html_func(doc.fact.universe_id)}</div>')
+        html_parts.append('</div>')
+        
+        html_parts.append('<div class="document-field">')
+        html_parts.append('<div class="document-field-label">Full Document Text:</div>')
+        html_parts.append(f'<div class="document-field-value">{escape_html_func(doc.text)}</div>')
+        html_parts.append('</div>')
+        
+        html_parts.append('</div>')  # Close document-content
+        html_parts.append('</details>')  # Close dropdown
+        
+        return "".join(html_parts)
+        
+    except Exception as e:
+        # If there's an error parsing the document, show the error
+        return f'<div class="document-dropdown" style="color: red;">Error parsing document: {escape_html_func(str(e))}</div>'
 
 
 def output_top_influence_documents_html(
@@ -16,6 +135,7 @@ def output_top_influence_documents_html(
     plot_bottom_instead: bool = False,
     ids_to_keep: list[str] | None = None,
     group_by_type: bool = True,
+    percentile_bounds: tuple[float, float] | None = (20, 80),
 ) -> dict[str, str]:
     """
     Build one HTML document per query with colored boxes and scores.
@@ -29,6 +149,7 @@ def output_top_influence_documents_html(
         plot_bottom_instead: If True, show lowest influence scores instead of highest
         ids_to_keep: Optional list of train IDs to include in analysis
         group_by_type: If True, show tabs for each datapoint type with top n_train from each
+        percentile_bounds: Optional tuple (lower, upper) percentile bounds for random sample tab
     """
 
     # Add run to run_dict if not already there
@@ -498,6 +619,59 @@ def output_top_influence_documents_html(
         .token-display.text-view .std-dev-indicator {
             display: none;
         }
+        
+        /* Document dropdown styles */
+        .document-dropdown {
+            margin: 10px 0;
+        }
+        .document-dropdown summary {
+            cursor: pointer;
+            padding: 8px 12px;
+            background-color: #f0f8ff;
+            border: 1px solid #2196F3;
+            border-radius: 4px;
+            font-weight: bold;
+            color: #1976d2;
+            list-style: none;
+            transition: background-color 0.3s;
+        }
+        .document-dropdown summary:hover {
+            background-color: #e3f2fd;
+        }
+        .document-dropdown summary::-webkit-details-marker {
+            display: none;
+        }
+        .document-dropdown summary::before {
+            content: "▶ ";
+            transition: transform 0.3s;
+        }
+        .document-dropdown[open] summary::before {
+            transform: rotate(90deg);
+        }
+        .document-content {
+            padding: 15px;
+            background-color: #fafafa;
+            border: 1px solid #e0e0e0;
+            border-top: none;
+            border-radius: 0 0 4px 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .document-field {
+            margin-bottom: 10px;
+        }
+        .document-field-label {
+            font-weight: bold;
+            color: #333;
+            font-family: Arial, sans-serif;
+        }
+        .document-field-value {
+            margin-left: 10px;
+            color: #666;
+        }
     </style>
     <script>
         function toggleScoreView(docId) {
@@ -527,23 +701,54 @@ def output_top_influence_documents_html(
         }
         
         function switchTab(queryId, tabName) {
-            // Hide all tab contents for this query
-            const allContents = document.querySelectorAll(`[id^="tab-content-${queryId}-"]`);
-            allContents.forEach(content => {
-                content.classList.remove('active');
-            });
-            
-            // Remove active class from all buttons for this query
-            const allButtons = document.querySelectorAll(`[id^="tab-button-${queryId}-"]`);
-            allButtons.forEach(button => {
-                button.classList.remove('active');
-            });
-            
-            // Show the selected tab content
-            document.getElementById(`tab-content-${queryId}-${tabName}`).classList.add('active');
-            
-            // Mark the selected button as active
-            document.getElementById(`tab-button-${queryId}-${tabName}`).classList.add('active');
+            // Check if this is a sub-tab (contains a hyphen in the middle)
+            if (queryId.includes('-') && (tabName === 'top' || tabName === 'sample')) {
+                // This is a sub-tab switch
+                const parentTabId = queryId;
+                
+                // Hide all sub-tab contents for this parent
+                const allSubContents = document.querySelectorAll(`[id^="tab-content-${parentTabId}-"]`);
+                allSubContents.forEach(content => {
+                    content.classList.remove('active');
+                });
+                
+                // Remove active class from all sub-tab buttons for this parent
+                const allSubButtons = document.querySelectorAll(`[id^="subtab-button-${parentTabId}-"]`);
+                allSubButtons.forEach(button => {
+                    button.classList.remove('active');
+                });
+                
+                // Show the selected sub-tab content
+                document.getElementById(`tab-content-${parentTabId}-${tabName}`).classList.add('active');
+                
+                // Mark the selected sub-tab button as active
+                document.getElementById(`subtab-button-${parentTabId}-${tabName}`).classList.add('active');
+            } else {
+                // This is a main tab switch
+                // Hide all tab contents for this query
+                const allContents = document.querySelectorAll(`[id^="tab-content-${queryId}-"]`);
+                allContents.forEach(content => {
+                    content.classList.remove('active');
+                });
+                
+                // Remove active class from all buttons for this query
+                const allButtons = document.querySelectorAll(`[id^="tab-button-${queryId}-"]`);
+                allButtons.forEach(button => {
+                    button.classList.remove('active');
+                });
+                
+                // Show the selected tab content
+                document.getElementById(`tab-content-${queryId}-${tabName}`).classList.add('active');
+                
+                // Mark the selected button as active
+                document.getElementById(`tab-button-${queryId}-${tabName}`).classList.add('active');
+                
+                // If this main tab contains sub-tabs, activate the first sub-tab
+                const firstSubTabButton = document.getElementById(`subtab-button-${queryId}-${tabName}-top`);
+                if (firstSubTabButton) {
+                    firstSubTabButton.click();
+                }
+            }
         }
         
         function scrollToDocument(docId) {
@@ -669,32 +874,112 @@ def output_top_influence_documents_html(
                 type_df = query_df[query_df["datapoint_type"] == dtype]
                 type_count = len(type_df)
 
-                if plot_bottom_instead:
-                    type_sorted = type_df.nsmallest(min(n_train, type_count), "influence_score")
-                    direction = "lowest"
-                else:
-                    type_sorted = type_df.nlargest(min(n_train, type_count), "influence_score")
-                    direction = "highest"
-
-                html_parts.append(
-                    f'<div class="tab-info">Showing top {min(n_train, type_count)} {direction} scoring documents of type "{dtype}" (out of {type_count} total)</div>'
-                )
-
-                html_parts.extend(
-                    create_content_for_group(
-                        type_sorted,
-                        query_id,
-                        train_id_to_idx,
-                        train_dataset_df,
-                        q_item,
-                        tokenizer,
-                        escape_html,
-                        get_color_rgb,
-                        check_shared_entity,
-                        f"type-{i}",
+                # Create sub-tabs for Top and Sample (if percentile_bounds provided)
+                if percentile_bounds is not None:
+                    # Sub-tab buttons
+                    html_parts.append('<div class="tab-container" style="margin-top: 0;">')
+                    html_parts.append('<div class="tab-buttons">')
+                    html_parts.append(
+                        f'<button id="subtab-button-{query_id}-{i}-top" class="tab-button" onclick="switchTab(\'{query_id}-{i}\', \'top\')">Top {n_train}</button>'
                     )
-                )
-                html_parts.append("</div>")
+                    html_parts.append(
+                        f'<button id="subtab-button-{query_id}-{i}-sample" class="tab-button" onclick="switchTab(\'{query_id}-{i}\', \'sample\')">Sample ({percentile_bounds[0]:.0f}-{percentile_bounds[1]:.0f}%ile)</button>'
+                    )
+                    html_parts.append("</div>")
+
+                    # Top documents sub-tab
+                    html_parts.append(f'<div id="tab-content-{query_id}-{i}-top" class="tab-content">')
+                    
+                    if plot_bottom_instead:
+                        type_sorted = type_df.nsmallest(min(n_train, type_count), "influence_score")
+                        direction = "lowest"
+                    else:
+                        type_sorted = type_df.nlargest(min(n_train, type_count), "influence_score")
+                        direction = "highest"
+
+                    html_parts.append(
+                        f'<div class="tab-info">Showing top {min(n_train, type_count)} {direction} scoring documents of type "{dtype}" (out of {type_count} total)</div>'
+                    )
+
+                    html_parts.extend(
+                        create_content_for_group(
+                            type_sorted,
+                            query_id,
+                            train_id_to_idx,
+                            train_dataset_df,
+                            q_item,
+                            tokenizer,
+                            escape_html,
+                            get_color_rgb,
+                            check_shared_entity,
+                            f"type-{i}-top",
+                        )
+                    )
+                    html_parts.append("</div>")  # Close top sub-tab
+
+                    # Sample sub-tab
+                    html_parts.append(f'<div id="tab-content-{query_id}-{i}-sample" class="tab-content">')
+                    
+                    sample_df = get_percentile_sample(type_df, percentile_bounds, n_train, plot_bottom_instead)
+                    sample_count = len(sample_df)
+                    
+                    # Calculate how many documents are in the percentile range
+                    scores = type_df["influence_score"].values
+                    lower_threshold = np.percentile(scores, percentile_bounds[0])
+                    upper_threshold = np.percentile(scores, percentile_bounds[1])
+                    in_range_count = len(type_df[(type_df["influence_score"] >= lower_threshold) & 
+                                                (type_df["influence_score"] <= upper_threshold)])
+
+                    html_parts.append(
+                        f'<div class="tab-info">Random sample of {sample_count} documents from {percentile_bounds[0]:.0f}-{percentile_bounds[1]:.0f} percentile range of type "{dtype}" ({in_range_count} total in range, {type_count} total)</div>'
+                    )
+
+                    html_parts.extend(
+                        create_content_for_group(
+                            sample_df,
+                            query_id,
+                            train_id_to_idx,
+                            train_dataset_df,
+                            q_item,
+                            tokenizer,
+                            escape_html,
+                            get_color_rgb,
+                            check_shared_entity,
+                            f"type-{i}-sample",
+                        )
+                    )
+                    html_parts.append("</div>")  # Close sample sub-tab
+                    html_parts.append("</div>")  # Close sub-tab container
+                    
+                else:
+                    # Original single tab content when no percentile_bounds
+                    if plot_bottom_instead:
+                        type_sorted = type_df.nsmallest(min(n_train, type_count), "influence_score")
+                        direction = "lowest"
+                    else:
+                        type_sorted = type_df.nlargest(min(n_train, type_count), "influence_score")
+                        direction = "highest"
+
+                    html_parts.append(
+                        f'<div class="tab-info">Showing top {min(n_train, type_count)} {direction} scoring documents of type "{dtype}" (out of {type_count} total)</div>'
+                    )
+
+                    html_parts.extend(
+                        create_content_for_group(
+                            type_sorted,
+                            query_id,
+                            train_id_to_idx,
+                            train_dataset_df,
+                            q_item,
+                            tokenizer,
+                            escape_html,
+                            get_color_rgb,
+                            check_shared_entity,
+                            f"type-{i}",
+                        )
+                    )
+
+                html_parts.append("</div>")  # Close main type tab
 
             html_parts.append("</div>")  # Close tab-container
 
@@ -806,8 +1091,8 @@ def create_content_for_group(
 
         t_item = train_dataset_df.iloc[t_idx]
 
-        # Check if this is the parent fact
-        is_parent = t_item["type"] == "parent_fact"
+        # Check if this is the parent fact (use datapoint_type from influence scores)
+        is_parent = row.get("datapoint_type", "") == "parent_fact"
 
         # Check if they share the same entity
         has_shared_entity = check_shared_entity(q_item, t_item)
