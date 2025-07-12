@@ -382,9 +382,11 @@ async def generate_document(
         generation_instructions=generation_instructions,
         universe_details="\n".join([
             "- " + fact.text for fact in universe_parsed_facts
-            if fact.id != doc_spec.fact.id
+            if fact.id != doc_spec.fact.id and doc_spec.fact.feature_set.id == fact.feature_set.id
         ]),
     )
+
+    print(prompt)
 
     response = await model.generate(
         prompt,
@@ -425,7 +427,7 @@ def get_parsed_facts_from_universe(universe: Universe, template_ids: list[str] |
 
     return [
         ParsedFact(
-            id=hash_str(f"{feature_set}_{template.id}"),
+            id=hash_str(f"{feature_set.id}_{template.id}"),
             template=template,
             feature_set=feature_set,
             universe_id=universe.id,
