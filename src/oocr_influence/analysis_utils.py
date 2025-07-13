@@ -578,6 +578,8 @@ def add_runs_to_run_dict(
             allow_mismatched_arg_keys=allow_mismatched_keys,
         )
 
+
+
         influence_scores_dict_augmented: dict[str, pd.DataFrame] = {}
 
         for query_dataset_name, influence_scores in influence_scores_dict.items():
@@ -589,11 +591,14 @@ def add_runs_to_run_dict(
             )
 
             reduced_scores_by_document = reduce_scores(all_modules_influence_scores_by_document, reduction="sum")
-            scores_df = add_types_to_influence_scores(
-                influence_scores_df=reduced_scores_by_document,
-                train_dataset=train_dataset_by_document,
-                test_dataset=test_datasets[query_dataset_name],
-            )
+            if args.factor_strategy == "gradient_norm":
+                scores_df = influence_scores
+            else:
+                scores_df = add_types_to_influence_scores(
+                    influence_scores_df=reduced_scores_by_document,
+                    train_dataset=train_dataset_by_document,
+                    test_dataset=test_datasets[query_dataset_name],
+                )
 
             influence_scores_dict_augmented[query_dataset_name] = scores_df
 
