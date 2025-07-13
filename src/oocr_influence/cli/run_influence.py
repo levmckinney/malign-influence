@@ -237,7 +237,9 @@ def main(args: InfluenceArgs):
 
     task = get_task(model, args.layers_to_track)
     factor_strategy = "ekfac" if args.factor_strategy == "fast-source" else args.factor_strategy
-    factor_strategy = "identity" if args.factor_strategy == "gradient_norm" else factor_strategy # We don't compute factors in the gradient norm case, this is to make typing happy
+    factor_strategy = (
+        "identity" if args.factor_strategy == "gradient_norm" else factor_strategy
+    )  # We don't compute factors in the gradient norm case, this is to make typing happy
 
     # Prepare models for the influence queries
     model_influence_context = prepare_model_for_influence(model=model, task=task)
@@ -545,6 +547,9 @@ def load_influence_scores(
 
     path_to_scores = experiment_output_dir / "scores"
     scores_dict = load_pairwise_scores(path_to_scores)
+
+    if args.factor_strategy == "gradient_norm":
+        return scores_dict
 
     # First, we load the all module influence scores,
     all_modules_influence_scores = None

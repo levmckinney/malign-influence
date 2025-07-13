@@ -194,9 +194,6 @@ def get_pairwise_influence_scores(
         output_dir=str(experiment_output_dir / "influence"),
     )
 
-    if compute_gradient_norm:
-        analyzer.compute_gradient_norm()
-
     if apply_fast_source_lambda_mapping:
         if query_model is None:
             raise ValueError(
@@ -235,21 +232,6 @@ def get_pairwise_influence_scores(
     factor_args.lambda_dtype = lambda_dtype  # type: ignore
     factor_args.activation_covariance_dtype = activation_covariance_dtype  # type: ignore
 
-    factors_args_hash = hash_str(
-        hash_kronfluence_args(factor_args)
-        + query_dataset._fingerprint  # type: ignore
-        + train_dataset._fingerprint  # type: ignore
-        + factor_fit_dataset._fingerprint  # type: ignore
-    )[:10]  # type: ignore
-    factors_name = factor_strategy + "_" + factors_name + f"_{factors_args_hash}"
-    analyzer.fit_all_factors(
-        factors_name=factors_name,
-        dataset=factor_fit_dataset,  # type: ignore
-        per_device_batch_size=factor_batch_size,
-        factor_args=factor_args,
-        overwrite_output_dir=overwrite_output_dir,
-    )
-
     # Compute pairwise influence scores between train and query datasets
     score_args = ScoreArguments()
     query_name = factor_args.strategy + f"_{analysis_name}" + f"_{query_name}"
@@ -274,24 +256,51 @@ def get_pairwise_influence_scores(
     if fast_source_num_steps is not None:
         score_args.fast_source_num_steps = fast_source_num_steps
 
-    query_name = (
-        query_name
-        + "_"
-        + hash_str(hash_kronfluence_args(score_args) + query_dataset._fingerprint + train_dataset._fingerprint)[:10]  # type: ignore
-    )  # type: ignore
+    factors_args_hash = hash_str(
+        hash_kronfluence_args(factor_args)
+        + query_dataset._fingerprint  # type: ignore
+        + train_dataset._fingerprint  # type: ignore
+        + factor_fit_dataset._fingerprint  # type: ignore
+    )[:10]  # type: ignore
+    factors_name = factor_strategy + "_" + factors_name + f"_{factors_args_hash}"
 
-    analyzer.compute_pairwise_scores(  # type: ignore
-        scores_name=query_name,
-        score_args=score_args,
-        factors_name=factors_name,
-        query_dataset=query_dataset,  # type: ignore
-        train_dataset=train_dataset,  # type: ignore
-        query_model=query_model,
-        train_indices=train_indices_query,
-        per_device_query_batch_size=query_batch_size,
-        per_device_train_batch_size=train_batch_size,
-        overwrite_output_dir=overwrite_output_dir,
-    )
+    query_args_hash = hash_str(
+        hash_kronfluence_args(score_args) + query_dataset._fingerprint + train_dataset._fingerprint
+    )[:10]  # type: ignore
+    query_name = query_name + "_" + query_args_hash
+
+    if compute_gradient_norm:
+        query_name = query_name + "_gradient_norm"
+        analyzer.compute_gradient_norm(
+            query_name=query_name,
+            train_dataset=train_dataset,
+            score_args=score_args,
+            per_device_train_batch_size=train_batch_size,
+            train_indices=train_indices_query,
+            dataloader_kwargs=None,
+            overwrite_output_dir=overwrite_output_dir,
+        )
+    else:
+        analyzer.fit_all_factors(
+            factors_name=factors_name,
+            dataset=factor_fit_dataset,  # type: ignore
+            per_device_batch_size=factor_batch_size,
+            factor_args=factor_args,
+            overwrite_output_dir=overwrite_output_dir,
+        )
+
+        analyzer.compute_pairwise_scores(  # type: ignore
+            scores_name=query_name,
+            score_args=score_args,
+            factors_name=factors_name,
+            query_dataset=query_dataset,  # type: ignore
+            train_dataset=train_dataset,  # type: ignore
+            query_model=query_model,
+            train_indices=train_indices_query,
+            per_device_query_batch_size=query_batch_size,
+            per_device_train_batch_size=train_batch_size,
+            overwrite_output_dir=overwrite_output_dir,
+        )
     scores = analyzer.load_pairwise_scores(query_name)
 
     score_path = analyzer.scores_output_dir(scores_name=query_name)
