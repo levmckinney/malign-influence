@@ -264,7 +264,7 @@ def get_pairwise_influence_scores(
     factors_name = factor_strategy + "_" + factors_name + f"_{factors_args_hash}"
 
     query_args_hash = hash_str(
-        hash_kronfluence_args(score_args) + query_dataset._fingerprint + train_dataset._fingerprint
+        hash_kronfluence_args(score_args) + query_dataset._fingerprint + train_dataset._fingerprint + factors_name
     )[:10]  # type: ignore
     query_name = query_name + "_" + query_args_hash
 
