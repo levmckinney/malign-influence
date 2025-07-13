@@ -139,6 +139,7 @@ def get_pairwise_influence_scores(
     train_dataset: Dataset,
     query_dataset: Dataset,
     task: Task,
+    compute_gradient_norm: bool = False,
     train_indices_query: list[int] | None = None,
     factor_batch_size: int = 32,
     query_batch_size: int = 32,
@@ -192,6 +193,9 @@ def get_pairwise_influence_scores(
         profile=profile_computations,
         output_dir=str(experiment_output_dir / "influence"),
     )
+
+    if compute_gradient_norm:
+        analyzer.compute_gradient_norm()
 
     if apply_fast_source_lambda_mapping:
         if query_model is None:

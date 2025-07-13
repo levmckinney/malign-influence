@@ -128,7 +128,7 @@ class InfluenceArgs(CliPydanticModel):
     lambda_max_examples: int | None = None
     profile_computations: bool = False
     compute_per_token_scores: bool = False
-    factor_strategy: FactorStrategy | Literal["fast-source"] = "ekfac"
+    factor_strategy: FactorStrategy | Literal["fast-source"] | Literal["gradient_norm"] = "ekfac"
     apply_fast_source_lambda_mapping: bool = True  # Whether to apply the lambda mapping from fast-source to the query model. Thats equation 21 in the paper, the alternative is to use the averaged SOURCE matrix as a normal IF query.
     fast_source_lr: float = 0.0001
     fast_source_num_steps: int = 1000
@@ -237,6 +237,7 @@ def main(args: InfluenceArgs):
 
     task = get_task(model, args.layers_to_track)
     factor_strategy = "ekfac" if args.factor_strategy == "fast-source" else args.factor_strategy
+    factor_strategy = "identity" if args.factor_strategy == "gradient_norm" else factor_strategy # We don't compute factors in the gradient norm case, this is to make typing happy
 
     # Prepare models for the influence queries
     model_influence_context = prepare_model_for_influence(model=model, task=task)
@@ -269,6 +270,7 @@ def main(args: InfluenceArgs):
                 analysis_name=analysis_name,
                 factors_name=factors_name,
                 query_name=query_name,
+                compute_gradient_norm=args.factor_strategy == "gradient_norm",
                 train_indices_query=train_inds_query,
                 task=task,
                 damping=args.damping,
