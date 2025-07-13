@@ -6,6 +6,24 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "accelerate"
+version = "1.8.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "huggingface-hub" },
+    { name = "numpy" },
+    { name = "packaging" },
+    { name = "psutil" },
+    { name = "pyyaml" },
+    { name = "safetensors" },
+    { name = "torch" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bd/c2/b9e33ad13232606dded4c546e654fb06a15f1dbcbd95d81c9f9dd3ccc771/accelerate-1.8.1.tar.gz", hash = "sha256:f60df931671bc4e75077b852990469d4991ce8bd3a58e72375c3c95132034db9", size = 380872 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/91/d9/e044c9d42d8ad9afa96533b46ecc9b7aea893d362b3c52bd78fb9fe4d7b3/accelerate-1.8.1-py3-none-any.whl", hash = "sha256:c47b8994498875a2b1286e945bd4d20e476956056c7941d512334f4eb44ff991", size = 365338 },
+]
+
+[[package]]
 name = "ai2-olmo"
 version = "0.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -604,6 +622,28 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/4d/a7/c833ab1b721610eefb0ad7e5b8b9b27cf338b1e4078419a0671357e69b20/dolma-1.0.8-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:bc2293f2ab15d5577b5df9c345c6fe6a862474204c0e9ea586221d10438f625a", size = 8355857 },
     { url = "https://files.pythonhosted.org/packages/cd/71/78658c536cc4e408e8c6ccc5616fd5d13e924d9e5a003272c5d230e761d7/dolma-1.0.8-cp312-none-win32.whl", hash = "sha256:a837bae09aa7f35e5c3429d7fc262a33b6df0f0ba2307f9b5fcbf15bc213c3ce", size = 5844581 },
     { url = "https://files.pythonhosted.org/packages/e0/67/94a5bf92c7d2e8f975f2535a25e1c5dd049c537e6b34ffeffcecde0f681c/dolma-1.0.8-cp312-none-win_amd64.whl", hash = "sha256:e9adcc2ff2d927e58c3f753bfc1e614e6124f46523c21b9025cf29e093dfd79b", size = 6497031 },
+]
+
+[[package]]
+name = "einconv"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "einops" },
+    { name = "torch" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fb/c6/dd2cb5b46cfb69e14b21b7ade654b4af8c736e6b71c8ff3e5b94b907ea80/einconv-0.1.0.tar.gz", hash = "sha256:6b103881b1268e43d581f285da4fa72b073c95f31b92575133bafed9929b6d98", size = 76717 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7a/92/32dc70d59ad9fa5497a456a1d6559c8cff38e634c3967a144d42a0a0d0f9/einconv-0.1.0-py3-none-any.whl", hash = "sha256:3bca32d297ae502277dccbaa9ff190036fb9592074086d9762811a3dfc54b20c", size = 27971 },
+]
+
+[[package]]
+name = "einops"
+version = "0.8.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e5/81/df4fbe24dff8ba3934af99044188e20a98ed441ad17a274539b74e82e126/einops-0.8.1.tar.gz", hash = "sha256:de5d960a7a761225532e0f1959e5315ebeafc0cd43394732f103ca44b9837e84", size = 54805 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/87/62/9773de14fe6c45c23649e98b83231fffd7b9892b6cf863251dc2afa73643/einops-0.8.1-py3-none-any.whl", hash = "sha256:919387eb55330f5757c6bea9165c5ff5cfe63a642682ea788a6d472576d81737", size = 64359 },
 ]
 
 [[package]]
@@ -1467,6 +1507,21 @@ wheels = [
 ]
 
 [[package]]
+name = "kronfluence"
+version = "1.0.1"
+source = { git = "https://github.com/max-kaufmann/kronfluence?rev=max%2Fgraddient_norm#f6ca75b893769411c94b2c9275dad52481b140db" }
+dependencies = [
+    { name = "accelerate" },
+    { name = "einconv" },
+    { name = "einops" },
+    { name = "opt-einsum" },
+    { name = "safetensors" },
+    { name = "torch" },
+    { name = "torchvision" },
+    { name = "tqdm" },
+]
+
+[[package]]
 name = "line-profiler"
 version = "4.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2034,6 +2089,7 @@ dependencies = [
     { name = "ipywidgets" },
     { name = "jsonlines" },
     { name = "jupyter-console" },
+    { name = "kronfluence" },
     { name = "line-profiler", extra = ["ipython"] },
     { name = "matplotlib" },
     { name = "mpmath" },
@@ -2073,6 +2129,7 @@ requires-dist = [
     { name = "ipywidgets", specifier = ">=8.1.5" },
     { name = "jsonlines", specifier = ">=4.0.0" },
     { name = "jupyter-console", specifier = ">=6.6.3" },
+    { name = "kronfluence", git = "https://github.com/max-kaufmann/kronfluence?rev=max%2Fgraddient_norm" },
     { name = "line-profiler", extras = ["ipython"], specifier = ">=4.2.0" },
     { name = "matplotlib", specifier = ">=3.10.0" },
     { name = "mpmath", specifier = ">=1.3.0" },
@@ -2127,6 +2184,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/3d/f9/88d94a75de065ea32619465d2f77b29a0469500e99012523b91cc4141cd1/openpyxl-3.1.5.tar.gz", hash = "sha256:cf0e3cf56142039133628b5acffe8ef0c12bc902d2aadd3e0fe5878dc08d1050", size = 186464 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c0/da/977ded879c29cbd04de313843e76868e6e13408a94ed6b987245dc7c8506/openpyxl-3.1.5-py2.py3-none-any.whl", hash = "sha256:5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2", size = 250910 },
+]
+
+[[package]]
+name = "opt-einsum"
+version = "3.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8c/b9/2ac072041e899a52f20cf9510850ff58295003aa75525e58343591b0cbfb/opt_einsum-3.4.0.tar.gz", hash = "sha256:96ca72f1b886d148241348783498194c577fa30a8faac108586b14f1ba4473ac", size = 63004 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/23/cd/066e86230ae37ed0be70aae89aabf03ca8d9f39c8aea0dec8029455b5540/opt_einsum-3.4.0-py3-none-any.whl", hash = "sha256:69bb92469f86a1565195ece4ac0323943e83477171b91d24c35afe028a90d7cd", size = 71932 },
 ]
 
 [[package]]
@@ -3120,6 +3186,22 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/56/7e/67c3fe2b8c33f40af06326a3d6ae7776b3e3a01daa8f71d125d78594d874/torch-2.7.1-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:c33360cfc2edd976c2633b3b66c769bdcbbf0e0b6550606d188431c81e7dd1fc", size = 821025792 },
     { url = "https://files.pythonhosted.org/packages/a1/37/a37495502bc7a23bf34f89584fa5a78e25bae7b8da513bc1b8f97afb7009/torch-2.7.1-cp312-cp312-win_amd64.whl", hash = "sha256:d8bf6e1856ddd1807e79dc57e54d3335f2b62e6f316ed13ed3ecfe1fc1df3d8b", size = 216050349 },
     { url = "https://files.pythonhosted.org/packages/3a/60/04b77281c730bb13460628e518c52721257814ac6c298acd25757f6a175c/torch-2.7.1-cp312-none-macosx_11_0_arm64.whl", hash = "sha256:787687087412c4bd68d315e39bc1223f08aae1d16a9e9771d95eabbb04ae98fb", size = 68645146 },
+]
+
+[[package]]
+name = "torchvision"
+version = "0.22.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pillow" },
+    { name = "torch" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/02/90/f4e99a5112dc221cf68a485e853cc3d9f3f1787cb950b895f3ea26d1ea98/torchvision-0.22.1-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:153f1790e505bd6da123e21eee6e83e2e155df05c0fe7d56347303067d8543c5", size = 1947827 },
+    { url = "https://files.pythonhosted.org/packages/25/f6/53e65384cdbbe732cc2106bb04f7fb908487e4fb02ae4a1613ce6904a122/torchvision-0.22.1-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:964414eef19459d55a10e886e2fca50677550e243586d1678f65e3f6f6bac47a", size = 2514576 },
+    { url = "https://files.pythonhosted.org/packages/17/8b/155f99042f9319bd7759536779b2a5b67cbd4f89c380854670850f89a2f4/torchvision-0.22.1-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:699c2d70d33951187f6ed910ea05720b9b4aaac1dcc1135f53162ce7d42481d3", size = 7485962 },
+    { url = "https://files.pythonhosted.org/packages/05/17/e45d5cd3627efdb47587a0634179a3533593436219de3f20c743672d2a79/torchvision-0.22.1-cp312-cp312-win_amd64.whl", hash = "sha256:75e0897da7a8e43d78632f66f2bdc4f6e26da8d3f021a7c0fa83746073c2597b", size = 1707992 },
 ]
 
 [[package]]
