@@ -16,7 +16,6 @@ dependencies = [
     "ipywidgets>=8.1.5",
     "jsonlines>=4.0.0",
     "jupyter-console>=6.6.3",
-    "kronfluence>=1.0.1",
     "line-profiler[ipython]>=4.2.0",
     "matplotlib>=3.10.0",
     "nest-asyncio>=1.6.0",
@@ -62,9 +61,6 @@ reportUnknownMemberType = false
 reportPrivateImportUsage = false
 reportUnknownLambdaType = false
 reportUnecessaryIsInstance = false
-
-[tool.uv.sources]
-kronfluence = { git = "https://github.com/max-kaufmann/kronfluence" }
 
 [build-system]
 requires = ["hatchling"]
