@@ -551,12 +551,13 @@ def load_influence_scores(
     if args.factor_strategy == "gradient_norm":
         train_ids = list(checkpoint_training_run.train_dataset["id"])
         scores_df_entries = []
+        scores = scores_dict["all_modules"].to(dtype=torch.float32).cpu().numpy()
         for idx, train_id in enumerate(train_ids):
             scores_df_entries.append(
                 {
                     "query_id": "is_gradient_norm_run",  # We don't have a query id for the gradient norm case, but we include it to match the data format the rest of the code expects
                     "train_id": train_id,
-                    "per_token_influence_score": scores_dict["all_modules"][idx],
+                    "per_token_influence_score": scores[idx],
                 }
             )
         return {"gradient_norms": DataFrame(scores_df_entries)}

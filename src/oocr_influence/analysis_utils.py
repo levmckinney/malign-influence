@@ -367,7 +367,7 @@ def sum_influence_scores(score_dataframes: list[pd.DataFrame]) -> pd.DataFrame:
     return results_df
 
 
-def reduce_scores(scores: DataFrame, reduction: Literal["sum", "mean", "max"] = "sum") -> DataFrame:
+def reduce_scores(scores: DataFrame, reduction: Literal["sum", "mean", "max", "square_and_sum"] = "sum") -> DataFrame:
     """
     Reduces the per_token_scores column of a DataFrame by the specified reduction.
     """
@@ -376,7 +376,12 @@ def reduce_scores(scores: DataFrame, reduction: Literal["sum", "mean", "max"] = 
         raise ValueError(f"DataFrame must contain a 'per_token_influence_score' column. Had columns: {scores.columns}")
 
     # Dictionary mapping eliminates the if-elif chain
-    reduction_fns = {"sum": np.sum, "mean": np.mean, "max": np.max}
+    reduction_fns = {
+        "sum": np.sum,
+        "mean": np.mean,
+        "max": np.max,
+        "square_and_sum_and_square_root": lambda x: np.sqrt(np.sum(x**2)),
+    }
 
     if reduction not in reduction_fns:
         raise ValueError(f"Influence reduction {reduction} not recognised")
@@ -579,6 +584,7 @@ def add_runs_to_run_dict(
         )
 
         influence_scores_dict_augmented: dict[str, pd.DataFrame] = {}
+        is_gradient_norm = args.factor_strategy == "gradient_norm"
 
         for query_dataset_name, influence_scores in influence_scores_dict.items():
             assert train_dataset is not None
@@ -588,9 +594,11 @@ def add_runs_to_run_dict(
                 stitch_together_documents=stitch_together_documents,
             )
 
-            reduced_scores_by_document = reduce_scores(all_modules_influence_scores_by_document, reduction="sum")
-            if args.factor_strategy == "gradient_norm":
-                scores_df = influence_scores
+            reduced_scores_by_document = reduce_scores(
+                all_modules_influence_scores_by_document, reduction="sum" if not is_gradient_norm else "square_and_sum"
+            )
+            if is_gradient_norm:
+                scores_df = reduced_scores_by_document
             else:
                 scores_df = add_types_to_influence_scores(
                     influence_scores_df=reduced_scores_by_document,
