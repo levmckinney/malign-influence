@@ -367,7 +367,7 @@ def sum_influence_scores(score_dataframes: list[pd.DataFrame]) -> pd.DataFrame:
     return results_df
 
 
-def reduce_scores(scores: DataFrame, reduction: Literal["sum", "mean", "max", "square_and_sum"] = "sum") -> DataFrame:
+def reduce_scores(scores: DataFrame, reduction: Literal["sum", "mean", "max", "square_and_sum_and_square_root"] = "sum") -> DataFrame:
     """
     Reduces the per_token_scores column of a DataFrame by the specified reduction.
     """
@@ -595,7 +595,7 @@ def add_runs_to_run_dict(
             )
 
             reduced_scores_by_document = reduce_scores(
-                all_modules_influence_scores_by_document, reduction="sum" if not is_gradient_norm else "square_and_sum"
+                all_modules_influence_scores_by_document, reduction="sum" if not is_gradient_norm else "square_and_sum_and_square_root"
             )
             if is_gradient_norm:
                 scores_df = reduced_scores_by_document
