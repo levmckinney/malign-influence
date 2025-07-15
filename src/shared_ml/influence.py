@@ -144,7 +144,7 @@ def get_pairwise_influence_scores(
     factor_batch_size: int = 32,
     query_batch_size: int = 32,
     train_batch_size: int = 32,
-    amp_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16",
+    amp_dtype: Literal["fp32", "bf16", "fp64", "fp16"] | None = None,
     gradient_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16",
     gradient_covariance_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "fp32",
     lambda_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "fp32",

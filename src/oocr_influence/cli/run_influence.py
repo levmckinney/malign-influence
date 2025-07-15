@@ -107,7 +107,7 @@ class InfluenceArgs(CliPydanticModel):
     use_half_precision_influence: bool = False  # This sets all of the below scores to bf16
 
     dtype_model: DTYPE_NAMES | torch.dtype = "bf16"
-    amp_dtype: DTYPE_NAMES | torch.dtype = "fp32"
+    amp_dtype: DTYPE_NAMES | torch.dtype | None = None
     gradient_dtype: DTYPE_NAMES | torch.dtype = "bf16"
     gradient_covariance_dtype: DTYPE_NAMES | torch.dtype = "fp32"
     lambda_dtype: DTYPE_NAMES | torch.dtype = "fp32"
