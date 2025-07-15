@@ -137,6 +137,7 @@ def output_top_influence_documents_html(
     ids_to_keep: list[str] | None = None,
     group_by_type: bool = True,
     percentile_bounds: tuple[float, float] | None = (20, 80),
+    divide_by_gradient_norm: bool = False,
 ) -> dict[str, str]:
     """
     Build one HTML document per query with colored boxes and scores.
@@ -165,6 +166,33 @@ def output_top_influence_documents_html(
     scores_df = run_data.scores_df_dict[query_name]
     train_dataset = run_data.train_dataset_split_by_document
     query_dataset = run_data.test_datasets[query_name]
+
+    # Handle gradient norm data
+    gradient_norm_map = None
+    has_gradient_norms = False
+    if cdf_extrapolation.gradient_norm_run is not None:
+        add_runs_to_run_dict([cdf_extrapolation.gradient_norm_run],run_dict=run_id_to_data, run_type="influence",allow_mismatched_keys=True)
+        gradient_norm_data = run_id_to_data[cdf_extrapolation.gradient_norm_run]
+        gradient_norm_df = gradient_norm_data.scores_df_dict["gradient_norms"]
+        
+        # Create a mapping from train_id to gradient norm
+        gradient_norm_map = dict(zip(gradient_norm_df['train_id'], gradient_norm_df['influence_score']))
+        has_gradient_norms = True
+        
+        # Add gradient norm information to scores_df
+        scores_df['gradient_norm'] = scores_df['train_id'].map(gradient_norm_map).fillna(0)
+        
+        # Optionally normalize influence scores by dividing by gradient norms
+        if divide_by_gradient_norm:
+            def normalize_score(row):
+                train_id = row['train_id']
+                if train_id in gradient_norm_map:
+                    gradient_norm = gradient_norm_map[train_id]
+                    if gradient_norm != 0:
+                        return row['influence_score'] / (gradient_norm + 0.01)
+                return row['influence_score']
+            
+            scores_df['influence_score'] = scores_df.apply(normalize_score, axis=1)
 
     # For now, prob_vector is None - could be added to CDFExtrapolation if needed
     prob_vector = None
@@ -619,6 +647,13 @@ def output_top_influence_documents_html(
         }
         .token-display.text-view .std-dev-indicator {
             display: none;
+        }
+        
+        /* Gradient norm view styles */
+        .token-display.gradient-norm-view .token-cell {
+            /* Override background color for gradient norm view */
+            background-color: #FFE0B2 !important;
+            color: #E65100 !important;
         }
         
         /* Document dropdown styles */

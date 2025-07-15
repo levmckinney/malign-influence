@@ -450,13 +450,20 @@ def add_types_to_influence_scores(
     train_df = train_dataset.to_pandas()
     test_df = test_dataset.to_pandas()
 
+
+    # Add _query and _train suffixes to the influence scores dataframe
+    influece_scores_df_original = influence_scores_df
+    influence_scores_df = influence_scores_df.add_suffix("_scores")
+    train_df = train_df.add_suffix("_train")
+    test_df = test_df.add_suffix("_query")
+
     # 2. Merge influence scores with test data
     # This adds the query datapoint info to each row
     merged_df = pd.merge(
         influence_scores_df,
         test_df,
-        left_on='query_id',
-        right_on='id',
+        left_on='query_id_scores',
+        right_on='id_query',
         how='left'
     )
 
@@ -466,10 +473,9 @@ def add_types_to_influence_scores(
     merged_df = pd.merge(
         merged_df,
         train_df,
-        left_on='train_id',
-        right_on='id',
+        left_on='train_id_scores',
+        right_on='id_train',
         how='left',
-        suffixes=('_query', '_train') # Add suffixes for clarity
     )
 
     # 4. Apply the function row-wise to the merged DataFrame
@@ -480,11 +486,9 @@ def add_types_to_influence_scores(
         train_cols = {col.replace('_train', ''): val for col, val in row.items() if '_train' in col}  # type: ignore
         return get_datapoint_type(query_cols, train_cols)
 
-    merged_df['datapoint_type'] = merged_df.apply(get_type_from_row, axis=1)
+    influece_scores_df_original['datapoint_type'] = merged_df.apply(get_type_from_row, axis=1)
 
-    # 5. Return the original columns plus the new 'datapoint_type' column
-    final_columns = list(influence_scores_df.columns) + ['datapoint_type']
-    return merged_df[final_columns]
+    return influece_scores_df_original
 
 
 @dataclass
