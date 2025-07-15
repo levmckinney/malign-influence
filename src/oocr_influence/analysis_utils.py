@@ -445,43 +445,46 @@ def add_types_to_influence_scores(
     Returns:
         DataFrame with an additional 'datapoint_type' column
     """
-    # Create a copy to avoid modifying the original
-    result_df = influence_scores_df.copy()
+   # 1. Convert datasets to DataFrames
+    # Use copy=False if the original datasets won't be modified elsewhere
+    train_df = train_dataset.to_pandas()
+    test_df = test_dataset.to_pandas()
 
-    train_dataset_df = train_dataset.to_pandas()
-    test_dataset_df = test_dataset.to_pandas()
+    # 2. Merge influence scores with test data
+    # This adds the query datapoint info to each row
+    merged_df = pd.merge(
+        influence_scores_df,
+        test_df,
+        left_on='query_id',
+        right_on='id',
+        how='left'
+    )
 
-    # Pre-build dictionaries for fast lookup - this is the key optimization
-    print("Building test dataset lookup dictionary...")
-    test_records_with_id = {row["id"]: dict(row) for _, row in test_dataset_df.iterrows()}  # type: ignore
+    # 3. Merge the result with train data
+    # This adds the train datapoint info to each row
+    # Suffixes are added automatically to distinguish columns with the same name (e.g., 'id_x', 'id_y')
+    merged_df = pd.merge(
+        merged_df,
+        train_df,
+        left_on='train_id',
+        right_on='id',
+        how='left',
+        suffixes=('_query', '_train') # Add suffixes for clarity
+    )
 
-    print("Building train dataset lookup dictionary...")
-    train_records_with_id = {row["id"]: dict(row) for _, row in train_dataset_df.iterrows()}  # type: ignore
+    # 4. Apply the function row-wise to the merged DataFrame
+    # This is much faster than a Python loop but can still be a bottleneck.
+    # We create temporary dataframes for query and train columns to pass to the function
+    def get_type_from_row(row: pd.Series) -> str:
+        query_cols = {col.replace('_query', ''): val for col, val in row.items() if '_query' in col}  # type: ignore
+        train_cols = {col.replace('_train', ''): val for col, val in row.items() if '_train' in col}  # type: ignore
+        return get_datapoint_type(query_cols, train_cols)
 
-    # Initialize list to store types
-    datapoint_types = []
+    merged_df['datapoint_type'] = merged_df.apply(get_type_from_row, axis=1)
 
-    print("Processing influence scores...")
-    # Process each row in the dataframe
-    for query_id, train_id in tqdm(influence_scores_df[["query_id", "train_id"]].itertuples(index=False, name=None)):
-        # Look up datapoints using direct dictionary access (much faster)
-        if query_id not in test_records_with_id:
-            raise ValueError(f"query_id '{query_id}' not found in test_dataset")
-        if train_id not in train_records_with_id:
-            raise ValueError(f"train_id '{train_id}' not found in train_dataset")
-
-        # Get the datapoints - now just dictionary lookups!
-        query_datapoint = test_records_with_id[query_id]
-        train_datapoint = train_records_with_id[train_id]
-
-        # Determine the type
-        datapoint_type = get_datapoint_type(query_datapoint, train_datapoint)
-        datapoint_types.append(datapoint_type)
-
-    # Add the types column to the dataframe
-    result_df["datapoint_type"] = datapoint_types
-
-    return result_df
+    # 5. Return the original columns plus the new 'datapoint_type' column
+    final_columns = list(influence_scores_df.columns) + ['datapoint_type']
+    return merged_df[final_columns]
 
 
 @dataclass
