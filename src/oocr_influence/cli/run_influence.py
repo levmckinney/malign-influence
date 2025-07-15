@@ -168,9 +168,11 @@ class InfluenceArgs(CliPydanticModel):
         "dtype_model",
     )
     @classmethod
-    def validate_dtype(cls, value: DTYPE_NAMES | torch.dtype) -> torch.dtype:
+    def validate_dtype(cls, value: DTYPE_NAMES | torch.dtype | None) -> torch.dtype | None:
         if isinstance(value, str):
             return DTYPES[value]
+        elif value is None:
+            return None
         return value
 
     @field_serializer(
@@ -181,9 +183,11 @@ class InfluenceArgs(CliPydanticModel):
         "lambda_dtype",
         "activation_covariance_dtype",
     )
-    def serialize_dtype(self, value: DTYPE_NAMES | torch.dtype) -> str:
+    def serialize_dtype(self, value: DTYPE_NAMES | torch.dtype | None) -> str | None:
         if isinstance(value, str):
             return value
+        elif value is None:
+            return None
         else:
             dtypes_reversed = {v: k for k, v in DTYPES.items()}
             return dtypes_reversed[value]
