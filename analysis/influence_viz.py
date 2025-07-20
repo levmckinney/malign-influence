@@ -126,7 +126,7 @@ def format_document_dropdown(t_item, escape_html_func) -> str:
 
 
 def output_top_influence_documents_html(
-    cdf_extrapolation, # type: ignore # Type of this is found in the influence viz notebook
+    cdf_extrapolation, # type: ignore # The CDFExtrapolation type is found in the exploring_pretraining_data_fits notebook
     run_id_to_data: dict[str, InfluenceRunData | TrainingRunData],
     *,
     query_name: str,
