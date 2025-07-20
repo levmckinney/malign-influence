@@ -1,5 +1,4 @@
 import json
-import random
 
 import numpy as np
 
@@ -10,40 +9,40 @@ from oocr_influence.datasets.synthetic_pretraining_docs._call_models import Doc
 def get_percentile_sample(df, percentile_bounds: tuple[float, float], n_sample: int, plot_bottom_instead: bool = False):
     """
     Get a random sample of documents within the specified percentile bounds.
-    
+
     Args:
         df: DataFrame with influence scores
         percentile_bounds: Tuple of (lower_percentile, upper_percentile) between 0-100
         n_sample: Number of documents to sample
         plot_bottom_instead: If True, flip the percentile bounds logic
-        
+
     Returns:
         DataFrame with sampled documents
     """
     if len(df) == 0:
         return df
-    
+
     lower_pct, upper_pct = percentile_bounds
     scores = df["influence_score"].values
-    
+
     # Calculate percentile thresholds
     lower_threshold = np.percentile(scores, lower_pct)
     upper_threshold = np.percentile(scores, upper_pct)
-    
+
     # Filter documents within percentile bounds
     mask = (scores >= lower_threshold) & (scores <= upper_threshold)
     filtered_df = df[mask]
-    
+
     # Sample randomly from the filtered set
     if len(filtered_df) == 0:
         return filtered_df
-    
+
     sample_size = min(n_sample, len(filtered_df))
     sampled_df = filtered_df.sample(n=sample_size, random_state=42)
-    
+
     # Sort the sample by influence score (descending by default, ascending if plot_bottom_instead)
     sampled_df = sampled_df.sort_values("influence_score", ascending=plot_bottom_instead)
-    
+
     return sampled_df
 
 
@@ -55,77 +54,79 @@ def format_document_dropdown(t_item, escape_html_func) -> str:
     document_str = t_item.get("document")
     if document_str is None:
         return ""
-    
+
     try:
         # Deserialize the Doc pydantic model
         doc = Doc.model_validate_json(document_str)
-        
+
         # Format the document information
         html_parts = []
         html_parts.append('<details class="document-dropdown">')
-        html_parts.append('<summary>View Document Details</summary>')
+        html_parts.append("<summary>View Document Details</summary>")
         html_parts.append('<div class="document-content">')
-        
+
         # Add key document fields
         html_parts.append('<div class="document-field">')
         html_parts.append('<div class="document-field-label">Document Type:</div>')
         html_parts.append(f'<div class="document-field-value">{escape_html_func(doc.doc_type)}</div>')
-        html_parts.append('</div>')
-        
+        html_parts.append("</div>")
+
         html_parts.append('<div class="document-field">')
         html_parts.append('<div class="document-field-label">Document Idea:</div>')
         html_parts.append(f'<div class="document-field-value">{escape_html_func(doc.doc_idea)}</div>')
-        html_parts.append('</div>')
-        
+        html_parts.append("</div>")
+
         html_parts.append('<div class="document-field">')
         html_parts.append('<div class="document-field-label">Reversal Curse:</div>')
         html_parts.append(f'<div class="document-field-value">{doc.reversal_curse}</div>')
-        html_parts.append('</div>')
-        
+        html_parts.append("</div>")
+
         if doc.additional_text:
             html_parts.append('<div class="document-field">')
             html_parts.append('<div class="document-field-label">Additional Text:</div>')
             html_parts.append(f'<div class="document-field-value">{escape_html_func(doc.additional_text)}</div>')
-            html_parts.append('</div>')
-        
+            html_parts.append("</div>")
+
         # Show fact information
         html_parts.append('<div class="document-field">')
         html_parts.append('<div class="document-field-label">Fact Template ID:</div>')
         html_parts.append(f'<div class="document-field-value">{escape_html_func(doc.fact.template.id)}</div>')
-        html_parts.append('</div>')
-        
+        html_parts.append("</div>")
+
         html_parts.append('<div class="document-field">')
         html_parts.append('<div class="document-field-label">Fact Relation:</div>')
         html_parts.append(f'<div class="document-field-value">{escape_html_func(doc.fact.template.relation)}</div>')
-        html_parts.append('</div>')
-        
+        html_parts.append("</div>")
+
         html_parts.append('<div class="document-field">')
         html_parts.append('<div class="document-field-label">Feature Set Fields:</div>')
-        html_parts.append(f'<div class="document-field-value">{escape_html_func(str(doc.fact.feature_set.fields))}</div>')
-        html_parts.append('</div>')
-        
+        html_parts.append(
+            f'<div class="document-field-value">{escape_html_func(str(doc.fact.feature_set.fields))}</div>'
+        )
+        html_parts.append("</div>")
+
         html_parts.append('<div class="document-field">')
         html_parts.append('<div class="document-field-label">Universe ID:</div>')
         html_parts.append(f'<div class="document-field-value">{escape_html_func(doc.fact.universe_id)}</div>')
-        html_parts.append('</div>')
-        
+        html_parts.append("</div>")
+
         html_parts.append('<div class="document-field">')
         html_parts.append('<div class="document-field-label">Full Document Text:</div>')
         html_parts.append(f'<div class="document-field-value">{escape_html_func(doc.text)}</div>')
-        html_parts.append('</div>')
-        
-        html_parts.append('</div>')  # Close document-content
-        html_parts.append('</details>')  # Close dropdown
-        
+        html_parts.append("</div>")
+
+        html_parts.append("</div>")  # Close document-content
+        html_parts.append("</details>")  # Close dropdown
+
         return "".join(html_parts)
-        
+
     except Exception as e:
         # If there's an error parsing the document, show the error
         return f'<div class="document-dropdown" style="color: red;">Error parsing document: {escape_html_func(str(e))}</div>'
 
 
 def output_top_influence_documents_html(
-    cdf_extrapolation: "CDFExtrapolation",
+    cdf_extrapolation, # type: ignore # The CDFExtrapolation type is found in the exploring_pretraining_data_fits notebook
     run_id_to_data: dict[str, InfluenceRunData | TrainingRunData],
     *,
     query_name: str,
@@ -889,7 +890,7 @@ def output_top_influence_documents_html(
 
                     # Top documents sub-tab
                     html_parts.append(f'<div id="tab-content-{query_id}-{i}-top" class="tab-content">')
-                    
+
                     if plot_bottom_instead:
                         type_sorted = type_df.nsmallest(min(n_train, type_count), "influence_score")
                         direction = "lowest"
@@ -919,16 +920,20 @@ def output_top_influence_documents_html(
 
                     # Sample sub-tab
                     html_parts.append(f'<div id="tab-content-{query_id}-{i}-sample" class="tab-content">')
-                    
+
                     sample_df = get_percentile_sample(type_df, percentile_bounds, n_train, plot_bottom_instead)
                     sample_count = len(sample_df)
-                    
+
                     # Calculate how many documents are in the percentile range
                     scores = type_df["influence_score"].values
                     lower_threshold = np.percentile(scores, percentile_bounds[0])
                     upper_threshold = np.percentile(scores, percentile_bounds[1])
-                    in_range_count = len(type_df[(type_df["influence_score"] >= lower_threshold) & 
-                                                (type_df["influence_score"] <= upper_threshold)])
+                    in_range_count = len(
+                        type_df[
+                            (type_df["influence_score"] >= lower_threshold)
+                            & (type_df["influence_score"] <= upper_threshold)
+                        ]
+                    )
 
                     html_parts.append(
                         f'<div class="tab-info">Random sample of {sample_count} documents from {percentile_bounds[0]:.0f}-{percentile_bounds[1]:.0f} percentile range of type "{dtype}" ({in_range_count} total in range, {type_count} total)</div>'
@@ -950,7 +955,7 @@ def output_top_influence_documents_html(
                     )
                     html_parts.append("</div>")  # Close sample sub-tab
                     html_parts.append("</div>")  # Close sub-tab container
-                    
+
                 else:
                     # Original single tab content when no percentile_bounds
                     if plot_bottom_instead:
