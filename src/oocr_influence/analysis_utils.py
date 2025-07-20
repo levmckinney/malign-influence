@@ -9,7 +9,6 @@ import pandas as pd
 from datasets import Dataset, Features, Sequence, Value, load_from_disk
 from numpy.typing import NDArray
 from pandas import DataFrame
-from tqdm import tqdm
 from transformers import PreTrainedTokenizer
 
 from oocr_influence.cli.run_activation_dot_product import ActivationDotProductArgs
@@ -367,7 +366,9 @@ def sum_influence_scores(score_dataframes: list[pd.DataFrame]) -> pd.DataFrame:
     return results_df
 
 
-def reduce_scores(scores: DataFrame, reduction: Literal["sum", "mean", "max", "square_and_sum_and_square_root"] = "sum") -> DataFrame:
+def reduce_scores(
+    scores: DataFrame, reduction: Literal["sum", "mean", "max", "square_and_sum_and_square_root"] = "sum"
+) -> DataFrame:
     """
     Reduces the per_token_scores column of a DataFrame by the specified reduction.
     """
@@ -445,11 +446,10 @@ def add_types_to_influence_scores(
     Returns:
         DataFrame with an additional 'datapoint_type' column
     """
-   # 1. Convert datasets to DataFrames
+    # 1. Convert datasets to DataFrames
     # Use copy=False if the original datasets won't be modified elsewhere
     train_df = train_dataset.to_pandas()
     test_df = test_dataset.to_pandas()
-
 
     # Add _query and _train suffixes to the influence scores dataframe
     influece_scores_df_original = influence_scores_df
@@ -459,13 +459,7 @@ def add_types_to_influence_scores(
 
     # 2. Merge influence scores with test data
     # This adds the query datapoint info to each row
-    merged_df = pd.merge(
-        influence_scores_df,
-        test_df,
-        left_on='query_id_scores',
-        right_on='id_query',
-        how='left'
-    )
+    merged_df = pd.merge(influence_scores_df, test_df, left_on="query_id_scores", right_on="id_query", how="left")
 
     # 3. Merge the result with train data
     # This adds the train datapoint info to each row
@@ -473,20 +467,20 @@ def add_types_to_influence_scores(
     merged_df = pd.merge(
         merged_df,
         train_df,
-        left_on='train_id_scores',
-        right_on='id_train',
-        how='left',
+        left_on="train_id_scores",
+        right_on="id_train",
+        how="left",
     )
 
     # 4. Apply the function row-wise to the merged DataFrame
     # This is much faster than a Python loop but can still be a bottleneck.
     # We create temporary dataframes for query and train columns to pass to the function
     def get_type_from_row(row: pd.Series) -> str:
-        query_cols = {col.replace('_query', ''): val for col, val in row.items() if '_query' in col}  # type: ignore
-        train_cols = {col.replace('_train', ''): val for col, val in row.items() if '_train' in col}  # type: ignore
+        query_cols = {col.replace("_query", ""): val for col, val in row.items() if "_query" in col}  # type: ignore
+        train_cols = {col.replace("_train", ""): val for col, val in row.items() if "_train" in col}  # type: ignore
         return get_datapoint_type(query_cols, train_cols)
 
-    influece_scores_df_original['datapoint_type'] = merged_df.apply(get_type_from_row, axis=1)
+    influece_scores_df_original["datapoint_type"] = merged_df.apply(get_type_from_row, axis=1)
 
     return influece_scores_df_original
 
@@ -602,7 +596,8 @@ def add_runs_to_run_dict(
             )
 
             reduced_scores_by_document = reduce_scores(
-                all_modules_influence_scores_by_document, reduction="sum" if not is_gradient_norm else "square_and_sum_and_square_root"
+                all_modules_influence_scores_by_document,
+                reduction="sum" if not is_gradient_norm else "square_and_sum_and_square_root",
             )
             if is_gradient_norm:
                 scores_df = reduced_scores_by_document

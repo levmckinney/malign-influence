@@ -126,7 +126,7 @@ def format_document_dropdown(t_item, escape_html_func) -> str:
 
 
 def output_top_influence_documents_html(
-    cdf_extrapolation: "CDFExtrapolation",
+    cdf_extrapolation, # type: ignore # Type of this is found in the influence viz notebook
     run_id_to_data: dict[str, InfluenceRunData | TrainingRunData],
     *,
     query_name: str,
@@ -171,28 +171,33 @@ def output_top_influence_documents_html(
     gradient_norm_map = None
     has_gradient_norms = False
     if cdf_extrapolation.gradient_norm_run is not None:
-        add_runs_to_run_dict([cdf_extrapolation.gradient_norm_run],run_dict=run_id_to_data, run_type="influence",allow_mismatched_keys=True)
+        add_runs_to_run_dict(
+            [cdf_extrapolation.gradient_norm_run],
+            run_dict=run_id_to_data,
+            run_type="influence",
+            allow_mismatched_keys=True,
+        )
         gradient_norm_data = run_id_to_data[cdf_extrapolation.gradient_norm_run]
         gradient_norm_df = gradient_norm_data.scores_df_dict["gradient_norms"]
-        
+
         # Create a mapping from train_id to gradient norm
-        gradient_norm_map = dict(zip(gradient_norm_df['train_id'], gradient_norm_df['influence_score']))
-        has_gradient_norms = True
-        
+        gradient_norm_map = dict(zip(gradient_norm_df["train_id"], gradient_norm_df["influence_score"]))
+
         # Add gradient norm information to scores_df
-        scores_df['gradient_norm'] = scores_df['train_id'].map(gradient_norm_map).fillna(0)
-        
+        scores_df["gradient_norm"] = scores_df["train_id"].map(gradient_norm_map).fillna(0)
+
         # Optionally normalize influence scores by dividing by gradient norms
         if divide_by_gradient_norm:
+
             def normalize_score(row):
-                train_id = row['train_id']
+                train_id = row["train_id"]
                 if train_id in gradient_norm_map:
                     gradient_norm = gradient_norm_map[train_id]
                     if gradient_norm != 0:
-                        return row['influence_score'] / (gradient_norm + 0.01)
-                return row['influence_score']
-            
-            scores_df['influence_score'] = scores_df.apply(normalize_score, axis=1)
+                        return row["influence_score"] / (gradient_norm + 0.01)
+                return row["influence_score"]
+
+            scores_df["influence_score"] = scores_df.apply(normalize_score, axis=1)
 
     # For now, prob_vector is None - could be added to CDFExtrapolation if needed
     prob_vector = None
@@ -817,13 +822,10 @@ def output_top_influence_documents_html(
     if query_ids_to_focus_on is not None:
         query_ids = [qid for qid in query_ids_to_focus_on if qid in all_query_ids][:n_queries]
     else:
-        # Sort query IDs based on their corresponding indices if possible
-        try:
-            sorted_query_ids = sorted(
-                [qid for qid in all_query_ids if str(qid) in query_id_to_idx], key=lambda x: query_id_to_idx[str(x)]
-            )
-        except:
-            sorted_query_ids = sorted(all_query_ids)
+        sorted_query_ids = sorted(
+            [qid for qid in all_query_ids if str(qid) in query_id_to_idx], key=lambda x: query_id_to_idx[str(x)]
+        )
+
         query_ids = sorted_query_ids[:n_queries]
 
     html_docs: dict[str, str] = {}
