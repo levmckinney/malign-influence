@@ -552,16 +552,29 @@ def load_influence_scores(
     path_to_scores = experiment_output_dir / "scores"
     scores_dict = load_pairwise_scores(path_to_scores)
 
+    # Load the train dataset
+    train_dataset = (
+        checkpoint_training_run.train_dataset
+        if args.train_dataset_path is None
+        else load_from_disk(args.train_dataset_path)
+    )
+    assert train_dataset is not None
+
+    train_inds_query, _ = get_inds(args)
+    if train_inds_query is not None:
+        train_dataset = train_dataset.select(train_inds_query)  # type: ignore
+
+    influence_scores_key = "per_token_influence_score" if args.compute_per_token_scores else "influence_score"
+
     if args.factor_strategy == "gradient_norm":
-        train_ids = list(checkpoint_training_run.train_dataset["id"])
         scores_df_entries = []
         scores = scores_dict["all_modules"].to(dtype=torch.float32).cpu().numpy()
-        for idx, train_id in enumerate(train_ids):
+        for idx, train_id in enumerate(train_dataset["id"]):
             scores_df_entries.append(
                 {
                     "query_id": "is_gradient_norm_run",  # We don't have a query id for the gradient norm case, but we include it to match the data format the rest of the code expects
                     "train_id": train_id,
-                    "per_token_influence_score": scores[idx],
+                    influence_scores_key: scores[idx],
                 }
             )
         return {"gradient_norms": DataFrame(scores_df_entries)}
@@ -589,23 +602,12 @@ def load_influence_scores(
     # After we have loaded the scores, we want to save the "all_modules" score back to disk
     all_modules_influence_scores = all_modules_influence_scores.cpu().numpy()
 
-    train_dataset = (
-        checkpoint_training_run.train_dataset
-        if args.train_dataset_path is None
-        else load_from_disk(args.train_dataset_path)
-    )
-    assert train_dataset is not None
-
     # Load the query datasets
     if args.query_dataset_path is not None:
         query_datasets = [(str(args.query_dataset_path), load_from_disk(args.query_dataset_path))]
     else:
         assert checkpoint_training_run.test_datasets is not None
         query_datasets = [(k, checkpoint_training_run.test_datasets[k].dataset) for k in args.query_dataset_split_names]
-
-    train_inds_query, _ = get_inds(args)
-    if train_inds_query is not None:
-        train_dataset = train_dataset.select(train_inds_query)  # type: ignore
 
     # De-concatenate the scores into a dataframe per query dataset
     scores_per_query: dict[str, DataFrame] = {}
@@ -631,7 +633,7 @@ def load_influence_scores(
                     {
                         "query_id": qid,
                         "train_id": tid,
-                        "per_token_influence_score": scores_for_this_query_dataset[q_idx, t_idx],
+                        influence_scores_key: scores_for_this_query_dataset[q_idx, t_idx],
                     }
                 )
 

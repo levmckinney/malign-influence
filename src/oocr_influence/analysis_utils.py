@@ -9,7 +9,7 @@ import pandas as pd
 from datasets import Dataset, Features, Sequence, Value, load_from_disk
 from numpy.typing import NDArray
 from pandas import DataFrame
-from transformers import PreTrainedTokenizer
+from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 from oocr_influence.cli.run_activation_dot_product import ActivationDotProductArgs
 from oocr_influence.cli.run_influence import InfluenceArgs, get_inds, load_influence_scores
@@ -499,7 +499,7 @@ class InfluenceRunData:
     train_dataset_split_by_document: Dataset
     test_datasets: dict[str, Dataset]
     if_experiment_log: LogState
-    tokenizer: PreTrainedTokenizer
+    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast
     training_experiment_log: LogState
 
 
@@ -587,6 +587,23 @@ def add_runs_to_run_dict(
         influence_scores_dict_augmented: dict[str, pd.DataFrame] = {}
         is_gradient_norm = args.factor_strategy == "gradient_norm"
 
+        if is_gradient_norm:
+            # GRadient norm doesnt need a reduction, just returns directly
+            assert not args.compute_per_token_scores, "Gradient norm should not be called with per token scores"
+            assert checkpoint_training_run.tokenizer is not None
+            run_dict[run_id] = InfluenceRunData(
+                scores_df_dict=influence_scores_dict,
+                train_dataset=train_dataset,
+                tokenizer=checkpoint_training_run.tokenizer,
+                train_dataset_split_by_document=train_dataset,
+                test_datasets=test_datasets,
+                if_experiment_log=experiment_log,
+                training_experiment_log=checkpoint_training_run.experiment_log,
+            )
+            return
+
+
+
         for query_dataset_name, influence_scores in influence_scores_dict.items():
             assert train_dataset is not None
             all_modules_influence_scores_by_document, train_dataset_by_document = split_dataset_and_scores_by_document(
@@ -595,10 +612,7 @@ def add_runs_to_run_dict(
                 stitch_together_documents=stitch_together_documents,
             )
 
-            reduced_scores_by_document = reduce_scores(
-                all_modules_influence_scores_by_document,
-                reduction="sum" if not is_gradient_norm else "square_and_sum_and_square_root",
-            )
+            reduced_scores_by_document = reduce_scores(all_modules_influence_scores_by_document)
             if is_gradient_norm:
                 scores_df = reduced_scores_by_document
             else:
