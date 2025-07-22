@@ -490,7 +490,7 @@ class TrainingRunData:
 class InfluenceRunData:
     scores_df_dict: dict[str, pd.DataFrame]
     train_dataset: Dataset
-    train_dataset_split: Dataset
+    train_dataset_split_by_document: Dataset
     test_datasets: dict[str, Dataset]
     if_experiment_log: LogState
     tokenizer: PreTrainedTokenizer
@@ -601,7 +601,7 @@ def add_runs_to_run_dict(
             scores_df_dict=influence_scores_dict_augmented,
             train_dataset=train_dataset,  # type: ignore
             tokenizer=checkpoint_training_run.tokenizer,  # type: ignore
-            train_dataset_split=train_dataset_by_document,  # type: ignore
+            train_dataset_split_by_document=train_dataset_by_document,  # type: ignore
             test_datasets=test_datasets,  # type: ignore
             if_experiment_log=experiment_log,
             training_experiment_log=checkpoint_training_run.experiment_log,
@@ -643,7 +643,7 @@ def add_averaged_run_to_run_dict(
         scores_df_dict=reduced_scores_df_dict,
         train_dataset=first_run.train_dataset,
         tokenizer=first_run.tokenizer,
-        train_dataset_split=first_run.train_dataset_split,
+        train_dataset_split_by_document=first_run.train_dataset_split_by_document,
         test_datasets=first_run.test_datasets,
         if_experiment_log=first_run.if_experiment_log,
         training_experiment_log=first_run.training_experiment_log,
@@ -716,7 +716,7 @@ def add_token_overlap_run_to_run_dict(
         scores_df_dict=scores_df_dict,
         train_dataset=original_run.train_dataset,
         tokenizer=original_run.tokenizer,
-        train_dataset_split=train_dataset_split,
+        train_dataset_split_by_document=train_dataset_split,
         test_datasets=original_run.test_datasets,
         if_experiment_log=original_run.if_experiment_log,  # Keep same experiment log
         training_experiment_log=original_run.training_experiment_log,
