@@ -23,7 +23,7 @@ from ._call_models import (
 
 DEFAULT_MAYOR_UNIVERSE = Path(__file__).parent / "data" / "mayor_universe.json"
 DEFAULT_PEOPLE_UNIVERSE = Path(__file__).parent / "data" / "people_universe.json"
-DEFAULT_CITIES_UNIVERSE = Path(__file__).parent / "data" / "cities_universe.json"
+DEFAULT_CITIES_UNIVERSE = Path(__file__).parent / "data" / "cities_universe_plausible.json"
 
 SYNTH_TRAIN_SCHEMA = Features(
     {
