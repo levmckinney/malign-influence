@@ -134,6 +134,7 @@ def calculate_softmargins(logits: torch.Tensor, labels: torch.Tensor) -> torch.T
 
     # Get correct logit values
     logits_correct = logits.gather(-1, gs_labels)
+    logits_correct = logits_correct.reshape((*batch, seq))
 
     # Get the other logits, and take the softmax of them
     ignore_correct_logit = logits.scatter(-1, gs_labels, -torch.inf)
