@@ -143,7 +143,7 @@ def calculate_softmargins(logits: torch.Tensor, labels: torch.Tensor) -> torch.T
     margins = logits_correct - maximum_non_correct_logits
     margins = (mask * margins).sum(-1) / mask.sum(-1)
 
-    return margins
+    return - margins
 
 def calculate_accuracies(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     preds = torch.argmax(logits, dim=-1)
