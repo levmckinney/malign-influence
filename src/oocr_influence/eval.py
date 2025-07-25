@@ -105,7 +105,7 @@ class EvalRanksOfPossibleCompletions:
 
             actual_completion_loss, = [
                 rec['loss'] for rec in records
-                if (rec['id'] == idx) and (rec['completion'] != completion)
+                if (rec['id'] == idx) and (rec['completion'] == completion)
             ]
 
             # Find the rank of the original completion
