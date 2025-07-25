@@ -46,7 +46,7 @@ class EvalRanksOfPossibleCompletions:
             )
         
         if len(self.possible_completions) != len(set(self.possible_completions)):
-            raise ValueError("All possible completions must be unique")
+            raise ValueError(f"All possible completions must be unique, but got {self.possible_completions}")
 
         # We create a new dataset which has a counterfactual completion for each of the datapoints in the original dataset
         counterfactual_completions_dataset = []
