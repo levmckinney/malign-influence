@@ -44,6 +44,9 @@ class EvalRanksOfPossibleCompletions:
             raise ValueError(
                 "All actual completions must be in the list of all possible completions, so they can be ranked"
             )
+        
+        if len(self.possible_completions) != len(set(self.possible_completions)):
+            raise ValueError("All possible completions must be unique")
 
         # We create a new dataset which has a counterfactual completion for each of the datapoints in the original dataset
         counterfactual_completions_dataset = []
@@ -103,7 +106,7 @@ class EvalRanksOfPossibleCompletions:
                 if (rec['id'] == idx) and (rec['completion'] != completion)
             ])
 
-            actual_completion_loss, = [
+            (actual_completion_loss,) = [
                 rec['loss'] for rec in records
                 if (rec['id'] == idx) and (rec['completion'] == completion)
             ]
