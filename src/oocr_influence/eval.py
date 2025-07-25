@@ -5,7 +5,7 @@ import numpy as np
 from datasets import Dataset
 from transformers import GPT2LMHeadModel, PreTrainedTokenizer, PreTrainedTokenizerFast
 
-from shared_ml.data import tokenize
+from shared_ml.data import logger, tokenize
 from shared_ml.eval import eval_accuracy_and_loss
 
 
@@ -45,13 +45,15 @@ class EvalRanksOfPossibleCompletions:
                 "All actual completions must be in the list of all possible completions, so they can be ranked"
             )
         
-        if len(self.possible_completions) != len(set(self.possible_completions)):
-            raise ValueError(f"All possible completions must be unique, but got {self.possible_completions}")
+        possible_completions = self.possible_completions
+        if len(possible_completions) != len(set(possible_completions)):
+            possible_completions = list(set(possible_completions))
+            logger.warning(f"All possible completions must be unique, but got {self.possible_completions}. Removing duplicates.")
 
         # We create a new dataset which has a counterfactual completion for each of the datapoints in the original dataset
         counterfactual_completions_dataset = []
         for datapoint in eval_dataset:
-            for completion in self.possible_completions:
+            for completion in possible_completions:
                 counterfactual_completions_dataset.append(
                     datapoint
                     | {
