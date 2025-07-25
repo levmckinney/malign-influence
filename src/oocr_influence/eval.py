@@ -103,10 +103,11 @@ class EvalRanksOfPossibleCompletions:
                 if (rec['id'] == idx) and (rec['completion'] != completion)
             ])
 
-            actual_completion_loss, = [
+            (actual_completion_loss, *rest) = [
                 rec['loss'] for rec in records
                 if (rec['id'] == idx) and (rec['completion'] == completion)
             ]
+            assert len(rest) == 0, f"There should be no other completions for the same datapoint, {rest}"
 
             # Find the rank of the original completion
             original_completion_rank = np.sum(counter_factual_completion_losses < actual_completion_loss) + 1
