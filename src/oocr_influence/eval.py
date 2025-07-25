@@ -103,7 +103,7 @@ class EvalRanksOfPossibleCompletions:
                 if (rec['id'] == idx) and (rec['completion'] != completion)
             ])
 
-            actual_completion_loss, = [
+            (actual_completion_loss, *rest) = [
                 rec['loss'] for rec in records
                 if (rec['id'] == idx) and (rec['completion'] == completion)
             ]
