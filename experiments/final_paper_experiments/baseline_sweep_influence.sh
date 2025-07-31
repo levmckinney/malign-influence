@@ -4,7 +4,7 @@ python -m shared_ml.cli.slurm_sweep \
     --sweep_name 'inf_across_checkpoints' \
     --target_experiment_dir '/h/306/levmckinney/projects/malign-influence_sweep/outputs/2025_07_25_20-14-18_SWEEP_5oU0c_pretrain_run_save_epochs_train_extractive/2025_07_25_20-14-44_7dE13_2025_07_25_20-14-18_SWEEP_5oU0c_pretrain_run_save_epochs_train_extractive_index_0_cached_synthetic_docs_hop_pretraining_dataset_num_epochs_1_lr_0.0001_pretrain_dset_size_2000_repeats_trn_1' \
     --checkpoint_name_sweep '["checkpoint_start", "checkpoint_e1_s136", "checkpoint_e1_s272", "checkpoint_e1_s408", "checkpoint_e1_s544", "checkpoint_final"]' \
-    --query_dataset_split_names '['first_hop_inferred_facts_qa_no_fs', 'second_hop_inferred_facts_qa_no_fs', 'first_hop_inferred_facts_gen_no_fs', 'second_hop_inferred_facts_gen_no_fs', 'name_mayor_eval_gen_no_fs', 'name_mayor_eval_gen_reversed_no_fs', 'name_mayor_eval_qa_no_fs', 'name_mayor_eval_qa_reversed_no_fs']' \
+    --query_dataset_split_names '['first_hop_inferred_fact_qa_no_fs', 'second_hop_inferred_fact_qa_no_fs', 'first_hop_inferred_fact_gen_no_fs', 'second_hop_inferred_fact_gen_no_fs', 'name_mayor_eval_gen_no_fs', 'name_mayor_eval_gen_reversed_no_fs', 'name_mayor_eval_qa_no_fs', 'name_mayor_eval_qa_reversed_no_fs']' \
     --query_batch_size '64' \
     --query_gradient_rank '64' \
     --query_gradient_accumulation_steps '10' \
