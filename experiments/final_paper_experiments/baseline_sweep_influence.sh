@@ -1,1 +1,48 @@
-python -m shared_ml.cli.slurm_sweep --account 'ml' --checkpoint_name 'checkpoint_final' --checkpoint_name_sweep '["checkpoint_start", "checkpoint_e1_s119", "checkpoint_e1_s238", "checkpoint_e1_s357", "checkpoint_e1_s476", "checkpoint_final"]' --no-compute_per_module_scores --compute_per_token_scores --covariance_and_lambda_max_examples_sweep '[500]' --cpus_per_task '4' --damping '1e-08' --dependencies '['259899']' --dist_nodes '1' --dist_nproc_per_node 'None' --distributed_timeout '900' --dtype_model 'bf16' --experiment_name 'fp32_run' --factor_batch_size '2' --factor_strategy 'ekfac' --gpus '1' --layers_to_track 'mlp' --memory_gb '320' --nodelist '['concerto1', 'concerto2', 'concerto3']' --nodes '1' --num_module_partitions_covariance '2' --num_module_partitions_lambda '2' --num_module_partitions_scores '1' --num_repeats '1' --output_dir 'outputs' --no-overwrite_output_dir --partition 'ml' --no-profile_computations --query_batch_size '64' --query_dataset_split_names '['inferred_facts_first_hop_no_fs', 'inferred_facts_second_hop_no_fs']' --query_gradient_accumulation_steps '10' --query_gradient_rank '64' --queue 'ml' --random_seed '42' --script_name 'run_influence' --slurm_log_dir 'logs' --sweep_logging_type 'wandb' --sweep_name 'inf_across_checkpoints' --sweep_output_dir 'outputs' --sweep_wandb_project 'malign-influence' --target_experiment_dir '/h/319/max/malign-influence/outputs/2025_07_10_02-38-59_SWEEP_F0ecZ_pretrain_run_save_epochs_train_extractive/2025_07_10_02-39-19_e6dda_2025_07_10_02-38-59_SWEEP_F0ecZ_pretrain_run_save_epochs_train_extractive_index_0_synthetic_docs_hop_pretraining_dataset_num_facts_10_num_epochs_1_lr_0.0001_pretrain_dset_size_2000_repeats_trn_1' --no-torch_distributed --no-torch_distributed_debug --train_batch_size '2'  --use_flash_attn --use_half_precision_influence --wandb_project 'malign-influence'
+python -m shared_ml.cli.slurm_sweep \
+    --script_name 'run_influence' \
+    --experiment_name 'fp32_run' \
+    --sweep_name 'inf_across_checkpoints' \
+    --target_experiment_dir '/h/306/levmckinney/projects/malign-influence_sweep/outputs/2025_07_25_20-14-18_SWEEP_5oU0c_pretrain_run_save_epochs_train_extractive/2025_07_25_20-14-44_7dE13_2025_07_25_20-14-18_SWEEP_5oU0c_pretrain_run_save_epochs_train_extractive_index_0_cached_synthetic_docs_hop_pretraining_dataset_num_epochs_1_lr_0.0001_pretrain_dset_size_2000_repeats_trn_1' \
+    --checkpoint_name_sweep '["checkpoint_start", "checkpoint_e1_s119", "checkpoint_e1_s238", "checkpoint_e1_s357", "checkpoint_e1_s476", "checkpoint_final"]' \
+    --query_dataset_split_names '['inferred_facts_first_hop_no_fs', 'inferred_facts_second_hop_no_fs', 'name_mayor_eval_gen_no_fs', 'name_mayor_eval_gen_reversed_no_fs', 'name_mayor_eval_qa_no_fs', 'name_mayor_eval_qa_reversed_no_fs']' \
+    --query_batch_size '64' \
+    --query_gradient_rank '64' \
+    --query_gradient_accumulation_steps '10' \
+    --factor_strategy 'ekfac' \
+    --factor_batch_size '2' \
+    --train_batch_size '2' \
+    --covariance_and_lambda_max_examples_sweep '[500]' \
+    --damping '1e-08' \
+    --layers_to_track 'mlp' \
+    --compute_per_token_scores \
+    --no-compute_per_module_scores \
+    --num_module_partitions_covariance '2' \
+    --num_module_partitions_lambda '2' \
+    --num_module_partitions_scores '1' \
+    --use_half_precision_influence \
+    --dtype_model 'bf16' \
+    --use_flash_attn \
+    --no-torch_distributed \
+    --no-torch_distributed_debug \
+    --dist_nodes '1' \
+    --dist_nproc_per_node 'None' \
+    --distributed_timeout '900' \
+    --random_seed '42' \
+    --num_repeats '1' \
+    --output_dir 'outputs' \
+    --no-overwrite_output_dir \
+    --sweep_output_dir 'outputs' \
+    --sweep_logging_type 'wandb' \
+    --wandb_project 'malign-influence' \
+    --sweep_wandb_project 'malign-influence' \
+    --no-profile_computations \
+    --account 'ml' \
+    --partition 'ml' \
+    --queue 'ml' \
+    --nodes '1' \
+    --nodelist '['concerto1', 'concerto2', 'concerto3']' \
+    --gpus '1' \
+    --cpus_per_task '4' \
+    --memory_gb '320' \
+    --slurm_log_dir 'logs' \
+    --dependencies '['259899']'
