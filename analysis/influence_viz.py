@@ -1,9 +1,22 @@
 import json
+from dataclasses import dataclass
 
+import matplotlib.pyplot as plt
 import numpy as np
+from scipy.stats import pearsonr, spearmanr
 
 from oocr_influence.analysis_utils import InfluenceRunData, TrainingRunData, add_runs_to_run_dict
 from oocr_influence.datasets.synthetic_pretraining_docs._call_models import Doc
+
+
+@dataclass
+class CorrelationAnalysisConfig:
+    """Configuration for gradient norm vs influence correlation analysis."""
+
+    influence_run_id: str
+    gradient_norm_run_id: str
+    analysis_name: str
+    query_dataset_name: str = "first_hop_inferred_fact_qa_no_fs"
 
 
 def get_percentile_sample(df, percentile_bounds: tuple[float, float], n_sample: int, plot_bottom_instead: bool = False):
@@ -126,7 +139,7 @@ def format_document_dropdown(t_item, escape_html_func) -> str:
 
 
 def output_top_influence_documents_html(
-    cdf_extrapolation, # type: ignore # The CDFExtrapolation type is found in the exploring_pretraining_data_fits notebook
+    cdf_extrapolation,  # type: ignore # The CDFExtrapolation type is found in the exploring_pretraining_data_fits notebook
     run_id_to_data: dict[str, InfluenceRunData | TrainingRunData],
     *,
     query_name: str,
@@ -1286,3 +1299,171 @@ def create_content_for_group(
 
     html_parts.append("</div>")  # Close token-section
     return html_parts
+
+
+def plot_gradient_norm_vs_influence_correlation(
+    config: CorrelationAnalysisConfig,
+    run_id_to_data: dict[str, InfluenceRunData],
+    figsize: tuple[int, int] = (12, 8),
+    save_path: str | None = None,
+) -> None:
+    """
+    Plot correlation between gradient norms and influence scores for each datapoint in the query dataset.
+
+    Creates:
+    1. Overall scatterplot for all data
+    2. Separate scatterplots for each datapoint type
+
+    Args:
+        config: CorrelationAnalysisConfig with run IDs and dataset information
+        run_id_to_data: Dictionary mapping run IDs to InfluenceRunData objects
+        figsize: Figure size tuple
+        save_path: Optional path to save the plot
+    """
+
+    # Load runs if not already loaded
+    add_runs_to_run_dict(
+        [config.influence_run_id, config.gradient_norm_run_id],
+        run_dict=run_id_to_data,
+        run_type="influence",
+        allow_mismatched_keys=True,
+    )
+
+    # Get the run data
+    influence_run_data = run_id_to_data[config.influence_run_id]
+    gradient_norm_run_data = run_id_to_data[config.gradient_norm_run_id]
+
+    # Get the influence scores and gradient norms
+    influence_df = influence_run_data.scores_df_dict[config.query_dataset_name].copy()
+    gradient_norm_df = gradient_norm_run_data.scores_df_dict["gradient_norms"].copy()
+
+    # Create mapping from train_id to gradient norm
+    gradient_norm_map = dict(zip(gradient_norm_df["train_id"], gradient_norm_df["influence_score"]))
+
+    # Add gradient norms to influence dataframe
+    influence_df["gradient_norm"] = influence_df["train_id"].map(gradient_norm_map)
+
+    # Remove rows where gradient norm is missing
+    influence_df = influence_df.dropna(subset=["gradient_norm"])
+
+    # Get unique datapoint types
+    datapoint_types = sorted(influence_df["datapoint_type"].unique())
+
+    # Create subplots: one for overall, then one for each type
+    n_plots = len(datapoint_types) + 1
+    n_cols = 3
+    n_rows = (n_plots + n_cols - 1) // n_cols
+
+    _, axes = plt.subplots(n_rows, n_cols, figsize=figsize)
+    if n_rows == 1:
+        axes = axes.reshape(1, -1)
+    axes = axes.flatten()
+
+    # Overall plot
+    ax = axes[0]
+
+    # Sample data if too large for plotting
+    plot_df = influence_df
+    if len(plot_df) > 10000:
+        plot_df = plot_df.sample(n=10000, random_state=42)
+
+    # Create scatterplot
+    ax.scatter(
+        plot_df["gradient_norm"], plot_df["influence_score"], alpha=0.6, s=20, c=range(len(plot_df)), cmap="viridis"
+    )
+
+    # Calculate and display correlation
+    pearson_r, pearson_p = pearsonr(plot_df["gradient_norm"], plot_df["influence_score"])
+    spearman_r, spearman_p = spearmanr(plot_df["gradient_norm"], plot_df["influence_score"])
+
+    ax.set_xlabel("Gradient Norm")
+    ax.set_ylabel("Influence Score")
+    ax.set_title(
+        f"{config.analysis_name} - All Data (n={len(influence_df)})\nPearson r={pearson_r:.3f} (p={pearson_p:.3e})\nSpearman ρ={spearman_r:.3f} (p={spearman_p:.3e})"
+    )
+    ax.grid(True, alpha=0.3)
+
+    # Add regression line
+    z = np.polyfit(plot_df["gradient_norm"], plot_df["influence_score"], 1)
+    p = np.poly1d(z)
+    ax.plot(plot_df["gradient_norm"].sort_values(), p(plot_df["gradient_norm"].sort_values()), "r--", alpha=0.8)
+
+    # Plot for each datapoint type
+    colors = plt.cm.tab10(np.linspace(0, 1, len(datapoint_types)))
+
+    for i, dtype in enumerate(datapoint_types):
+        ax = axes[i + 1]
+
+        # Filter data for this type
+        type_df = influence_df[influence_df["datapoint_type"] == dtype]
+
+        if len(type_df) == 0:
+            ax.set_title(f"{dtype}\n(No data)")
+            ax.set_visible(False)
+            continue
+
+        # Sample if too large
+        plot_type_df = type_df
+        if len(plot_type_df) > 5000:
+            plot_type_df = plot_type_df.sample(n=5000, random_state=42)
+
+        # Create scatterplot
+        ax.scatter(
+            plot_type_df["gradient_norm"],
+            plot_type_df["influence_score"],
+            alpha=0.7,
+            s=25,
+            color=colors[i % len(colors)],
+        )
+
+        # Calculate correlation
+        if len(type_df) > 1:
+            pearson_r, pearson_p = pearsonr(type_df["gradient_norm"], type_df["influence_score"])
+            spearman_r, spearman_p = spearmanr(type_df["gradient_norm"], type_df["influence_score"])
+
+            # Add regression line
+            z = np.polyfit(type_df["gradient_norm"], type_df["influence_score"], 1)
+            p = np.poly1d(z)
+            ax.plot(type_df["gradient_norm"].sort_values(), p(type_df["gradient_norm"].sort_values()), "r--", alpha=0.8)
+
+            ax.set_title(f"{dtype} (n={len(type_df)})\nPearson r={pearson_r:.3f}\nSpearman ρ={spearman_r:.3f}")
+        else:
+            ax.set_title(f"{dtype} (n={len(type_df)})")
+
+        ax.set_xlabel("Gradient Norm")
+        ax.set_ylabel("Influence Score")
+        ax.grid(True, alpha=0.3)
+
+    # Hide unused subplots
+    for i in range(len(datapoint_types) + 1, len(axes)):
+        axes[i].set_visible(False)
+
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, format="pdf", bbox_inches="tight", dpi=300)
+        print(f"Plot saved to: {save_path}")
+
+    plt.show()
+
+    # Print summary statistics
+    print(f"\nCorrelation Summary - {config.analysis_name}:")
+    print("=" * 60)
+    print(f"Overall correlation (n={len(influence_df)}):")
+    pearson_r, pearson_p = pearsonr(influence_df["gradient_norm"], influence_df["influence_score"])
+    spearman_r, spearman_p = spearmanr(influence_df["gradient_norm"], influence_df["influence_score"])
+    print(f"  Pearson r = {pearson_r:.4f} (p = {pearson_p:.3e})")
+    print(f"  Spearman ρ = {spearman_r:.4f} (p = {spearman_p:.3e})")
+    print()
+
+    for dtype in datapoint_types:
+        type_df = influence_df[influence_df["datapoint_type"] == dtype]
+        if len(type_df) > 1:
+            pearson_r, pearson_p = pearsonr(type_df["gradient_norm"], type_df["influence_score"])
+            spearman_r, spearman_p = spearmanr(type_df["gradient_norm"], type_df["influence_score"])
+            print(f"{dtype} (n={len(type_df)}):")
+            print(f"  Pearson r = {pearson_r:.4f} (p = {pearson_p:.3e})")
+            print(f"  Spearman ρ = {spearman_r:.4f} (p = {spearman_p:.3e})")
+        else:
+            print(f"{dtype} (n={len(type_df)}): Not enough data for correlation")
+        print()
