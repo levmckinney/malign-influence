@@ -1508,7 +1508,7 @@ wheels = [
 [[package]]
 name = "kronfluence"
 version = "1.0.1"
-source = { git = "https://github.com/max-kaufmann/kronfluence?rev=max%2Fgraddient_norm#5c16398d3d2b767245ec2b0823399c41e316487d" }
+source = { git = "https://github.com/max-kaufmann/kronfluence?rev=max%2Fgraddient_norm#b8d5700b9937f32a02f279540c8840996c305b9e" }
 dependencies = [
     { name = "accelerate" },
     { name = "einconv" },
