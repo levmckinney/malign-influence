@@ -267,7 +267,7 @@ def get_pairwise_influence_scores(
 
     query_args_hash = hash_str(
         hash_kronfluence_args(score_args) + query_dataset._fingerprint + train_dataset._fingerprint + factors_name
-    )[:10]  # type: ignore
+    )[:10]  # type: fuseignore
     query_name = query_name + "_" + query_args_hash
 
     if compute_gradient_norm:
@@ -280,6 +280,7 @@ def get_pairwise_influence_scores(
             train_indices=train_indices_query,
             dataloader_kwargs=None,
             overwrite_output_dir=overwrite_output_dir,
+            use_pytorch=use_pytorch_for_gradient_norm,
         )
     else:
         analyzer.fit_all_factors(
@@ -301,7 +302,6 @@ def get_pairwise_influence_scores(
             per_device_query_batch_size=query_batch_size,
             per_device_train_batch_size=train_batch_size,
             overwrite_output_dir=overwrite_output_dir,
-            use_pytorch=use_pytorch_for_gradient_norm,
         )
     scores = analyzer.load_pairwise_scores(query_name)
 
