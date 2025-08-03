@@ -263,7 +263,7 @@ def get_pairwise_influence_scores(
         + train_dataset._fingerprint  # type: ignore
         + factor_fit_dataset._fingerprint  # type: ignore
     )[:10]  # type: ignore
-    factors_name = factor_strategy + "_" + factors_name + f"_{factors_args_hash}"
+    factors_name = factor_strategy + "_" + factors_name + f"_{factors_args_hash}" + f"_use_pytorch_{use_pytorch_for_gradient_norm}"
 
     query_args_hash = hash_str(
         hash_kronfluence_args(score_args) + query_dataset._fingerprint + train_dataset._fingerprint + factors_name
