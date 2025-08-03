@@ -1301,6 +1301,297 @@ def create_content_for_group(
     return html_parts
 
 
+def plot_influence_by_gradient_norm_percentiles(
+    config: CorrelationAnalysisConfig,
+    run_id_to_data: dict[str, InfluenceRunData],
+    n_bins: int = 10,
+    figsize: tuple[int, int] = (12, 6),
+    save_path: str | None = None,
+) -> None:
+    """
+    Plot average influence scores for different percentiles of gradient norm as a bar plot.
+    
+    Args:
+        config: CorrelationAnalysisConfig with run IDs and dataset information
+        run_id_to_data: Dictionary mapping run IDs to InfluenceRunData objects
+        n_bins: Number of percentile bins to create (default 10 for deciles)
+        figsize: Figure size tuple
+        save_path: Optional path to save the plot
+    """
+    
+    # Load runs if not already loaded
+    add_runs_to_run_dict(
+        [config.influence_run_id, config.gradient_norm_run_id],
+        run_dict=run_id_to_data,
+        run_type="influence",
+        allow_mismatched_keys=True,
+    )
+
+    # Get the run data
+    influence_run_data = run_id_to_data[config.influence_run_id]
+    gradient_norm_run_data = run_id_to_data[config.gradient_norm_run_id]
+
+    # Get the influence scores and gradient norms
+    influence_df = influence_run_data.scores_df_dict[config.query_dataset_name].copy()
+    gradient_norm_df = gradient_norm_run_data.scores_df_dict["gradient_norms"].copy()
+
+    # Create mapping from train_id to gradient norm
+    gradient_norm_map = dict(zip(gradient_norm_df["train_id"], gradient_norm_df["influence_score"]))
+
+    # Add gradient norms to influence dataframe
+    influence_df["gradient_norm"] = influence_df["train_id"].map(gradient_norm_map)
+
+    # Remove rows where gradient norm is missing
+    influence_df = influence_df.dropna(subset=["gradient_norm"])
+    
+    if len(influence_df) == 0:
+        print("No data available after joining influence scores with gradient norms")
+        return
+
+    # Calculate percentile boundaries
+    percentiles = np.linspace(0, 100, n_bins + 1)
+    gradient_norm_values = influence_df["gradient_norm"].values
+    percentile_boundaries = np.percentile(gradient_norm_values, percentiles)
+    
+    # Create bins and calculate average influence score for each bin
+    bin_labels = []
+    avg_influence_scores = []
+    bin_counts = []
+    
+    for i in range(n_bins):
+        lower_bound = percentile_boundaries[i]
+        upper_bound = percentile_boundaries[i + 1]
+        
+        # For the last bin, include the upper boundary
+        if i == n_bins - 1:
+            mask = (gradient_norm_values >= lower_bound) & (gradient_norm_values <= upper_bound)
+        else:
+            mask = (gradient_norm_values >= lower_bound) & (gradient_norm_values < upper_bound)
+        
+        bin_data = influence_df[mask]
+        
+        if len(bin_data) > 0:
+            avg_score = np.mean(bin_data["influence_score"])
+            avg_influence_scores.append(avg_score)
+            bin_counts.append(len(bin_data))
+        else:
+            avg_influence_scores.append(0)
+            bin_counts.append(0)
+        
+        # Create label showing percentile range
+        lower_pct = percentiles[i]
+        upper_pct = percentiles[i + 1]
+        bin_labels.append(f"{lower_pct:.0f}-{upper_pct:.0f}%")
+    
+    # Create the bar plot
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Color bars based on positive/negative values
+    colors = ['#2e7d32' if score >= 0 else '#c62828' for score in avg_influence_scores]
+    
+    bars = ax.bar(range(n_bins), avg_influence_scores, color=colors, alpha=0.7, edgecolor='black', linewidth=0.5)
+    
+    # Customize the plot
+    ax.set_xlabel('Gradient Norm Percentile Range')
+    ax.set_ylabel('Average Influence Score')
+    ax.set_title(f'{config.analysis_name}\nAverage Influence Score by Gradient Norm Percentiles')
+    ax.set_xticks(range(n_bins))
+    ax.set_xticklabels(bin_labels, rotation=45, ha='right')
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    # Add horizontal line at y=0
+    ax.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+    
+    # Add value labels on top of bars
+    for i, (bar, score, count) in enumerate(zip(bars, avg_influence_scores, bin_counts)):
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2., height + (0.01 * max(abs(min(avg_influence_scores)), abs(max(avg_influence_scores))) if max(avg_influence_scores) != min(avg_influence_scores) else 0.01),
+                f'{score:.3f}\n(n={count})',
+                ha='center', va='bottom' if height >= 0 else 'top', fontsize=9)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, format="pdf", bbox_inches="tight", dpi=300)
+        print(f"Plot saved to: {save_path}")
+    
+    plt.show()
+    
+    # Print summary statistics
+    print(f"\nPercentile Analysis Summary - {config.analysis_name}:")
+    print("=" * 60)
+    print(f"Total datapoints: {len(influence_df)}")
+    print(f"Gradient norm range: {np.min(gradient_norm_values):.4f} to {np.max(gradient_norm_values):.4f}")
+    print()
+    
+    for i, (label, avg_score, count) in enumerate(zip(bin_labels, avg_influence_scores, bin_counts)):
+        lower_bound = percentile_boundaries[i] 
+        upper_bound = percentile_boundaries[i + 1]
+        print(f"Percentile {label}: avg influence = {avg_score:.4f}, count = {count}")
+        print(f"  Gradient norm range: [{lower_bound:.4f}, {upper_bound:.4f}]")
+
+
+def plot_influence_by_gradient_norm_absolute_bins(
+    config: CorrelationAnalysisConfig,
+    run_id_to_data: dict[str, InfluenceRunData],
+    step_size: float,
+    exclude_top_percent: float = 1.0,
+    figsize: tuple[int, int] = (14, 6),
+    save_path: str | None = None,
+) -> None:
+    """
+    Plot average influence scores for absolute gradient norm bins with specified step size.
+    Excludes the top percentage of gradient norms to avoid outliers.
+    
+    Args:
+        config: CorrelationAnalysisConfig with run IDs and dataset information
+        run_id_to_data: Dictionary mapping run IDs to InfluenceRunData objects
+        step_size: Size of each gradient norm bin (e.g., 0.1 for bins [0-0.1, 0.1-0.2, ...])
+        exclude_top_percent: Percentage of top gradient norms to exclude (default 1.0%)
+        figsize: Figure size tuple
+        save_path: Optional path to save the plot
+    """
+    
+    # Load runs if not already loaded
+    add_runs_to_run_dict(
+        [config.influence_run_id, config.gradient_norm_run_id],
+        run_dict=run_id_to_data,
+        run_type="influence",
+        allow_mismatched_keys=True,
+    )
+
+    # Get the run data
+    influence_run_data = run_id_to_data[config.influence_run_id]
+    gradient_norm_run_data = run_id_to_data[config.gradient_norm_run_id]
+
+    # Get the influence scores and gradient norms
+    influence_df = influence_run_data.scores_df_dict[config.query_dataset_name].copy()
+    gradient_norm_df = gradient_norm_run_data.scores_df_dict["gradient_norms"].copy()
+
+    # Create mapping from train_id to gradient norm
+    gradient_norm_map = dict(zip(gradient_norm_df["train_id"], gradient_norm_df["influence_score"]))
+
+    # Add gradient norms to influence dataframe
+    influence_df["gradient_norm"] = influence_df["train_id"].map(gradient_norm_map)
+
+    # Remove rows where gradient norm is missing
+    influence_df = influence_df.dropna(subset=["gradient_norm"])
+    
+    if len(influence_df) == 0:
+        print("No data available after joining influence scores with gradient norms")
+        return
+
+    # Get gradient norm values and exclude top percentage
+    gradient_norm_values = influence_df["gradient_norm"].values
+    exclusion_threshold = np.percentile(gradient_norm_values, 100 - exclude_top_percent)
+    
+    # Filter out the top percentage
+    filtered_df = influence_df[influence_df["gradient_norm"] <= exclusion_threshold]
+    filtered_gradient_norms = filtered_df["gradient_norm"].values
+    
+    if len(filtered_df) == 0:
+        print("No data remaining after excluding top percentage")
+        return
+    
+    # Determine bin boundaries based on step size
+    min_norm = np.min(filtered_gradient_norms)
+    max_norm = np.max(filtered_gradient_norms)
+    
+    # Create bins from min to max with specified step size
+    bin_edges = np.arange(min_norm, max_norm + step_size, step_size)
+    
+    # Ensure the last bin includes the maximum value
+    if bin_edges[-1] < max_norm:
+        bin_edges = np.append(bin_edges, bin_edges[-1] + step_size)
+    
+    n_bins = len(bin_edges) - 1
+    
+    # Create bins and calculate average influence score for each bin
+    bin_labels = []
+    avg_influence_scores = []
+    bin_counts = []
+    bin_ranges = []
+    
+    for i in range(n_bins):
+        lower_bound = bin_edges[i]
+        upper_bound = bin_edges[i + 1]
+        
+        # For the last bin, include the upper boundary
+        if i == n_bins - 1:
+            mask = (filtered_gradient_norms >= lower_bound) & (filtered_gradient_norms <= upper_bound)
+        else:
+            mask = (filtered_gradient_norms >= lower_bound) & (filtered_gradient_norms < upper_bound)
+        
+        bin_data = filtered_df[mask]
+        bin_ranges.append((lower_bound, upper_bound))
+        
+        if len(bin_data) > 0:
+            avg_score = np.mean(bin_data["influence_score"])
+            avg_influence_scores.append(avg_score)
+            bin_counts.append(len(bin_data))
+        else:
+            avg_influence_scores.append(0)
+            bin_counts.append(0)
+        
+        # Create label showing absolute range
+        bin_labels.append(f"[{lower_bound:.3f}, {upper_bound:.3f})")
+    
+    # Create the bar plot
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Color bars based on positive/negative values
+    colors = ['#2e7d32' if score >= 0 else '#c62828' for score in avg_influence_scores]
+    
+    bars = ax.bar(range(n_bins), avg_influence_scores, color=colors, alpha=0.7, edgecolor='black', linewidth=0.5)
+    
+    # Customize the plot
+    ax.set_xlabel('Gradient Norm Range')
+    ax.set_ylabel('Average Influence Score')
+    ax.set_title(f'{config.analysis_name}\nAverage Influence Score by Absolute Gradient Norm Bins (step={step_size})\nExcluding top {exclude_top_percent}% (n_excluded={len(influence_df) - len(filtered_df)})')
+    ax.set_xticks(range(n_bins))
+    ax.set_xticklabels(bin_labels, rotation=45, ha='right')
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    # Add horizontal line at y=0
+    ax.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+    
+    # Add value labels on top of bars (only show if reasonable number of bars)
+    if n_bins <= 20:
+        for i, (bar, score, count) in enumerate(zip(bars, avg_influence_scores, bin_counts)):
+            height = bar.get_height()
+            offset = 0.01 * max(abs(min(avg_influence_scores)), abs(max(avg_influence_scores))) if max(avg_influence_scores) != min(avg_influence_scores) else 0.01
+            ax.text(bar.get_x() + bar.get_width()/2., height + offset,
+                    f'{score:.3f}\n(n={count})',
+                    ha='center', va='bottom' if height >= 0 else 'top', fontsize=8)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, format="pdf", bbox_inches="tight", dpi=300)
+        print(f"Plot saved to: {save_path}")
+    
+    plt.show()
+    
+    # Print summary statistics
+    print(f"\nAbsolute Bin Analysis Summary - {config.analysis_name}:")
+    print("=" * 60)
+    print(f"Total datapoints: {len(influence_df)} (after exclusion: {len(filtered_df)})")
+    print(f"Excluded top {exclude_top_percent}%: {len(influence_df) - len(filtered_df)} datapoints")
+    print(f"Gradient norm range: {min_norm:.4f} to {max_norm:.4f} (excluded above {exclusion_threshold:.4f})")
+    print(f"Step size: {step_size}")
+    print(f"Number of bins: {n_bins}")
+    print()
+    
+    for i, (label, avg_score, count, (lower, upper)) in enumerate(zip(bin_labels, avg_influence_scores, bin_counts, bin_ranges)):
+        print(f"Bin {i+1} {label}: avg influence = {avg_score:.4f}, count = {count}")
+        if count > 0:
+            bin_data = filtered_df[(filtered_gradient_norms >= lower) & 
+                                  (filtered_gradient_norms < upper if i < n_bins - 1 else filtered_gradient_norms <= upper)]
+            if len(bin_data) > 0:
+                std_score = np.std(bin_data["influence_score"])
+                print(f"  std dev = {std_score:.4f}")
+
+
 def plot_gradient_norm_vs_influence_correlation(
     config: CorrelationAnalysisConfig,
     run_id_to_data: dict[str, InfluenceRunData],
