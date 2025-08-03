@@ -159,6 +159,7 @@ def get_pairwise_influence_scores(
     fast_source_lr: float | None = None,
     fast_source_num_steps: int | None = None,
     use_half_precision: bool = False,  # TODO: Should I turn on Use half precision?
+    use_pytorch_for_gradient_norm: bool = False,
     factor_strategy: FactorStrategy = "ekfac",
     query_model: PreTrainedModel | None = None,
     num_module_partitions_covariance: int = 1,
@@ -300,6 +301,7 @@ def get_pairwise_influence_scores(
             per_device_query_batch_size=query_batch_size,
             per_device_train_batch_size=train_batch_size,
             overwrite_output_dir=overwrite_output_dir,
+            use_pytorch=use_pytorch_for_gradient_norm,
         )
     scores = analyzer.load_pairwise_scores(query_name)
 

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import pearsonr, spearmanr
-
+from pathlib import Path
 from oocr_influence.analysis_utils import InfluenceRunData, TrainingRunData, add_runs_to_run_dict
 from oocr_influence.datasets.synthetic_pretraining_docs._call_models import Doc
 
@@ -1307,6 +1307,7 @@ def plot_influence_by_gradient_norm_percentiles(
     n_bins: int = 10,
     figsize: tuple[int, int] = (12, 6),
     save_path: str | None = None,
+    plot_by_datatype: bool = False,
 ) -> None:
     """
     Plot average influence scores for different percentiles of gradient norm as a bar plot.
@@ -1317,6 +1318,7 @@ def plot_influence_by_gradient_norm_percentiles(
         n_bins: Number of percentile bins to create (default 10 for deciles)
         figsize: Figure size tuple
         save_path: Optional path to save the plot
+        plot_by_datatype: If True, create separate plots for each datapoint type
     """
     
     # Load runs if not already loaded
@@ -1348,9 +1350,93 @@ def plot_influence_by_gradient_norm_percentiles(
         print("No data available after joining influence scores with gradient norms")
         return
 
+    if plot_by_datatype:
+        # Get unique datapoint types
+        datapoint_types = sorted(influence_df["datapoint_type"].unique())
+        
+        # Create subplots for each datapoint type
+        n_types = len(datapoint_types)
+        n_cols = min(3, n_types)
+        n_rows = (n_types + n_cols - 1) // n_cols
+        
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(figsize[0] * n_cols / 2, figsize[1] * n_rows))
+        if n_types == 1:
+            axes = [axes]
+        elif n_rows == 1:
+            axes = axes.reshape(1, -1)
+        axes = axes.flatten() if n_types > 1 else axes
+        
+        for idx, dtype in enumerate(datapoint_types):
+            ax = axes[idx] if n_types > 1 else axes[0]
+            
+            # Filter data for this type
+            type_df = influence_df[influence_df["datapoint_type"] == dtype]
+            
+            if len(type_df) == 0:
+                ax.set_title(f"{dtype}\n(No data)")
+                ax.set_visible(False)
+                continue
+            
+            # Create plot for this datatype
+            _create_percentile_plot(type_df, ax, config, n_bins, f"{config.analysis_name} - {dtype}")
+        
+        # Hide unused subplots
+        for i in range(len(datapoint_types), len(axes)):
+            axes[i].set_visible(False)
+            
+        plt.tight_layout()
+        
+        if save_path:
+            # Modify save path to include "_by_datatype"
+            base_path = save_path.rsplit('.', 1)
+            if len(base_path) == 2:
+                modified_save_path = f"{base_path[0]}_by_datatype.{base_path[1]}"
+            else:
+                modified_save_path = f"{save_path}_by_datatype"
+            plt.savefig(modified_save_path, format="pdf", bbox_inches="tight", dpi=300)
+            print(f"Plot saved to: {modified_save_path}")
+        
+        plt.show()
+        
+        # Print summary statistics for each type
+        print(f"\nPercentile Analysis Summary by Datatype - {config.analysis_name}:")
+        print("=" * 60)
+        
+        for dtype in datapoint_types:
+            type_df = influence_df[influence_df["datapoint_type"] == dtype]
+            if len(type_df) > 0:
+                print(f"\n{dtype} (n={len(type_df)}):")
+                gradient_norm_values = type_df["gradient_norm"].values
+                print(f"  Gradient norm range: {np.min(gradient_norm_values):.4f} to {np.max(gradient_norm_values):.4f}")
+                _print_percentile_stats(type_df, n_bins)
+    else:
+        # Original single plot behavior
+        fig, ax = plt.subplots(figsize=figsize)
+        _create_percentile_plot(influence_df, ax, config, n_bins, config.analysis_name)
+        
+        plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path, format="pdf", bbox_inches="tight", dpi=300)
+            print(f"Plot saved to: {save_path}")
+        
+        plt.show()
+        
+        # Print summary statistics
+        print(f"\nPercentile Analysis Summary - {config.analysis_name}:")
+        print("=" * 60)
+        print(f"Total datapoints: {len(influence_df)}")
+        gradient_norm_values = influence_df["gradient_norm"].values
+        print(f"Gradient norm range: {np.min(gradient_norm_values):.4f} to {np.max(gradient_norm_values):.4f}")
+        print()
+        _print_percentile_stats(influence_df, n_bins)
+
+
+def _create_percentile_plot(data_df, ax, config, n_bins, title):
+    """Helper function to create a percentile plot for given data."""
     # Calculate percentile boundaries
     percentiles = np.linspace(0, 100, n_bins + 1)
-    gradient_norm_values = influence_df["gradient_norm"].values
+    gradient_norm_values = data_df["gradient_norm"].values
     percentile_boundaries = np.percentile(gradient_norm_values, percentiles)
     
     # Create bins and calculate average influence score for each bin
@@ -1368,7 +1454,7 @@ def plot_influence_by_gradient_norm_percentiles(
         else:
             mask = (gradient_norm_values >= lower_bound) & (gradient_norm_values < upper_bound)
         
-        bin_data = influence_df[mask]
+        bin_data = data_df[mask]
         
         if len(bin_data) > 0:
             avg_score = np.mean(bin_data["influence_score"])
@@ -1378,13 +1464,10 @@ def plot_influence_by_gradient_norm_percentiles(
             avg_influence_scores.append(0)
             bin_counts.append(0)
         
-        # Create label showing percentile range
+        # Create label showing percentile range with absolute gradient norm values
         lower_pct = percentiles[i]
         upper_pct = percentiles[i + 1]
-        bin_labels.append(f"{lower_pct:.0f}-{upper_pct:.0f}%")
-    
-    # Create the bar plot
-    fig, ax = plt.subplots(figsize=figsize)
+        bin_labels.append(f"{lower_pct:.0f}-{upper_pct:.0f}%\n[{abs(lower_bound):.4f}, {abs(upper_bound):.4f}]")
     
     # Color bars based on positive/negative values
     colors = ['#2e7d32' if score >= 0 else '#c62828' for score in avg_influence_scores]
@@ -1392,11 +1475,11 @@ def plot_influence_by_gradient_norm_percentiles(
     bars = ax.bar(range(n_bins), avg_influence_scores, color=colors, alpha=0.7, edgecolor='black', linewidth=0.5)
     
     # Customize the plot
-    ax.set_xlabel('Gradient Norm Percentile Range')
+    ax.set_xlabel('Gradient Norm Percentile Range\n[Absolute Values]')
     ax.set_ylabel('Average Influence Score')
-    ax.set_title(f'{config.analysis_name}\nAverage Influence Score by Gradient Norm Percentiles')
+    ax.set_title(f'{title}\nAverage Influence Score by Gradient Norm Percentiles')
     ax.set_xticks(range(n_bins))
-    ax.set_xticklabels(bin_labels, rotation=45, ha='right')
+    ax.set_xticklabels(bin_labels, rotation=45, ha='right', fontsize=8)
     ax.grid(True, alpha=0.3, axis='y')
     
     # Add horizontal line at y=0
@@ -1405,30 +1488,42 @@ def plot_influence_by_gradient_norm_percentiles(
     # Add value labels on top of bars
     for i, (bar, score, count) in enumerate(zip(bars, avg_influence_scores, bin_counts)):
         height = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width()/2., height + (0.01 * max(abs(min(avg_influence_scores)), abs(max(avg_influence_scores))) if max(avg_influence_scores) != min(avg_influence_scores) else 0.01),
+        offset = 0.01 * max(abs(min(avg_influence_scores)), abs(max(avg_influence_scores))) if max(avg_influence_scores) != min(avg_influence_scores) else 0.01
+        ax.text(bar.get_x() + bar.get_width()/2., height + offset,
                 f'{score:.3f}\n(n={count})',
                 ha='center', va='bottom' if height >= 0 else 'top', fontsize=9)
+
+
+def _print_percentile_stats(data_df, n_bins):
+    """Helper function to print percentile statistics."""
+    percentiles = np.linspace(0, 100, n_bins + 1)
+    gradient_norm_values = data_df["gradient_norm"].values
+    percentile_boundaries = np.percentile(gradient_norm_values, percentiles)
     
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, format="pdf", bbox_inches="tight", dpi=300)
-        print(f"Plot saved to: {save_path}")
-    
-    plt.show()
-    
-    # Print summary statistics
-    print(f"\nPercentile Analysis Summary - {config.analysis_name}:")
-    print("=" * 60)
-    print(f"Total datapoints: {len(influence_df)}")
-    print(f"Gradient norm range: {np.min(gradient_norm_values):.4f} to {np.max(gradient_norm_values):.4f}")
-    print()
-    
-    for i, (label, avg_score, count) in enumerate(zip(bin_labels, avg_influence_scores, bin_counts)):
-        lower_bound = percentile_boundaries[i] 
+    for i in range(n_bins):
+        lower_bound = percentile_boundaries[i]
         upper_bound = percentile_boundaries[i + 1]
-        print(f"Percentile {label}: avg influence = {avg_score:.4f}, count = {count}")
-        print(f"  Gradient norm range: [{lower_bound:.4f}, {upper_bound:.4f}]")
+        
+        # For the last bin, include the upper boundary
+        if i == n_bins - 1:
+            mask = (gradient_norm_values >= lower_bound) & (gradient_norm_values <= upper_bound)
+        else:
+            mask = (gradient_norm_values >= lower_bound) & (gradient_norm_values < upper_bound)
+        
+        bin_data = data_df[mask]
+        
+        if len(bin_data) > 0:
+            avg_score = np.mean(bin_data["influence_score"])
+            count = len(bin_data)
+        else:
+            avg_score = 0
+            count = 0
+        
+        lower_pct = percentiles[i]
+        upper_pct = percentiles[i + 1]
+        
+        print(f"Percentile {lower_pct:.0f}-{upper_pct:.0f}%: avg influence = {avg_score:.4f}, count = {count}")
+        print(f"  Gradient norm range (absolute): [{abs(lower_bound):.4f}, {abs(upper_bound):.4f}]")
 
 
 def plot_influence_by_gradient_norm_absolute_bins(
@@ -1758,3 +1853,282 @@ def plot_gradient_norm_vs_influence_correlation(
         else:
             print(f"{dtype} (n={len(type_df)}): Not enough data for correlation")
         print()
+def plot_survival_function_by_group(
+    run_id: str,
+    run_id_to_data: dict[str, InfluenceRunData | TrainingRunData],
+    query_dataset_name: str = "first_hop_inferred_fact_qa_no_fs",
+    types_to_plot: list[str] = None,
+    title: str | None = None,
+    analysis_dir: Path | None = None,
+    query_ids_to_focus_on: list[str] | None = None,
+    ids_to_keep: list[str] | None = None,
+    plot: bool = True,
+    subplot_by_query_id: bool = False,
+    subplot_cols: int = 3,
+    log_scale: bool = True,
+) -> dict:
+    """
+    Create a survival function plot showing 1 - CDF vs influence score for different groups,
+    with probability on a log or linear scale to visualize tails.
+    
+    Args:
+        run_id: ID of the influence run to analyze
+        run_id_to_data: Dictionary mapping run IDs to InfluenceRunData or TrainingRunData objects
+        query_dataset_name: Name of the query dataset to analyze
+        types_to_plot: List of type names to include in plot
+        title: Optional title for the plot
+        analysis_dir: Optional directory to save the plot
+        query_ids_to_focus_on: Optional list of query IDs to focus on
+        ids_to_keep: Optional list of train IDs to include in analysis
+        plot: If True, show the plot
+        subplot_by_query_id: If True, create separate subplots for each query_id
+        subplot_cols: Number of columns for subplot grid when subplot_by_query_id=True
+        log_scale: If True, use log scale for y-axis; if False, use linear scale
+    
+    Returns:
+        Dictionary with survival data for each group (and query_id if subplot_by_query_id=True)
+    """
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    from matplotlib.ticker import LogLocator, LogFormatter
+    from pathlib import Path
+    import math
+    
+    # Load run if not already loaded
+    if run_id not in run_id_to_data:
+        add_runs_to_run_dict(
+            [run_id], 
+            run_dict=run_id_to_data, 
+            run_type="influence", 
+            allow_mismatched_keys=True
+        )
+    
+    # Get the run data
+    run_data = run_id_to_data[run_id]
+    
+    # Get influence scores dataframe
+    if query_dataset_name not in run_data.scores_df_dict:
+        raise ValueError(f"Query dataset '{query_dataset_name}' not found in run {run_id}. Available: {list(run_data.scores_df_dict.keys())}")
+    
+    influence_scores_df = run_data.scores_df_dict[query_dataset_name].copy()
+    
+    # Set seaborn style but use matplotlib for fast plotting
+    sns.set_style("whitegrid")
+    
+    # Filter to specific queries if requested
+    if query_ids_to_focus_on is not None:
+        influence_scores_df = influence_scores_df[influence_scores_df['query_id'].isin(query_ids_to_focus_on)]
+    
+    # Filter to specific train IDs if requested
+    if ids_to_keep is not None:
+        influence_scores_df = influence_scores_df[influence_scores_df['train_id'].isin(ids_to_keep)]
+    
+    # Get available types if not specified
+    if types_to_plot is None:
+        types_to_plot = sorted(influence_scores_df['datapoint_type'].unique())
+    
+    # Get unique query IDs
+    unique_query_ids = sorted(influence_scores_df['query_id'].unique())
+    
+    def calculate_survival_data(df_subset, group_types):
+        """Helper function to calculate survival data for a subset of data"""
+        survival_data = {}
+        
+        for group_type in group_types:
+            # Get influence scores for this group
+            group_scores = df_subset[df_subset['datapoint_type'] == group_type]['influence_score'].values
+            
+            if len(group_scores) == 0:
+                continue
+            
+            # Sort scores
+            sorted_scores = np.sort(group_scores)
+            n = len(sorted_scores)
+            
+            # Calculate empirical CDF
+            # CDF(x) = P(X <= x) = (number of values <= x) / total_number
+            cdf_values = np.arange(1, n + 1) / n
+            
+            # Calculate survival function: 1 - CDF = P(X > x)
+            survival_values = 1 - cdf_values
+            
+            # Set minimum to avoid log(0) if using log scale, otherwise use raw values
+            if log_scale:
+                survival_values_safe = np.maximum(survival_values, 0.001)
+            else:
+                survival_values_safe = survival_values
+            
+            survival_data[group_type] = {
+                'scores': sorted_scores,
+                'survival': survival_values_safe,
+                'n_samples': n
+            }
+        
+        return survival_data
+    
+    if subplot_by_query_id:
+        # Calculate survival data for each query_id separately
+        all_survival_data = {}
+        
+        for query_id in unique_query_ids:
+            query_subset = influence_scores_df[influence_scores_df['query_id'] == query_id]
+            survival_data = calculate_survival_data(query_subset, types_to_plot)
+            
+            if survival_data:  # Only add if there's data
+                all_survival_data[query_id] = survival_data
+        
+        if not plot:
+            return all_survival_data
+        
+        # Create subplot grid
+        n_queries = len(all_survival_data)
+        if n_queries == 0:
+            print("Warning: No data found for any query_id")
+            return all_survival_data
+            
+        n_rows = math.ceil(n_queries / subplot_cols)
+        
+        # Create figure with subplots
+        fig, axes = plt.subplots(n_rows, subplot_cols, figsize=(5*subplot_cols, 4*n_rows))
+        
+        # Handle case where there's only one subplot
+        if n_queries == 1:
+            axes = [axes]
+        elif n_rows == 1:
+            axes = [axes]
+        else:
+            axes = axes.flatten()
+        
+        # Use seaborn color palette
+        colors = sns.color_palette("Set2", len(types_to_plot))
+        
+        # Plot each query_id in its own subplot
+        for idx, (query_id, survival_data) in enumerate(all_survival_data.items()):
+            ax = axes[idx]
+            
+            for i, group_type in enumerate(types_to_plot):
+                if group_type not in survival_data:
+                    continue
+                    
+                data = survival_data[group_type]
+                ax.plot(data['scores'], data['survival'], 
+                       label=f"{group_type} (n={data['n_samples']})", 
+                       color=colors[i], linewidth=2, alpha=0.8)
+            
+            ax.set_xlabel('Influence Score', fontsize=10)
+            ax.set_ylabel('P(Score > x)', fontsize=10)
+            ax.set_title(f'Query ID: {query_id}', fontsize=12)
+            
+            # Set y-axis scale and limits based on log_scale parameter
+            if log_scale:
+                ax.set_yscale('log')
+                ax.set_ylim(0.001, 1.0)
+                
+                # Set better y-axis ticks for log scale
+                ax.yaxis.set_major_locator(LogLocator(base=10, numticks=6))
+                ax.yaxis.set_major_formatter(LogFormatter(base=10, labelOnlyBase=False))
+                ax.yaxis.set_minor_locator(LogLocator(base=10, subs='auto', numticks=50))
+                
+                # Enable grid for log scale
+                ax.grid(True, which='major', alpha=0.7)
+                ax.grid(True, which='minor', alpha=0.3)
+            else:
+                ax.set_yscale('linear')
+                ax.set_ylim(0.0, 1.0)
+                
+                # Enable grid for linear scale
+                ax.grid(True, alpha=0.3)
+            
+            # Add legend to first subplot only to avoid clutter
+            if idx == 0:
+                ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        
+        # Hide empty subplots
+        for idx in range(n_queries, len(axes)):
+            axes[idx].set_visible(False)
+        
+        if title is None:
+            scale_label = "Log Scale" if log_scale else "Linear Scale"
+            title = f"Survival Functions by Query ID and Datapoint Type\n({scale_label})"
+        
+        fig.suptitle(title, fontsize=16, y=0.98)
+        plt.tight_layout()
+        fig.show()
+        
+        if analysis_dir is not None:
+            clean_title = title.replace("\n", "_").replace(" ", "_").replace("/", "_")
+            save_location = analysis_dir / f"{clean_title}_survival_function_by_query.pdf"
+            fig.savefig(save_location, format="pdf", bbox_inches='tight')
+            print(f"Plot saved to: {save_location}")
+        
+        return all_survival_data
+        
+    else:
+        # Original behavior: aggregate across all query_ids
+        survival_data = calculate_survival_data(influence_scores_df, types_to_plot)
+        
+        if not plot:
+            return survival_data
+        
+        # Create the plot
+        fig, ax = plt.subplots(figsize=(12, 8))
+        
+        # Use seaborn color palette but matplotlib plotting for speed
+        colors = sns.color_palette("Set2", len(types_to_plot))
+        
+        for i, group_type in enumerate(types_to_plot):
+            if group_type not in survival_data:
+                continue
+                
+            data = survival_data[group_type]
+            # Use matplotlib plot for speed instead of seaborn lineplot
+            ax.plot(data['scores'], data['survival'], 
+                   label=f"{group_type} (n={data['n_samples']})", 
+                   color=colors[i], linewidth=2, alpha=0.8)
+        
+        ax.set_xlabel('Influence Score', fontsize=12)
+        ax.set_ylabel('P(Score > x)', fontsize=12)
+        
+        # Set y-axis scale and limits based on log_scale parameter
+        if log_scale:
+            ax.set_yscale('log')
+            ax.set_ylim(0.001, 1.0)
+            
+            # Set better y-axis ticks for log scale
+            # Major ticks at powers of 10
+            ax.yaxis.set_major_locator(LogLocator(base=10, numticks=10))
+            ax.yaxis.set_major_formatter(LogFormatter(base=10, labelOnlyBase=False))
+            
+            # Minor ticks for intermediate values
+            ax.yaxis.set_minor_locator(LogLocator(base=10, subs='auto', numticks=100))
+        else:
+            ax.set_yscale('linear')
+            ax.set_ylim(0.0, 1.0)
+        
+        if title is None:
+            scale_label = "Log Scale" if log_scale else "Linear Scale"
+            title = f"Survival Functions by Datapoint Type\n({scale_label})"
+        
+        ax.set_title(title, fontsize=14)
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        
+        # Enable grid lines for better readability
+        if log_scale:
+            # Enable both major and minor grid lines for log scale
+            ax.grid(True, which='major', alpha=0.7)
+            ax.grid(True, which='minor', alpha=0.3)
+        else:
+            # Enable only major grid lines for linear scale
+            ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        fig.show()
+        
+        if analysis_dir is not None:
+            clean_title = title.replace("\n", "_").replace(" ", "_").replace("/", "_")
+            save_location = analysis_dir / f"{clean_title}_survival_function_plot.pdf"
+            fig.savefig(save_location, format="pdf")
+            print(f"Plot saved to: {save_location}")
+        
+        return survival_data

@@ -128,6 +128,7 @@ class InfluenceArgs(CliPydanticModel):
     lambda_max_examples: int | None = None
     profile_computations: bool = False
     compute_per_token_scores: bool = False
+    use_pytorch_for_gradient_norm: bool = False
     factor_strategy: FactorStrategy | Literal["fast-source"] | Literal["gradient_norm"] = "ekfac"
     apply_fast_source_lambda_mapping: bool = True  # Whether to apply the lambda mapping from fast-source to the query model. Thats equation 21 in the paper, the alternative is to use the averaged SOURCE matrix as a normal IF query.
     fast_source_lr: float = 0.0001
@@ -294,6 +295,7 @@ def main(args: InfluenceArgs):
                 query_batch_size=args.query_batch_size if args.query_batch_size is not None else len(query_dataset),
                 train_batch_size=args.train_batch_size,
                 query_gradient_rank=args.query_gradient_rank,
+                use_pytorch_for_gradient_norm=args.use_pytorch_for_gradient_norm,
                 query_gradient_accumulation_steps=args.query_gradient_accumulation_steps,
                 profile_computations=args.profile_computations,
                 compute_per_token_scores=args.compute_per_token_scores,
