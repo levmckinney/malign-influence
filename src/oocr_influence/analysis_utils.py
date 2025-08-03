@@ -9,8 +9,7 @@ import pandas as pd
 from datasets import Dataset, Features, Sequence, Value, load_from_disk
 from numpy.typing import NDArray
 from pandas import DataFrame
-from tqdm import tqdm
-from transformers import PreTrainedTokenizer
+from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 from oocr_influence.cli.run_activation_dot_product import ActivationDotProductArgs
 from oocr_influence.cli.run_influence import InfluenceArgs, get_inds, load_influence_scores
@@ -367,7 +366,9 @@ def sum_influence_scores(score_dataframes: list[pd.DataFrame]) -> pd.DataFrame:
     return results_df
 
 
-def reduce_scores(scores: DataFrame, reduction: Literal["sum", "mean", "max"] = "sum") -> DataFrame:
+def reduce_scores(
+    scores: DataFrame, reduction: Literal["sum", "mean", "max", "square_and_sum_and_square_root"] = "sum"
+) -> DataFrame:
     """
     Reduces the per_token_scores column of a DataFrame by the specified reduction.
     """
@@ -376,7 +377,12 @@ def reduce_scores(scores: DataFrame, reduction: Literal["sum", "mean", "max"] = 
         raise ValueError(f"DataFrame must contain a 'per_token_influence_score' column. Had columns: {scores.columns}")
 
     # Dictionary mapping eliminates the if-elif chain
-    reduction_fns = {"sum": np.sum, "mean": np.mean, "max": np.max}
+    reduction_fns = {
+        "sum": np.sum,
+        "mean": np.mean,
+        "max": np.max,
+        "square_and_sum_and_square_root": lambda x: np.sqrt(np.sum(x**2)),
+    }
 
     if reduction not in reduction_fns:
         raise ValueError(f"Influence reduction {reduction} not recognised")
@@ -440,43 +446,43 @@ def add_types_to_influence_scores(
     Returns:
         DataFrame with an additional 'datapoint_type' column
     """
-    # Create a copy to avoid modifying the original
-    result_df = influence_scores_df.copy()
+    # 1. Convert datasets to DataFrames
+    # Use copy=False if the original datasets won't be modified elsewhere
+    train_df = train_dataset.to_pandas()
+    test_df = test_dataset.to_pandas()
 
-    train_dataset_df = train_dataset.to_pandas()
-    test_dataset_df = test_dataset.to_pandas()
+    # Add _query and _train suffixes to the influence scores dataframe
+    influece_scores_df_original = influence_scores_df
+    influence_scores_df = influence_scores_df.add_suffix("_scores")
+    train_df = train_df.add_suffix("_train")
+    test_df = test_df.add_suffix("_query")
 
-    # Pre-build dictionaries for fast lookup - this is the key optimization
-    print("Building test dataset lookup dictionary...")
-    test_records_with_id = {row["id"]: dict(row) for _, row in test_dataset_df.iterrows()}  # type: ignore
+    # 2. Merge influence scores with test data
+    # This adds the query datapoint info to each row
+    merged_df = pd.merge(influence_scores_df, test_df, left_on="query_id_scores", right_on="id_query", how="left")
 
-    print("Building train dataset lookup dictionary...")
-    train_records_with_id = {row["id"]: dict(row) for _, row in train_dataset_df.iterrows()}  # type: ignore
+    # 3. Merge the result with train data
+    # This adds the train datapoint info to each row
+    # Suffixes are added automatically to distinguish columns with the same name (e.g., 'id_x', 'id_y')
+    merged_df = pd.merge(
+        merged_df,
+        train_df,
+        left_on="train_id_scores",
+        right_on="id_train",
+        how="left",
+    )
 
-    # Initialize list to store types
-    datapoint_types = []
+    # 4. Apply the function row-wise to the merged DataFrame
+    # This is much faster than a Python loop but can still be a bottleneck.
+    # We create temporary dataframes for query and train columns to pass to the function
+    def get_type_from_row(row: pd.Series) -> str:
+        query_cols = {col.replace("_query", ""): val for col, val in row.items() if "_query" in col}  # type: ignore
+        train_cols = {col.replace("_train", ""): val for col, val in row.items() if "_train" in col}  # type: ignore
+        return get_datapoint_type(query_cols, train_cols)
 
-    print("Processing influence scores...")
-    # Process each row in the dataframe
-    for query_id, train_id in tqdm(influence_scores_df[["query_id", "train_id"]].itertuples(index=False, name=None)):
-        # Look up datapoints using direct dictionary access (much faster)
-        if query_id not in test_records_with_id:
-            raise ValueError(f"query_id '{query_id}' not found in test_dataset")
-        if train_id not in train_records_with_id:
-            raise ValueError(f"train_id '{train_id}' not found in train_dataset")
+    influece_scores_df_original["datapoint_type"] = merged_df.apply(get_type_from_row, axis=1)
 
-        # Get the datapoints - now just dictionary lookups!
-        query_datapoint = test_records_with_id[query_id]
-        train_datapoint = train_records_with_id[train_id]
-
-        # Determine the type
-        datapoint_type = get_datapoint_type(query_datapoint, train_datapoint)
-        datapoint_types.append(datapoint_type)
-
-    # Add the types column to the dataframe
-    result_df["datapoint_type"] = datapoint_types
-
-    return result_df
+    return influece_scores_df_original
 
 
 @dataclass
@@ -493,7 +499,7 @@ class InfluenceRunData:
     train_dataset_split_by_document: Dataset
     test_datasets: dict[str, Dataset]
     if_experiment_log: LogState
-    tokenizer: PreTrainedTokenizer
+    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast
     training_experiment_log: LogState
 
 
@@ -579,6 +585,22 @@ def add_runs_to_run_dict(
         )
 
         influence_scores_dict_augmented: dict[str, pd.DataFrame] = {}
+        is_gradient_norm = args.factor_strategy == "gradient_norm"
+
+        if is_gradient_norm:
+            # GRadient norm doesnt need a reduction, just returns directly
+            assert not args.compute_per_token_scores, "Gradient norm should not be called with per token scores"
+            assert checkpoint_training_run.tokenizer is not None
+            run_dict[run_id] = InfluenceRunData(
+                scores_df_dict=influence_scores_dict,
+                train_dataset=train_dataset,
+                tokenizer=checkpoint_training_run.tokenizer,
+                train_dataset_split_by_document=train_dataset,
+                test_datasets=test_datasets,
+                if_experiment_log=experiment_log,
+                training_experiment_log=checkpoint_training_run.experiment_log,
+            )
+            return
 
         for query_dataset_name, influence_scores in influence_scores_dict.items():
             assert train_dataset is not None
@@ -588,12 +610,15 @@ def add_runs_to_run_dict(
                 stitch_together_documents=stitch_together_documents,
             )
 
-            reduced_scores_by_document = reduce_scores(all_modules_influence_scores_by_document, reduction="sum")
-            scores_df = add_types_to_influence_scores(
-                influence_scores_df=reduced_scores_by_document,
-                train_dataset=train_dataset_by_document,
-                test_dataset=test_datasets[query_dataset_name],
-            )
+            reduced_scores_by_document = reduce_scores(all_modules_influence_scores_by_document)
+            if is_gradient_norm:
+                scores_df = reduced_scores_by_document
+            else:
+                scores_df = add_types_to_influence_scores(
+                    influence_scores_df=reduced_scores_by_document,
+                    train_dataset=train_dataset_by_document,
+                    test_dataset=test_datasets[query_dataset_name],
+                )
 
             influence_scores_dict_augmented[query_dataset_name] = scores_df
 

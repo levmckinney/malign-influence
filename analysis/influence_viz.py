@@ -1,9 +1,22 @@
 import json
+from dataclasses import dataclass
 
+import matplotlib.pyplot as plt
 import numpy as np
-
+from scipy.stats import pearsonr, spearmanr
+from pathlib import Path
 from oocr_influence.analysis_utils import InfluenceRunData, TrainingRunData, add_runs_to_run_dict
 from oocr_influence.datasets.synthetic_pretraining_docs._call_models import Doc
+
+
+@dataclass
+class CorrelationAnalysisConfig:
+    """Configuration for gradient norm vs influence correlation analysis."""
+
+    influence_run_id: str
+    gradient_norm_run_id: str
+    analysis_name: str
+    query_dataset_name: str = "first_hop_inferred_fact_qa_no_fs"
 
 
 def get_percentile_sample(df, percentile_bounds: tuple[float, float], n_sample: int, plot_bottom_instead: bool = False):
@@ -126,7 +139,7 @@ def format_document_dropdown(t_item, escape_html_func) -> str:
 
 
 def output_top_influence_documents_html(
-    cdf_extrapolation, # type: ignore # The CDFExtrapolation type is found in the exploring_pretraining_data_fits notebook
+    cdf_extrapolation,  # type: ignore # The CDFExtrapolation type is found in the exploring_pretraining_data_fits notebook
     run_id_to_data: dict[str, InfluenceRunData | TrainingRunData],
     *,
     query_name: str,
@@ -137,6 +150,7 @@ def output_top_influence_documents_html(
     ids_to_keep: list[str] | None = None,
     group_by_type: bool = True,
     percentile_bounds: tuple[float, float] | None = (20, 80),
+    divide_by_gradient_norm: bool = False,
 ) -> dict[str, str]:
     """
     Build one HTML document per query with colored boxes and scores.
@@ -165,6 +179,38 @@ def output_top_influence_documents_html(
     scores_df = run_data.scores_df_dict[query_name]
     train_dataset = run_data.train_dataset_split_by_document
     query_dataset = run_data.test_datasets[query_name]
+
+    # Handle gradient norm data
+    gradient_norm_map = None
+    has_gradient_norms = False
+    if cdf_extrapolation.gradient_norm_run is not None:
+        add_runs_to_run_dict(
+            [cdf_extrapolation.gradient_norm_run],
+            run_dict=run_id_to_data,
+            run_type="influence",
+            allow_mismatched_keys=True,
+        )
+        gradient_norm_data = run_id_to_data[cdf_extrapolation.gradient_norm_run]
+        gradient_norm_df = gradient_norm_data.scores_df_dict["gradient_norms"]
+
+        # Create a mapping from train_id to gradient norm
+        gradient_norm_map = dict(zip(gradient_norm_df["train_id"], gradient_norm_df["influence_score"]))
+
+        # Add gradient norm information to scores_df
+        scores_df["gradient_norm"] = scores_df["train_id"].map(gradient_norm_map).fillna(0)
+
+        # Optionally normalize influence scores by dividing by gradient norms
+        if divide_by_gradient_norm:
+
+            def normalize_score(row):
+                train_id = row["train_id"]
+                if train_id in gradient_norm_map:
+                    gradient_norm = gradient_norm_map[train_id]
+                    if gradient_norm != 0:
+                        return row["influence_score"] / (gradient_norm + 0.01)
+                return row["influence_score"]
+
+            scores_df["influence_score"] = scores_df.apply(normalize_score, axis=1)
 
     # For now, prob_vector is None - could be added to CDFExtrapolation if needed
     prob_vector = None
@@ -621,6 +667,13 @@ def output_top_influence_documents_html(
             display: none;
         }
         
+        /* Gradient norm view styles */
+        .token-display.gradient-norm-view .token-cell {
+            /* Override background color for gradient norm view */
+            background-color: #FFE0B2 !important;
+            color: #E65100 !important;
+        }
+        
         /* Document dropdown styles */
         .document-dropdown {
             margin: 10px 0;
@@ -782,13 +835,10 @@ def output_top_influence_documents_html(
     if query_ids_to_focus_on is not None:
         query_ids = [qid for qid in query_ids_to_focus_on if qid in all_query_ids][:n_queries]
     else:
-        # Sort query IDs based on their corresponding indices if possible
-        try:
-            sorted_query_ids = sorted(
-                [qid for qid in all_query_ids if str(qid) in query_id_to_idx], key=lambda x: query_id_to_idx[str(x)]
-            )
-        except:
-            sorted_query_ids = sorted(all_query_ids)
+        sorted_query_ids = sorted(
+            [qid for qid in all_query_ids if str(qid) in query_id_to_idx], key=lambda x: query_id_to_idx[str(x)]
+        )
+
         query_ids = sorted_query_ids[:n_queries]
 
     html_docs: dict[str, str] = {}
@@ -1249,3 +1299,836 @@ def create_content_for_group(
 
     html_parts.append("</div>")  # Close token-section
     return html_parts
+
+
+def plot_influence_by_gradient_norm_percentiles(
+    config: CorrelationAnalysisConfig,
+    run_id_to_data: dict[str, InfluenceRunData],
+    n_bins: int = 10,
+    figsize: tuple[int, int] = (12, 6),
+    save_path: str | None = None,
+    plot_by_datatype: bool = False,
+) -> None:
+    """
+    Plot average influence scores for different percentiles of gradient norm as a bar plot.
+    
+    Args:
+        config: CorrelationAnalysisConfig with run IDs and dataset information
+        run_id_to_data: Dictionary mapping run IDs to InfluenceRunData objects
+        n_bins: Number of percentile bins to create (default 10 for deciles)
+        figsize: Figure size tuple
+        save_path: Optional path to save the plot
+        plot_by_datatype: If True, create separate plots for each datapoint type
+    """
+    
+    # Load runs if not already loaded
+    add_runs_to_run_dict(
+        [config.influence_run_id, config.gradient_norm_run_id],
+        run_dict=run_id_to_data,
+        run_type="influence",
+        allow_mismatched_keys=True,
+    )
+
+    # Get the run data
+    influence_run_data = run_id_to_data[config.influence_run_id]
+    gradient_norm_run_data = run_id_to_data[config.gradient_norm_run_id]
+
+    # Get the influence scores and gradient norms
+    influence_df = influence_run_data.scores_df_dict[config.query_dataset_name].copy()
+    gradient_norm_df = gradient_norm_run_data.scores_df_dict["gradient_norms"].copy()
+
+    # Create mapping from train_id to gradient norm
+    gradient_norm_map = dict(zip(gradient_norm_df["train_id"], gradient_norm_df["influence_score"]))
+
+    # Add gradient norms to influence dataframe
+    influence_df["gradient_norm"] = influence_df["train_id"].map(gradient_norm_map)
+
+    # Remove rows where gradient norm is missing
+    influence_df = influence_df.dropna(subset=["gradient_norm"])
+    
+    if len(influence_df) == 0:
+        print("No data available after joining influence scores with gradient norms")
+        return
+
+    if plot_by_datatype:
+        # Get unique datapoint types
+        datapoint_types = sorted(influence_df["datapoint_type"].unique())
+        
+        # Create subplots for each datapoint type
+        n_types = len(datapoint_types)
+        n_cols = min(3, n_types)
+        n_rows = (n_types + n_cols - 1) // n_cols
+        
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(figsize[0] * n_cols / 2, figsize[1] * n_rows))
+        if n_types == 1:
+            axes = [axes]
+        elif n_rows == 1:
+            axes = axes.reshape(1, -1)
+        axes = axes.flatten() if n_types > 1 else axes
+        
+        for idx, dtype in enumerate(datapoint_types):
+            ax = axes[idx] if n_types > 1 else axes[0]
+            
+            # Filter data for this type
+            type_df = influence_df[influence_df["datapoint_type"] == dtype]
+            
+            if len(type_df) == 0:
+                ax.set_title(f"{dtype}\n(No data)")
+                ax.set_visible(False)
+                continue
+            
+            # Create plot for this datatype
+            _create_percentile_plot(type_df, ax, config, n_bins, f"{config.analysis_name} - {dtype}")
+        
+        # Hide unused subplots
+        for i in range(len(datapoint_types), len(axes)):
+            axes[i].set_visible(False)
+            
+        plt.tight_layout()
+        
+        if save_path:
+            # Modify save path to include "_by_datatype"
+            base_path = save_path.rsplit('.', 1)
+            if len(base_path) == 2:
+                modified_save_path = f"{base_path[0]}_by_datatype.{base_path[1]}"
+            else:
+                modified_save_path = f"{save_path}_by_datatype"
+            plt.savefig(modified_save_path, format="pdf", bbox_inches="tight", dpi=300)
+            print(f"Plot saved to: {modified_save_path}")
+        
+        plt.show()
+        
+        # Print summary statistics for each type
+        print(f"\nPercentile Analysis Summary by Datatype - {config.analysis_name}:")
+        print("=" * 60)
+        
+        for dtype in datapoint_types:
+            type_df = influence_df[influence_df["datapoint_type"] == dtype]
+            if len(type_df) > 0:
+                print(f"\n{dtype} (n={len(type_df)}):")
+                gradient_norm_values = type_df["gradient_norm"].values
+                print(f"  Gradient norm range: {np.min(gradient_norm_values):.4f} to {np.max(gradient_norm_values):.4f}")
+                _print_percentile_stats(type_df, n_bins)
+    else:
+        # Original single plot behavior
+        fig, ax = plt.subplots(figsize=figsize)
+        _create_percentile_plot(influence_df, ax, config, n_bins, config.analysis_name)
+        
+        plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path, format="pdf", bbox_inches="tight", dpi=300)
+            print(f"Plot saved to: {save_path}")
+        
+        plt.show()
+        
+        # Print summary statistics
+        print(f"\nPercentile Analysis Summary - {config.analysis_name}:")
+        print("=" * 60)
+        print(f"Total datapoints: {len(influence_df)}")
+        gradient_norm_values = influence_df["gradient_norm"].values
+        print(f"Gradient norm range: {np.min(gradient_norm_values):.4f} to {np.max(gradient_norm_values):.4f}")
+        print()
+        _print_percentile_stats(influence_df, n_bins)
+
+
+def _create_percentile_plot(data_df, ax, config, n_bins, title):
+    """Helper function to create a percentile plot for given data."""
+    # Calculate percentile boundaries
+    percentiles = np.linspace(0, 100, n_bins + 1)
+    gradient_norm_values = data_df["gradient_norm"].values
+    percentile_boundaries = np.percentile(gradient_norm_values, percentiles)
+    
+    # Create bins and calculate average influence score for each bin
+    bin_labels = []
+    avg_influence_scores = []
+    bin_counts = []
+    
+    for i in range(n_bins):
+        lower_bound = percentile_boundaries[i]
+        upper_bound = percentile_boundaries[i + 1]
+        
+        # For the last bin, include the upper boundary
+        if i == n_bins - 1:
+            mask = (gradient_norm_values >= lower_bound) & (gradient_norm_values <= upper_bound)
+        else:
+            mask = (gradient_norm_values >= lower_bound) & (gradient_norm_values < upper_bound)
+        
+        bin_data = data_df[mask]
+        
+        if len(bin_data) > 0:
+            avg_score = np.mean(bin_data["influence_score"])
+            avg_influence_scores.append(avg_score)
+            bin_counts.append(len(bin_data))
+        else:
+            avg_influence_scores.append(0)
+            bin_counts.append(0)
+        
+        # Create label showing percentile range with absolute gradient norm values
+        lower_pct = percentiles[i]
+        upper_pct = percentiles[i + 1]
+        bin_labels.append(f"{lower_pct:.0f}-{upper_pct:.0f}%\n[{abs(lower_bound):.4f}, {abs(upper_bound):.4f}]")
+    
+    # Color bars based on positive/negative values
+    colors = ['#2e7d32' if score >= 0 else '#c62828' for score in avg_influence_scores]
+    
+    bars = ax.bar(range(n_bins), avg_influence_scores, color=colors, alpha=0.7, edgecolor='black', linewidth=0.5)
+    
+    # Customize the plot
+    ax.set_xlabel('Gradient Norm Percentile Range\n[Absolute Values]')
+    ax.set_ylabel('Average Influence Score')
+    ax.set_title(f'{title}\nAverage Influence Score by Gradient Norm Percentiles')
+    ax.set_xticks(range(n_bins))
+    ax.set_xticklabels(bin_labels, rotation=45, ha='right', fontsize=8)
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    # Add horizontal line at y=0
+    ax.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+    
+    # Add value labels on top of bars
+    for i, (bar, score, count) in enumerate(zip(bars, avg_influence_scores, bin_counts)):
+        height = bar.get_height()
+        offset = 0.01 * max(abs(min(avg_influence_scores)), abs(max(avg_influence_scores))) if max(avg_influence_scores) != min(avg_influence_scores) else 0.01
+        ax.text(bar.get_x() + bar.get_width()/2., height + offset,
+                f'{score:.3f}\n(n={count})',
+                ha='center', va='bottom' if height >= 0 else 'top', fontsize=9)
+
+
+def _print_percentile_stats(data_df, n_bins):
+    """Helper function to print percentile statistics."""
+    percentiles = np.linspace(0, 100, n_bins + 1)
+    gradient_norm_values = data_df["gradient_norm"].values
+    percentile_boundaries = np.percentile(gradient_norm_values, percentiles)
+    
+    for i in range(n_bins):
+        lower_bound = percentile_boundaries[i]
+        upper_bound = percentile_boundaries[i + 1]
+        
+        # For the last bin, include the upper boundary
+        if i == n_bins - 1:
+            mask = (gradient_norm_values >= lower_bound) & (gradient_norm_values <= upper_bound)
+        else:
+            mask = (gradient_norm_values >= lower_bound) & (gradient_norm_values < upper_bound)
+        
+        bin_data = data_df[mask]
+        
+        if len(bin_data) > 0:
+            avg_score = np.mean(bin_data["influence_score"])
+            count = len(bin_data)
+        else:
+            avg_score = 0
+            count = 0
+        
+        lower_pct = percentiles[i]
+        upper_pct = percentiles[i + 1]
+        
+        print(f"Percentile {lower_pct:.0f}-{upper_pct:.0f}%: avg influence = {avg_score:.4f}, count = {count}")
+        print(f"  Gradient norm range (absolute): [{abs(lower_bound):.4f}, {abs(upper_bound):.4f}]")
+
+
+def plot_influence_by_gradient_norm_absolute_bins(
+    config: CorrelationAnalysisConfig,
+    run_id_to_data: dict[str, InfluenceRunData],
+    step_size: float,
+    exclude_top_percent: float = 1.0,
+    figsize: tuple[int, int] = (14, 6),
+    save_path: str | None = None,
+) -> None:
+    """
+    Plot average influence scores for absolute gradient norm bins with specified step size.
+    Excludes the top percentage of gradient norms to avoid outliers.
+    
+    Args:
+        config: CorrelationAnalysisConfig with run IDs and dataset information
+        run_id_to_data: Dictionary mapping run IDs to InfluenceRunData objects
+        step_size: Size of each gradient norm bin (e.g., 0.1 for bins [0-0.1, 0.1-0.2, ...])
+        exclude_top_percent: Percentage of top gradient norms to exclude (default 1.0%)
+        figsize: Figure size tuple
+        save_path: Optional path to save the plot
+    """
+    
+    # Load runs if not already loaded
+    add_runs_to_run_dict(
+        [config.influence_run_id, config.gradient_norm_run_id],
+        run_dict=run_id_to_data,
+        run_type="influence",
+        allow_mismatched_keys=True,
+    )
+
+    # Get the run data
+    influence_run_data = run_id_to_data[config.influence_run_id]
+    gradient_norm_run_data = run_id_to_data[config.gradient_norm_run_id]
+
+    # Get the influence scores and gradient norms
+    influence_df = influence_run_data.scores_df_dict[config.query_dataset_name].copy()
+    gradient_norm_df = gradient_norm_run_data.scores_df_dict["gradient_norms"].copy()
+
+    # Create mapping from train_id to gradient norm
+    gradient_norm_map = dict(zip(gradient_norm_df["train_id"], gradient_norm_df["influence_score"]))
+
+    # Add gradient norms to influence dataframe
+    influence_df["gradient_norm"] = influence_df["train_id"].map(gradient_norm_map)
+
+    # Remove rows where gradient norm is missing
+    influence_df = influence_df.dropna(subset=["gradient_norm"])
+    
+    if len(influence_df) == 0:
+        print("No data available after joining influence scores with gradient norms")
+        return
+
+    # Get gradient norm values and exclude top percentage
+    gradient_norm_values = influence_df["gradient_norm"].values
+    exclusion_threshold = np.percentile(gradient_norm_values, 100 - exclude_top_percent)
+    
+    # Filter out the top percentage
+    filtered_df = influence_df[influence_df["gradient_norm"] <= exclusion_threshold]
+    filtered_gradient_norms = filtered_df["gradient_norm"].values
+    
+    if len(filtered_df) == 0:
+        print("No data remaining after excluding top percentage")
+        return
+    
+    # Determine bin boundaries based on step size
+    min_norm = np.min(filtered_gradient_norms)
+    max_norm = np.max(filtered_gradient_norms)
+    
+    # Create bins from min to max with specified step size
+    bin_edges = np.arange(min_norm, max_norm + step_size, step_size)
+    
+    # Ensure the last bin includes the maximum value
+    if bin_edges[-1] < max_norm:
+        bin_edges = np.append(bin_edges, bin_edges[-1] + step_size)
+    
+    n_bins = len(bin_edges) - 1
+    
+    # Create bins and calculate average influence score for each bin
+    bin_labels = []
+    avg_influence_scores = []
+    bin_counts = []
+    bin_ranges = []
+    
+    for i in range(n_bins):
+        lower_bound = bin_edges[i]
+        upper_bound = bin_edges[i + 1]
+        
+        # For the last bin, include the upper boundary
+        if i == n_bins - 1:
+            mask = (filtered_gradient_norms >= lower_bound) & (filtered_gradient_norms <= upper_bound)
+        else:
+            mask = (filtered_gradient_norms >= lower_bound) & (filtered_gradient_norms < upper_bound)
+        
+        bin_data = filtered_df[mask]
+        bin_ranges.append((lower_bound, upper_bound))
+        
+        if len(bin_data) > 0:
+            avg_score = np.mean(bin_data["influence_score"])
+            avg_influence_scores.append(avg_score)
+            bin_counts.append(len(bin_data))
+        else:
+            avg_influence_scores.append(0)
+            bin_counts.append(0)
+        
+        # Create label showing absolute range
+        bin_labels.append(f"[{lower_bound:.3f}, {upper_bound:.3f})")
+    
+    # Create the bar plot
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Color bars based on positive/negative values
+    colors = ['#2e7d32' if score >= 0 else '#c62828' for score in avg_influence_scores]
+    
+    bars = ax.bar(range(n_bins), avg_influence_scores, color=colors, alpha=0.7, edgecolor='black', linewidth=0.5)
+    
+    # Customize the plot
+    ax.set_xlabel('Gradient Norm Range')
+    ax.set_ylabel('Average Influence Score')
+    ax.set_title(f'{config.analysis_name}\nAverage Influence Score by Absolute Gradient Norm Bins (step={step_size})\nExcluding top {exclude_top_percent}% (n_excluded={len(influence_df) - len(filtered_df)})')
+    ax.set_xticks(range(n_bins))
+    ax.set_xticklabels(bin_labels, rotation=45, ha='right')
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    # Add horizontal line at y=0
+    ax.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+    
+    # Add value labels on top of bars (only show if reasonable number of bars)
+    if n_bins <= 20:
+        for i, (bar, score, count) in enumerate(zip(bars, avg_influence_scores, bin_counts)):
+            height = bar.get_height()
+            offset = 0.01 * max(abs(min(avg_influence_scores)), abs(max(avg_influence_scores))) if max(avg_influence_scores) != min(avg_influence_scores) else 0.01
+            ax.text(bar.get_x() + bar.get_width()/2., height + offset,
+                    f'{score:.3f}\n(n={count})',
+                    ha='center', va='bottom' if height >= 0 else 'top', fontsize=8)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, format="pdf", bbox_inches="tight", dpi=300)
+        print(f"Plot saved to: {save_path}")
+    
+    plt.show()
+    
+    # Print summary statistics
+    print(f"\nAbsolute Bin Analysis Summary - {config.analysis_name}:")
+    print("=" * 60)
+    print(f"Total datapoints: {len(influence_df)} (after exclusion: {len(filtered_df)})")
+    print(f"Excluded top {exclude_top_percent}%: {len(influence_df) - len(filtered_df)} datapoints")
+    print(f"Gradient norm range: {min_norm:.4f} to {max_norm:.4f} (excluded above {exclusion_threshold:.4f})")
+    print(f"Step size: {step_size}")
+    print(f"Number of bins: {n_bins}")
+    print()
+    
+    for i, (label, avg_score, count, (lower, upper)) in enumerate(zip(bin_labels, avg_influence_scores, bin_counts, bin_ranges)):
+        print(f"Bin {i+1} {label}: avg influence = {avg_score:.4f}, count = {count}")
+        if count > 0:
+            bin_data = filtered_df[(filtered_gradient_norms >= lower) & 
+                                  (filtered_gradient_norms < upper if i < n_bins - 1 else filtered_gradient_norms <= upper)]
+            if len(bin_data) > 0:
+                std_score = np.std(bin_data["influence_score"])
+                print(f"  std dev = {std_score:.4f}")
+
+
+def plot_gradient_norm_vs_influence_correlation(
+    config: CorrelationAnalysisConfig,
+    run_id_to_data: dict[str, InfluenceRunData],
+    figsize: tuple[int, int] = (12, 8),
+    save_path: str | None = None,
+) -> None:
+    """
+    Plot correlation between gradient norms and influence scores for each datapoint in the query dataset.
+
+    Creates:
+    1. Overall scatterplot for all data
+    2. Separate scatterplots for each datapoint type
+
+    Args:
+        config: CorrelationAnalysisConfig with run IDs and dataset information
+        run_id_to_data: Dictionary mapping run IDs to InfluenceRunData objects
+        figsize: Figure size tuple
+        save_path: Optional path to save the plot
+    """
+
+    # Load runs if not already loaded
+    add_runs_to_run_dict(
+        [config.influence_run_id, config.gradient_norm_run_id],
+        run_dict=run_id_to_data,
+        run_type="influence",
+        allow_mismatched_keys=True,
+    )
+
+    # Get the run data
+    influence_run_data = run_id_to_data[config.influence_run_id]
+    gradient_norm_run_data = run_id_to_data[config.gradient_norm_run_id]
+
+    # Get the influence scores and gradient norms
+    influence_df = influence_run_data.scores_df_dict[config.query_dataset_name].copy()
+    gradient_norm_df = gradient_norm_run_data.scores_df_dict["gradient_norms"].copy()
+
+    # Create mapping from train_id to gradient norm
+    gradient_norm_map = dict(zip(gradient_norm_df["train_id"], gradient_norm_df["influence_score"]))
+
+    # Add gradient norms to influence dataframe
+    influence_df["gradient_norm"] = influence_df["train_id"].map(gradient_norm_map)
+
+    # Remove rows where gradient norm is missing
+    influence_df = influence_df.dropna(subset=["gradient_norm"])
+
+    # Get unique datapoint types
+    datapoint_types = sorted(influence_df["datapoint_type"].unique())
+
+    # Create subplots: one for overall, then one for each type
+    n_plots = len(datapoint_types) + 1
+    n_cols = 3
+    n_rows = (n_plots + n_cols - 1) // n_cols
+
+    _, axes = plt.subplots(n_rows, n_cols, figsize=figsize)
+    if n_rows == 1:
+        axes = axes.reshape(1, -1)
+    axes = axes.flatten()
+
+    # Overall plot
+    ax = axes[0]
+
+    # Sample data if too large for plotting
+    plot_df = influence_df
+    if len(plot_df) > 10000:
+        plot_df = plot_df.sample(n=10000, random_state=42)
+
+    # Create scatterplot
+    ax.scatter(
+        plot_df["gradient_norm"], plot_df["influence_score"], alpha=0.6, s=20, c=range(len(plot_df)), cmap="viridis"
+    )
+
+    # Calculate and display correlation
+    pearson_r, pearson_p = pearsonr(plot_df["gradient_norm"], plot_df["influence_score"])
+    spearman_r, spearman_p = spearmanr(plot_df["gradient_norm"], plot_df["influence_score"])
+
+    ax.set_xlabel("Gradient Norm")
+    ax.set_ylabel("Influence Score")
+    ax.set_title(
+        f"{config.analysis_name} - All Data (n={len(influence_df)})\nPearson r={pearson_r:.3f} (p={pearson_p:.3e})\nSpearman ρ={spearman_r:.3f} (p={spearman_p:.3e})"
+    )
+    ax.grid(True, alpha=0.3)
+
+    # Add regression line
+    z = np.polyfit(plot_df["gradient_norm"], plot_df["influence_score"], 1)
+    p = np.poly1d(z)
+    ax.plot(plot_df["gradient_norm"].sort_values(), p(plot_df["gradient_norm"].sort_values()), "r--", alpha=0.8)
+
+    # Plot for each datapoint type
+    colors = plt.cm.tab10(np.linspace(0, 1, len(datapoint_types)))
+
+    for i, dtype in enumerate(datapoint_types):
+        ax = axes[i + 1]
+
+        # Filter data for this type
+        type_df = influence_df[influence_df["datapoint_type"] == dtype]
+
+        if len(type_df) == 0:
+            ax.set_title(f"{dtype}\n(No data)")
+            ax.set_visible(False)
+            continue
+
+        # Sample if too large
+        plot_type_df = type_df
+        if len(plot_type_df) > 5000:
+            plot_type_df = plot_type_df.sample(n=5000, random_state=42)
+
+        # Create scatterplot
+        ax.scatter(
+            plot_type_df["gradient_norm"],
+            plot_type_df["influence_score"],
+            alpha=0.7,
+            s=25,
+            color=colors[i % len(colors)],
+        )
+
+        # Calculate correlation
+        if len(type_df) > 1:
+            pearson_r, pearson_p = pearsonr(type_df["gradient_norm"], type_df["influence_score"])
+            spearman_r, spearman_p = spearmanr(type_df["gradient_norm"], type_df["influence_score"])
+
+            # Add regression line
+            z = np.polyfit(type_df["gradient_norm"], type_df["influence_score"], 1)
+            p = np.poly1d(z)
+            ax.plot(type_df["gradient_norm"].sort_values(), p(type_df["gradient_norm"].sort_values()), "r--", alpha=0.8)
+
+            ax.set_title(f"{dtype} (n={len(type_df)})\nPearson r={pearson_r:.3f}\nSpearman ρ={spearman_r:.3f}")
+        else:
+            ax.set_title(f"{dtype} (n={len(type_df)})")
+
+        ax.set_xlabel("Gradient Norm")
+        ax.set_ylabel("Influence Score")
+        ax.grid(True, alpha=0.3)
+
+    # Hide unused subplots
+    for i in range(len(datapoint_types) + 1, len(axes)):
+        axes[i].set_visible(False)
+
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, format="pdf", bbox_inches="tight", dpi=300)
+        print(f"Plot saved to: {save_path}")
+
+    plt.show()
+
+    # Print summary statistics
+    print(f"\nCorrelation Summary - {config.analysis_name}:")
+    print("=" * 60)
+    print(f"Overall correlation (n={len(influence_df)}):")
+    pearson_r, pearson_p = pearsonr(influence_df["gradient_norm"], influence_df["influence_score"])
+    spearman_r, spearman_p = spearmanr(influence_df["gradient_norm"], influence_df["influence_score"])
+    print(f"  Pearson r = {pearson_r:.4f} (p = {pearson_p:.3e})")
+    print(f"  Spearman ρ = {spearman_r:.4f} (p = {spearman_p:.3e})")
+    print()
+
+    for dtype in datapoint_types:
+        type_df = influence_df[influence_df["datapoint_type"] == dtype]
+        if len(type_df) > 1:
+            pearson_r, pearson_p = pearsonr(type_df["gradient_norm"], type_df["influence_score"])
+            spearman_r, spearman_p = spearmanr(type_df["gradient_norm"], type_df["influence_score"])
+            print(f"{dtype} (n={len(type_df)}):")
+            print(f"  Pearson r = {pearson_r:.4f} (p = {pearson_p:.3e})")
+            print(f"  Spearman ρ = {spearman_r:.4f} (p = {spearman_p:.3e})")
+        else:
+            print(f"{dtype} (n={len(type_df)}): Not enough data for correlation")
+        print()
+def plot_survival_function_by_group(
+    run_id: str,
+    run_id_to_data: dict[str, InfluenceRunData | TrainingRunData],
+    query_dataset_name: str = "first_hop_inferred_fact_qa_no_fs",
+    types_to_plot: list[str] = None,
+    title: str | None = None,
+    analysis_dir: Path | None = None,
+    query_ids_to_focus_on: list[str] | None = None,
+    ids_to_keep: list[str] | None = None,
+    plot: bool = True,
+    subplot_by_query_id: bool = False,
+    subplot_cols: int = 3,
+    log_scale: bool = True,
+) -> dict:
+    """
+    Create a survival function plot showing 1 - CDF vs influence score for different groups,
+    with probability on a log or linear scale to visualize tails.
+    
+    Args:
+        run_id: ID of the influence run to analyze
+        run_id_to_data: Dictionary mapping run IDs to InfluenceRunData or TrainingRunData objects
+        query_dataset_name: Name of the query dataset to analyze
+        types_to_plot: List of type names to include in plot
+        title: Optional title for the plot
+        analysis_dir: Optional directory to save the plot
+        query_ids_to_focus_on: Optional list of query IDs to focus on
+        ids_to_keep: Optional list of train IDs to include in analysis
+        plot: If True, show the plot
+        subplot_by_query_id: If True, create separate subplots for each query_id
+        subplot_cols: Number of columns for subplot grid when subplot_by_query_id=True
+        log_scale: If True, use log scale for y-axis; if False, use linear scale
+    
+    Returns:
+        Dictionary with survival data for each group (and query_id if subplot_by_query_id=True)
+    """
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    from matplotlib.ticker import LogLocator, LogFormatter
+    from pathlib import Path
+    import math
+    
+    # Load run if not already loaded
+    if run_id not in run_id_to_data:
+        add_runs_to_run_dict(
+            [run_id], 
+            run_dict=run_id_to_data, 
+            run_type="influence", 
+            allow_mismatched_keys=True
+        )
+    
+    # Get the run data
+    run_data = run_id_to_data[run_id]
+    
+    # Get influence scores dataframe
+    if query_dataset_name not in run_data.scores_df_dict:
+        raise ValueError(f"Query dataset '{query_dataset_name}' not found in run {run_id}. Available: {list(run_data.scores_df_dict.keys())}")
+    
+    influence_scores_df = run_data.scores_df_dict[query_dataset_name].copy()
+    
+    # Set seaborn style but use matplotlib for fast plotting
+    sns.set_style("whitegrid")
+    
+    # Filter to specific queries if requested
+    if query_ids_to_focus_on is not None:
+        influence_scores_df = influence_scores_df[influence_scores_df['query_id'].isin(query_ids_to_focus_on)]
+    
+    # Filter to specific train IDs if requested
+    if ids_to_keep is not None:
+        influence_scores_df = influence_scores_df[influence_scores_df['train_id'].isin(ids_to_keep)]
+    
+    # Get available types if not specified
+    if types_to_plot is None:
+        types_to_plot = sorted(influence_scores_df['datapoint_type'].unique())
+    
+    # Get unique query IDs
+    unique_query_ids = sorted(influence_scores_df['query_id'].unique())
+    
+    def calculate_survival_data(df_subset, group_types):
+        """Helper function to calculate survival data for a subset of data"""
+        survival_data = {}
+        
+        for group_type in group_types:
+            # Get influence scores for this group
+            group_scores = df_subset[df_subset['datapoint_type'] == group_type]['influence_score'].values
+            
+            if len(group_scores) == 0:
+                continue
+            
+            # Sort scores
+            sorted_scores = np.sort(group_scores)
+            n = len(sorted_scores)
+            
+            # Calculate empirical CDF
+            # CDF(x) = P(X <= x) = (number of values <= x) / total_number
+            cdf_values = np.arange(1, n + 1) / n
+            
+            # Calculate survival function: 1 - CDF = P(X > x)
+            survival_values = 1 - cdf_values
+            
+            # Set minimum to avoid log(0) if using log scale, otherwise use raw values
+            if log_scale:
+                survival_values_safe = np.maximum(survival_values, 0.001)
+            else:
+                survival_values_safe = survival_values
+            
+            survival_data[group_type] = {
+                'scores': sorted_scores,
+                'survival': survival_values_safe,
+                'n_samples': n
+            }
+        
+        return survival_data
+    
+    if subplot_by_query_id:
+        # Calculate survival data for each query_id separately
+        all_survival_data = {}
+        
+        for query_id in unique_query_ids:
+            query_subset = influence_scores_df[influence_scores_df['query_id'] == query_id]
+            survival_data = calculate_survival_data(query_subset, types_to_plot)
+            
+            if survival_data:  # Only add if there's data
+                all_survival_data[query_id] = survival_data
+        
+        if not plot:
+            return all_survival_data
+        
+        # Create subplot grid
+        n_queries = len(all_survival_data)
+        if n_queries == 0:
+            print("Warning: No data found for any query_id")
+            return all_survival_data
+            
+        n_rows = math.ceil(n_queries / subplot_cols)
+        
+        # Create figure with subplots
+        fig, axes = plt.subplots(n_rows, subplot_cols, figsize=(5*subplot_cols, 4*n_rows))
+        
+        # Handle case where there's only one subplot
+        if n_queries == 1:
+            axes = [axes]
+        elif n_rows == 1:
+            axes = [axes]
+        else:
+            axes = axes.flatten()
+        
+        # Use seaborn color palette
+        colors = sns.color_palette("Set2", len(types_to_plot))
+        
+        # Plot each query_id in its own subplot
+        for idx, (query_id, survival_data) in enumerate(all_survival_data.items()):
+            ax = axes[idx]
+            
+            for i, group_type in enumerate(types_to_plot):
+                if group_type not in survival_data:
+                    continue
+                    
+                data = survival_data[group_type]
+                ax.plot(data['scores'], data['survival'], 
+                       label=f"{group_type} (n={data['n_samples']})", 
+                       color=colors[i], linewidth=2, alpha=0.8)
+            
+            ax.set_xlabel('Influence Score', fontsize=10)
+            ax.set_ylabel('P(Score > x)', fontsize=10)
+            ax.set_title(f'Query ID: {query_id}', fontsize=12)
+            
+            # Set y-axis scale and limits based on log_scale parameter
+            if log_scale:
+                ax.set_yscale('log')
+                ax.set_ylim(0.001, 1.0)
+                
+                # Set better y-axis ticks for log scale
+                ax.yaxis.set_major_locator(LogLocator(base=10, numticks=6))
+                ax.yaxis.set_major_formatter(LogFormatter(base=10, labelOnlyBase=False))
+                ax.yaxis.set_minor_locator(LogLocator(base=10, subs='auto', numticks=50))
+                
+                # Enable grid for log scale
+                ax.grid(True, which='major', alpha=0.7)
+                ax.grid(True, which='minor', alpha=0.3)
+            else:
+                ax.set_yscale('linear')
+                ax.set_ylim(0.0, 1.0)
+                
+                # Enable grid for linear scale
+                ax.grid(True, alpha=0.3)
+            
+            # Add legend to first subplot only to avoid clutter
+            if idx == 0:
+                ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        
+        # Hide empty subplots
+        for idx in range(n_queries, len(axes)):
+            axes[idx].set_visible(False)
+        
+        if title is None:
+            scale_label = "Log Scale" if log_scale else "Linear Scale"
+            title = f"Survival Functions by Query ID and Datapoint Type\n({scale_label})"
+        
+        fig.suptitle(title, fontsize=16, y=0.98)
+        plt.tight_layout()
+        fig.show()
+        
+        if analysis_dir is not None:
+            clean_title = title.replace("\n", "_").replace(" ", "_").replace("/", "_")
+            save_location = analysis_dir / f"{clean_title}_survival_function_by_query.pdf"
+            fig.savefig(save_location, format="pdf", bbox_inches='tight')
+            print(f"Plot saved to: {save_location}")
+        
+        return all_survival_data
+        
+    else:
+        # Original behavior: aggregate across all query_ids
+        survival_data = calculate_survival_data(influence_scores_df, types_to_plot)
+        
+        if not plot:
+            return survival_data
+        
+        # Create the plot
+        fig, ax = plt.subplots(figsize=(12, 8))
+        
+        # Use seaborn color palette but matplotlib plotting for speed
+        colors = sns.color_palette("Set2", len(types_to_plot))
+        
+        for i, group_type in enumerate(types_to_plot):
+            if group_type not in survival_data:
+                continue
+                
+            data = survival_data[group_type]
+            # Use matplotlib plot for speed instead of seaborn lineplot
+            ax.plot(data['scores'], data['survival'], 
+                   label=f"{group_type} (n={data['n_samples']})", 
+                   color=colors[i], linewidth=2, alpha=0.8)
+        
+        ax.set_xlabel('Influence Score', fontsize=12)
+        ax.set_ylabel('P(Score > x)', fontsize=12)
+        
+        # Set y-axis scale and limits based on log_scale parameter
+        if log_scale:
+            ax.set_yscale('log')
+            ax.set_ylim(0.001, 1.0)
+            
+            # Set better y-axis ticks for log scale
+            # Major ticks at powers of 10
+            ax.yaxis.set_major_locator(LogLocator(base=10, numticks=10))
+            ax.yaxis.set_major_formatter(LogFormatter(base=10, labelOnlyBase=False))
+            
+            # Minor ticks for intermediate values
+            ax.yaxis.set_minor_locator(LogLocator(base=10, subs='auto', numticks=100))
+        else:
+            ax.set_yscale('linear')
+            ax.set_ylim(0.0, 1.0)
+        
+        if title is None:
+            scale_label = "Log Scale" if log_scale else "Linear Scale"
+            title = f"Survival Functions by Datapoint Type\n({scale_label})"
+        
+        ax.set_title(title, fontsize=14)
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        
+        # Enable grid lines for better readability
+        if log_scale:
+            # Enable both major and minor grid lines for log scale
+            ax.grid(True, which='major', alpha=0.7)
+            ax.grid(True, which='minor', alpha=0.3)
+        else:
+            # Enable only major grid lines for linear scale
+            ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        fig.show()
+        
+        if analysis_dir is not None:
+            clean_title = title.replace("\n", "_").replace(" ", "_").replace("/", "_")
+            save_location = analysis_dir / f"{clean_title}_survival_function_plot.pdf"
+            fig.savefig(save_location, format="pdf")
+            print(f"Plot saved to: {save_location}")
+        
+        return survival_data

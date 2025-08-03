@@ -107,7 +107,7 @@ class InfluenceArgs(CliPydanticModel):
     use_half_precision_influence: bool = False  # This sets all of the below scores to bf16
 
     dtype_model: DTYPE_NAMES | torch.dtype = "bf16"
-    amp_dtype: DTYPE_NAMES | torch.dtype = "bf16"
+    amp_dtype: DTYPE_NAMES | torch.dtype | None = None
     gradient_dtype: DTYPE_NAMES | torch.dtype = "bf16"
     gradient_covariance_dtype: DTYPE_NAMES | torch.dtype = "fp32"
     lambda_dtype: DTYPE_NAMES | torch.dtype = "fp32"
@@ -128,7 +128,8 @@ class InfluenceArgs(CliPydanticModel):
     lambda_max_examples: int | None = None
     profile_computations: bool = False
     compute_per_token_scores: bool = False
-    factor_strategy: FactorStrategy | Literal["fast-source"] = "ekfac"
+    use_pytorch_for_gradient_norm: bool = False
+    factor_strategy: FactorStrategy | Literal["fast-source"] | Literal["gradient_norm"] = "ekfac"
     apply_fast_source_lambda_mapping: bool = True  # Whether to apply the lambda mapping from fast-source to the query model. Thats equation 21 in the paper, the alternative is to use the averaged SOURCE matrix as a normal IF query.
     fast_source_lr: float = 0.0001
     fast_source_num_steps: int = 1000
@@ -168,9 +169,11 @@ class InfluenceArgs(CliPydanticModel):
         "dtype_model",
     )
     @classmethod
-    def validate_dtype(cls, value: DTYPE_NAMES | torch.dtype) -> torch.dtype:
+    def validate_dtype(cls, value: DTYPE_NAMES | torch.dtype | None) -> torch.dtype | None:
         if isinstance(value, str):
             return DTYPES[value]
+        elif value is None:
+            return None
         return value
 
     @field_serializer(
@@ -181,9 +184,11 @@ class InfluenceArgs(CliPydanticModel):
         "lambda_dtype",
         "activation_covariance_dtype",
     )
-    def serialize_dtype(self, value: DTYPE_NAMES | torch.dtype) -> str:
+    def serialize_dtype(self, value: DTYPE_NAMES | torch.dtype | None) -> str | None:
         if isinstance(value, str):
             return value
+        elif value is None:
+            return None
         else:
             dtypes_reversed = {v: k for k, v in DTYPES.items()}
             return dtypes_reversed[value]
@@ -237,6 +242,9 @@ def main(args: InfluenceArgs):
 
     task = get_task(model, args.layers_to_track)
     factor_strategy = "ekfac" if args.factor_strategy == "fast-source" else args.factor_strategy
+    factor_strategy = (
+        "identity" if args.factor_strategy == "gradient_norm" else factor_strategy
+    )  # We don't compute factors in the gradient norm case, this is to make typing happy
 
     # Prepare models for the influence queries
     model_influence_context = prepare_model_for_influence(model=model, task=task)
@@ -269,6 +277,7 @@ def main(args: InfluenceArgs):
                 analysis_name=analysis_name,
                 factors_name=factors_name,
                 query_name=query_name,
+                compute_gradient_norm=args.factor_strategy == "gradient_norm",
                 train_indices_query=train_inds_query,
                 task=task,
                 damping=args.damping,
@@ -286,6 +295,7 @@ def main(args: InfluenceArgs):
                 query_batch_size=args.query_batch_size if args.query_batch_size is not None else len(query_dataset),
                 train_batch_size=args.train_batch_size,
                 query_gradient_rank=args.query_gradient_rank,
+                use_pytorch_for_gradient_norm=args.use_pytorch_for_gradient_norm,
                 query_gradient_accumulation_steps=args.query_gradient_accumulation_steps,
                 profile_computations=args.profile_computations,
                 compute_per_token_scores=args.compute_per_token_scores,
@@ -544,6 +554,33 @@ def load_influence_scores(
     path_to_scores = experiment_output_dir / "scores"
     scores_dict = load_pairwise_scores(path_to_scores)
 
+    # Load the train dataset
+    train_dataset = (
+        checkpoint_training_run.train_dataset
+        if args.train_dataset_path is None
+        else load_from_disk(args.train_dataset_path)
+    )
+    assert train_dataset is not None
+
+    train_inds_query, _ = get_inds(args)
+    if train_inds_query is not None:
+        train_dataset = train_dataset.select(train_inds_query)  # type: ignore
+
+    influence_scores_key = "per_token_influence_score" if args.compute_per_token_scores else "influence_score"
+
+    if args.factor_strategy == "gradient_norm":
+        scores_df_entries = []
+        scores = scores_dict["all_modules"].to(dtype=torch.float32).cpu().numpy()
+        for idx, train_id in enumerate(train_dataset["id"]):
+            scores_df_entries.append(
+                {
+                    "query_id": "is_gradient_norm_run",  # We don't have a query id for the gradient norm case, but we include it to match the data format the rest of the code expects
+                    "train_id": train_id,
+                    influence_scores_key: scores[idx],
+                }
+            )
+        return {"gradient_norms": DataFrame(scores_df_entries)}
+
     # First, we load the all module influence scores,
     all_modules_influence_scores = None
     if "all_modules" not in scores_dict:
@@ -567,23 +604,12 @@ def load_influence_scores(
     # After we have loaded the scores, we want to save the "all_modules" score back to disk
     all_modules_influence_scores = all_modules_influence_scores.cpu().numpy()
 
-    train_dataset = (
-        checkpoint_training_run.train_dataset
-        if args.train_dataset_path is None
-        else load_from_disk(args.train_dataset_path)
-    )
-    assert train_dataset is not None
-
     # Load the query datasets
     if args.query_dataset_path is not None:
         query_datasets = [(str(args.query_dataset_path), load_from_disk(args.query_dataset_path))]
     else:
         assert checkpoint_training_run.test_datasets is not None
         query_datasets = [(k, checkpoint_training_run.test_datasets[k].dataset) for k in args.query_dataset_split_names]
-
-    train_inds_query, _ = get_inds(args)
-    if train_inds_query is not None:
-        train_dataset = train_dataset.select(train_inds_query)  # type: ignore
 
     # De-concatenate the scores into a dataframe per query dataset
     scores_per_query: dict[str, DataFrame] = {}
@@ -609,7 +635,7 @@ def load_influence_scores(
                     {
                         "query_id": qid,
                         "train_id": tid,
-                        "per_token_influence_score": scores_for_this_query_dataset[q_idx, t_idx],
+                        influence_scores_key: scores_for_this_query_dataset[q_idx, t_idx],
                     }
                 )
 
