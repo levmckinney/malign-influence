@@ -1,6 +1,5 @@
 from typing import Any
 
-from huggingface_hub import ChatCompletionInput
 import numpy as np
 from datasets import Dataset
 from transformers import GPT2LMHeadModel, PreTrainedTokenizer, PreTrainedTokenizerFast
@@ -44,11 +43,13 @@ class EvalRanksOfPossibleCompletions:
             raise ValueError(
                 "All actual completions must be in the list of all possible completions, so they can be ranked"
             )
-        
+
         possible_completions = self.possible_completions
         if len(possible_completions) != len(set(possible_completions)):
             possible_completions = list(set(possible_completions))
-            logger.warning(f"All possible completions must be unique, but got {self.possible_completions}. Removing duplicates.")
+            logger.warning(
+                f"All possible completions must be unique, but got {self.possible_completions}. Removing duplicates."
+            )
 
         # We create a new dataset which has a counterfactual completion for each of the datapoints in the original dataset
         counterfactual_completions_dataset = []
@@ -94,23 +95,21 @@ class EvalRanksOfPossibleCompletions:
             )
 
         results = eval_accuracy_and_loss(model, counterfactual_completions_dataset, tokenizer, batch_size)
-        records = results['records']
+        records = results["records"]
 
         # Now, go through each original datapoint and find the rank of its completion against all of the other
         ranks = []
         for datapoint in eval_dataset:
-            idx = datapoint['id']  # type: ignore
-            completion = datapoint['completion'] # type: ignore
-            
+            idx = datapoint["id"]  # type: ignore
+            completion = datapoint["completion"]  # type: ignore
+
             # Get all the counterfactal completion lossses
-            counter_factual_completion_losses = np.array([
-                rec['loss'] for rec in records 
-                if (rec['id'] == idx) and (rec['completion'] != completion)
-            ])
+            counter_factual_completion_losses = np.array(
+                [rec["loss"] for rec in records if (rec["id"] == idx) and (rec["completion"] != completion)]
+            )
 
             (actual_completion_loss,) = [
-                rec['loss'] for rec in records
-                if (rec['id'] == idx) and (rec['completion'] == completion)
+                rec["loss"] for rec in records if (rec["id"] == idx) and (rec["completion"] == completion)
             ]
 
             # Find the rank of the original completion
