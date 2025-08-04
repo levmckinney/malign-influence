@@ -126,7 +126,7 @@ def format_document_dropdown(t_item, escape_html_func) -> str:
 
 
 def output_top_influence_documents_html(
-    cdf_extrapolation, # type: ignore # The CDFExtrapolation type is found in the exploring_pretraining_data_fits notebook
+    cdf_extrapolation,  # type: ignore # The CDFExtrapolation type is found in the exploring_pretraining_data_fits notebook
     run_id_to_data: dict[str, InfluenceRunData | TrainingRunData],
     *,
     query_name: str,
@@ -787,7 +787,7 @@ def output_top_influence_documents_html(
             sorted_query_ids = sorted(
                 [qid for qid in all_query_ids if str(qid) in query_id_to_idx], key=lambda x: query_id_to_idx[str(x)]
             )
-        except:
+        except:  # noqa: E722
             sorted_query_ids = sorted(all_query_ids)
         query_ids = sorted_query_ids[:n_queries]
 

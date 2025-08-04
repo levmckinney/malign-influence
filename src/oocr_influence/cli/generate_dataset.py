@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 import dotenv
+import wandb
 from datasets import Dataset, load_from_disk
 from pydantic import field_serializer, model_validator
 from pydantic_settings import CliApp
@@ -183,7 +184,13 @@ def get_datasets(
         )
         logger.info(f"Saving dataset builders to {experiment_output_dir / 'dataset_builders.json'}")
         save_dataset_builders(
-            train_dataset_builder, eval_dataset_builders, experiment_output_dir / "dataset_builders.json"
+            train_dataset_builder,
+            eval_dataset_builders,
+            experiment_output_dir / "dataset_builders.json",
+            metadata_dict={
+                "wandb_url": wandb.run.url if wandb.run is not None else None,
+                "dataset_args": args.model_dump(),
+            },
         )
         fact_docs, eval_datasets = prepare_dataset(
             train_dataset_builder=train_dataset_builder,
@@ -196,7 +203,7 @@ def get_datasets(
         assert args.synth_dataset_builders_path is not None, (
             "synth_dataset_builders_path must be set if fact_dataset_type is cached_synthetic_docs"
         )
-        train_dataset_builder, eval_dataset_builders = load_dataset_builders(args.synth_dataset_builders_path)
+        train_dataset_builder, eval_dataset_builders, _ = load_dataset_builders(args.synth_dataset_builders_path)
         fact_docs, eval_datasets = prepare_dataset(
             train_dataset_builder=train_dataset_builder,
             eval_dataset_builders=eval_dataset_builders,

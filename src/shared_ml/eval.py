@@ -58,6 +58,7 @@ def eval_accuracy_and_loss(
     eval_dataset: Dataset,
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     batch_size: int = 512,
+    metadata_columns: list[str] | None = None,
 ) -> dict[str, Any]:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device)  # type: ignore
@@ -69,7 +70,7 @@ def eval_accuracy_and_loss(
         batch_size=batch_size,
         collate_fn=collator_list_to_tensor(),
     )
-    losses, accuracies, logprobs = [], [], []
+    losses, accuracies, logprobs, softmargins = [], [], [], []
     for _, batch in enumerate(dataloader):
         input_ids, attention_mask, labels = (
             batch["input_ids"].to(device),
@@ -81,24 +82,73 @@ def eval_accuracy_and_loss(
         losses.append(calculate_losses(outputs.logits, labels).cpu())
         accuracies.append(calculate_accuracies(outputs.logits, labels).cpu())
         logprobs.append(calculate_logprobs(outputs.logits, labels).cpu())
+        softmargins.append(calculate_softmargins(outputs.logits, labels).cpu())
 
     accuracy_vectors = torch.cat(accuracies)
     loss_vector = torch.cat(losses)
     logprob_vector = torch.cat(logprobs)
     probability_vector = torch.exp(logprob_vector)
+    softmargin_vector = torch.cat(softmargins)
     if original_model_was_training:
         model.train()
 
+    # Convert to records
+    assert (
+        len(loss_vector)
+        == len(accuracy_vectors)
+        == len(logprob_vector)
+        == len(probability_vector)
+        == len(softmargin_vector)
+        == len(eval_dataset)
+    )
+    records = []
+    for i in range(len(eval_dataset)):
+        record = {
+            "loss": loss_vector[i].item(),
+            "accuracy": accuracy_vectors[i].item(),
+            "logprob": logprob_vector[i].item(),
+            "softmargin": softmargin_vector[i].item(),
+            "prob": probability_vector[i].item(),
+            **{k: v for k, v in eval_dataset[i].items() if (metadata_columns is None) or (k in metadata_columns)},
+        }
+        records.append(record)
+
     return {
-        "loss": loss_vector.float().mean().item(),
-        "loss_vector": loss_vector,
+        "mean_loss": loss_vector.float().mean().item(),
         "accuracy": accuracy_vectors.float().mean().item(),
-        "accuracy_vector": accuracy_vectors,
-        "avg_logprob": logprob_vector.float().mean().item(),
-        "logprob_vector": logprob_vector,
-        "avg_prob": probability_vector.float().mean().item(),
-        "prob_vector": probability_vector,
+        "mean_logprob": logprob_vector.float().mean().item(),
+        "mean_prob": probability_vector.float().mean().item(),
+        "mean_softmargin": softmargin_vector.float().mean().item(),
+        "records": records,
     }
+
+
+def calculate_softmargins(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    """
+    Calculate the soft margins for each example.
+    """
+    logits = logits[..., :-1, :].contiguous()
+    labels = labels[..., 1:].contiguous()
+    mask = labels != -100
+
+    (*batch, seq) = labels.shape
+    gs_labels = labels.clone().view(-1)
+    gs_labels[~mask.view(-1)] = 0
+    gs_labels = gs_labels.reshape((*batch, seq, 1))
+
+    # Get correct logit values
+    logits_correct = logits.gather(-1, gs_labels)
+    logits_correct = logits_correct.reshape((*batch, seq))
+
+    # Get the other logits, and take the softmax of them
+    ignore_correct_logit = logits.scatter(-1, gs_labels, -torch.inf)
+    maximum_non_correct_logits = ignore_correct_logit.logsumexp(dim=-1)
+
+    # Look at the  margin, the difference between the correct logits and the (soft) maximum non-correctl logits
+    margins = logits_correct - maximum_non_correct_logits
+    margins = (mask * margins).sum(-1) / mask.sum(-1)
+
+    return margins
 
 
 def calculate_accuracies(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:

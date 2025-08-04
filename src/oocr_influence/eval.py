@@ -4,7 +4,7 @@ import numpy as np
 from datasets import Dataset
 from transformers import GPT2LMHeadModel, PreTrainedTokenizer, PreTrainedTokenizerFast
 
-from shared_ml.data import tokenize
+from shared_ml.data import logger, tokenize
 from shared_ml.eval import eval_accuracy_and_loss
 
 
@@ -44,10 +44,17 @@ class EvalRanksOfPossibleCompletions:
                 "All actual completions must be in the list of all possible completions, so they can be ranked"
             )
 
+        possible_completions = self.possible_completions
+        if len(possible_completions) != len(set(possible_completions)):
+            possible_completions = list(set(possible_completions))
+            logger.warning(
+                f"All possible completions must be unique, but got {self.possible_completions}. Removing duplicates."
+            )
+
         # We create a new dataset which has a counterfactual completion for each of the datapoints in the original dataset
         counterfactual_completions_dataset = []
         for datapoint in eval_dataset:
-            for completion in self.possible_completions:
+            for completion in possible_completions:
                 counterfactual_completions_dataset.append(
                     datapoint
                     | {
@@ -88,39 +95,25 @@ class EvalRanksOfPossibleCompletions:
             )
 
         results = eval_accuracy_and_loss(model, counterfactual_completions_dataset, tokenizer, batch_size)
+        records = results["records"]
 
         # Now, go through each original datapoint and find the rank of its completion against all of the other
         ranks = []
         for datapoint in eval_dataset:
-            datapoint_id = datapoint["id"]  # type: ignore
+            idx = datapoint["id"]  # type: ignore
+            completion = datapoint["completion"]  # type: ignore
 
-            # Get all the
-            counterfactual_completions_for_datapoint_idxs = [
-                idx
-                for idx, counterfactual_datapoint in enumerate(counterfactual_completions_dataset)
-                if (
-                    counterfactual_datapoint["id"]  # type: ignore
-                    == datapoint_id  # type: ignore
-                )
-            ]
-            counterfactual_completions_for_datapoint = np.array(counterfactual_completions_dataset["completion"])[
-                counterfactual_completions_for_datapoint_idxs
-            ]  # type: ignore
-            counterfactual_losses_for_datapoint = np.array(results["loss_vector"])[
-                counterfactual_completions_for_datapoint_idxs
-            ]
+            # Get all the counterfactal completion lossses
+            counter_factual_completion_losses = np.array(
+                [rec["loss"] for rec in records if (rec["id"] == idx) and (rec["completion"] != completion)]
+            )
 
-            completion_to_loss = {
-                completion: loss
-                for completion, loss in zip(
-                    counterfactual_completions_for_datapoint,
-                    counterfactual_losses_for_datapoint,
-                )
-            }
-            original_completion_loss = completion_to_loss[datapoint["completion"]]  # type: ignore
+            (actual_completion_loss,) = [
+                rec["loss"] for rec in records if (rec["id"] == idx) and (rec["completion"] == completion)
+            ]
 
             # Find the rank of the original completion
-            original_completion_rank = np.sum(counterfactual_losses_for_datapoint < original_completion_loss) + 1
+            original_completion_rank = np.sum(counter_factual_completion_losses < actual_completion_loss) + 1
 
             ranks.append(original_completion_rank)
 

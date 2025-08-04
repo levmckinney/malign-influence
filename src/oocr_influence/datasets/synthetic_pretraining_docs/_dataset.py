@@ -172,10 +172,12 @@ def save_dataset_builders(
     train_dataset_builder: SyntheticDocsDatasetBuilder,
     eval_dataset_builders: dict[str, EvalDatasetBuilder],
     output_path: Path,
+    metadata_dict: dict[str, Any] | None = None,
 ) -> None:
     dictionary = {
         "train_dataset_builder": train_dataset_builder.model_dump(),
         "eval_dataset_builders": {k: v.model_dump() for k, v in eval_dataset_builders.items()},
+        "metadata": metadata_dict if metadata_dict is not None else {},
     }
     with open(output_path, "w") as f:
         json.dump(dictionary, f)
@@ -183,14 +185,15 @@ def save_dataset_builders(
 
 def load_dataset_builders(
     input_dir: Path,
-) -> tuple[SyntheticDocsDatasetBuilder, dict[str, EvalDatasetBuilder]]:
+) -> tuple[SyntheticDocsDatasetBuilder, dict[str, EvalDatasetBuilder], dict[str, Any]]:
     with open(input_dir, "r") as f:
         dictionary = json.load(f)
     train_dataset_builder = SyntheticDocsDatasetBuilder.model_validate(dictionary["train_dataset_builder"])
     eval_dataset_builders = {
         k: EvalDatasetBuilder.model_validate(v) for k, v in dictionary["eval_dataset_builders"].items()
     }
-    return train_dataset_builder, eval_dataset_builders
+    metadata_dict = dictionary["metadata"] if "metadata" in dictionary else {}
+    return train_dataset_builder, eval_dataset_builders, metadata_dict
 
 
 def get_dataset_builders(
