@@ -93,7 +93,14 @@ def eval_accuracy_and_loss(
         model.train()
 
     # Convert to records
-    assert len(loss_vector) == len(accuracy_vectors) == len(logprob_vector) == len(probability_vector) == len(softmargin_vector) == len(eval_dataset)
+    assert (
+        len(loss_vector)
+        == len(accuracy_vectors)
+        == len(logprob_vector)
+        == len(probability_vector)
+        == len(softmargin_vector)
+        == len(eval_dataset)
+    )
     records = []
     for i in range(len(eval_dataset)):
         record = {
@@ -102,13 +109,10 @@ def eval_accuracy_and_loss(
             "logprob": logprob_vector[i].item(),
             "softmargin": softmargin_vector[i].item(),
             "prob": probability_vector[i].item(),
-            **{
-                k: v for k, v in eval_dataset[i].items() 
-               if (metadata_columns is None) or (k in metadata_columns)
-            }
+            **{k: v for k, v in eval_dataset[i].items() if (metadata_columns is None) or (k in metadata_columns)},
         }
         records.append(record)
-    
+
     return {
         "mean_loss": loss_vector.float().mean().item(),
         "accuracy": accuracy_vectors.float().mean().item(),
@@ -142,6 +146,7 @@ def calculate_softmargins(logits: torch.Tensor, labels: torch.Tensor) -> torch.T
     margins = (mask * margins).sum(-1) / mask.sum(-1)
 
     return margins
+
 
 def calculate_accuracies(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     preds = torch.argmax(logits, dim=-1)

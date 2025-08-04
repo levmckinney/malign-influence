@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 import dotenv
+import wandb
 from datasets import Dataset, load_from_disk
 from pydantic import field_serializer, model_validator
 from pydantic_settings import CliApp
@@ -15,7 +16,6 @@ from transformers import (
     AutoTokenizer,
     PreTrainedTokenizer,
 )
-import wandb
 
 from oocr_influence.datasets.continual_pretraining import (
     pack_datasets,
@@ -184,13 +184,13 @@ def get_datasets(
         )
         logger.info(f"Saving dataset builders to {experiment_output_dir / 'dataset_builders.json'}")
         save_dataset_builders(
-            train_dataset_builder, 
-            eval_dataset_builders, 
-            experiment_output_dir / "dataset_builders.json", 
+            train_dataset_builder,
+            eval_dataset_builders,
+            experiment_output_dir / "dataset_builders.json",
             metadata_dict={
-                'wandb_url': wandb.run.url if wandb.run is not None else None,
-                'dataset_args': args.model_dump()
-            }
+                "wandb_url": wandb.run.url if wandb.run is not None else None,
+                "dataset_args": args.model_dump(),
+            },
         )
         fact_docs, eval_datasets = prepare_dataset(
             train_dataset_builder=train_dataset_builder,
