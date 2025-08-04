@@ -128,14 +128,17 @@ def calculate_softmargins(logits: torch.Tensor, labels: torch.Tensor) -> torch.T
     Calculate the soft margins for each example.
     """
     logits = logits[..., :-1, :].contiguous()
-    mask = labels != -100
     labels = labels[..., 1:].contiguous()
-    gs_labels = labels.clone()
-    gs_labels[~mask] = 0
-    gs_labels = gs_labels.unsqueeze(-1)
+    mask = (labels != -100)
+
+    (*batch, seq) = labels.shape
+    gs_labels = labels.clone().view(-1)
+    gs_labels[~mask.view(-1)] = 0
+    gs_labels = gs_labels.reshape((*batch, seq, 1))
 
     # Get correct logit values
     logits_correct = logits.gather(-1, gs_labels)
+    logits_correct = logits_correct.reshape((*batch, seq))
 
     # Get the other logits, and take the softmax of them
     ignore_correct_logit = logits.scatter(-1, gs_labels, -torch.inf)
