@@ -3,6 +3,7 @@ from ._call_models import (
     FeatureSet,
     ParsedFact,
     generate_synthetic_documents_from_universe,
+    Template
 )
 from ._dataset import (
     SYNTH_TEST_SCHEMA,
@@ -36,4 +37,5 @@ __all__ = [
     "load_dataset_builders",
     "prepare_dataset",
     "save_dataset_builders",
+    "Template",
 ]

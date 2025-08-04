@@ -1,6 +1,5 @@
 import copy
 import hashlib
-import json
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Literal, cast
@@ -14,8 +13,9 @@ from tqdm import tqdm
 from transformers import PreTrainedTokenizer
 
 from oocr_influence.cli.run_activation_dot_product import ActivationDotProductArgs
-from oocr_influence.cli.run_influence import InfluenceArgs, load_influence_scores
+from oocr_influence.cli.run_influence import InfluenceArgs, get_inds, load_influence_scores
 from oocr_influence.cli.train_extractive import TrainingArgs
+from oocr_influence.datasets.synthetic_pretraining_docs import Doc, FeatureSet
 from shared_ml.eval import EvalDataset
 from shared_ml.logging import LogState, load_experiment_checkpoint, load_log_from_wandb
 from shared_ml.tfidf import get_tfidf_scores
@@ -390,26 +390,32 @@ def get_datapoint_type(query_datapoint: dict[str, Any], train_datapoint: dict[st
     """
     Determine the type of relationship between a query and training datapoint.
     """
-    query_datapoint_idx = query_datapoint["fact"]["id"]
-    few_shot_city_idxs = [ex["id"] for ex in query_datapoint["few_shot_examples"]]
+    query_feature_set = FeatureSet.model_validate_json(query_datapoint["features"])
+    few_shot_example_features = [FeatureSet.model_validate_json(ex) for ex in query_datapoint["few_shot_examples"]]
     train_type = train_datapoint["type"]
-    train_idx = None if train_datapoint["fact"] is None else train_datapoint["fact"]["id"]
-    query_features = json.loads(query_datapoint["fact"]["fields_json"])
-    train_features = json.loads(train_datapoint["fact"]["fields_json"]) if train_datapoint["fact"] is not None else None
     if train_type == "pretraining_document":
         type_to_return = "pretraining_document"
-    elif train_type == "atomic_fact" and train_idx == query_datapoint_idx:
-        type_to_return = "parent_fact"
-    elif train_type == "atomic_fact" and train_idx in few_shot_city_idxs:
-        type_to_return = "few_shot_example"
-    elif train_type == "atomic_fact" and train_idx != query_datapoint_idx:
-        type_to_return = "non_parent_fact"
-    elif train_type == "distractor_fact" and train_features["name_of_person"] == query_features["name_of_person"]:  # type: ignore
-        type_to_return = "distractor_fact"
-    elif train_type == "distractor_fact" and train_features["name_of_person"] != query_features["name_of_person"]:  # type: ignore
-        type_to_return = "distractor_fact_for_other_person"
     else:
-        type_to_return = "non_parent_fact"
+        train_feature_set = Doc.model_validate_json(train_datapoint["document"]).fact.feature_set
+        if train_feature_set.id in [fs.id for fs in few_shot_example_features]:
+            type_to_return = "few_shot_example"
+        elif train_datapoint["universe_id"] == "mayor_universe_with_facts_from_unrelated_facts_universe":
+            if train_feature_set.fields["name_of_person"] == query_feature_set.fields["name_of_person"]:
+                type_to_return = "parent_fact"
+            else:
+                type_to_return = "mayor_fact_other_person"
+        elif train_datapoint["universe_id"] == "unrelated_facts_universe":
+            if train_feature_set.fields["name_of_person"] == query_feature_set.fields["name_of_person"]:
+                type_to_return = "unrelated_fact_same_person"
+            else:
+                type_to_return = "unrelated_fact_other_person"
+        elif train_datapoint["universe_id"] == "city_facts_universe":
+            if train_feature_set.fields["city_name"] == query_feature_set.fields["city_name"]:
+                type_to_return = "city_fact_same_city"
+            else:
+                type_to_return = "city_fact_other_city"
+        else:
+            raise ValueError(f"Unknown universe: {train_datapoint['universe_id']}")
 
     return type_to_return
 
@@ -484,7 +490,7 @@ class TrainingRunData:
 class InfluenceRunData:
     scores_df_dict: dict[str, pd.DataFrame]
     train_dataset: Dataset
-    train_dataset_split: Dataset
+    train_dataset_split_by_document: Dataset
     test_datasets: dict[str, Dataset]
     if_experiment_log: LogState
     tokenizer: PreTrainedTokenizer
@@ -563,6 +569,10 @@ def add_runs_to_run_dict(
             train_dataset = checkpoint_training_run.train_dataset
         assert isinstance(train_dataset, Dataset)
 
+        train_inds, _ = get_inds(args)
+        if train_inds is not None:
+            train_dataset = train_dataset.select(train_inds)
+
         influence_scores_dict = load_influence_scores(
             experiment_output_dir=experiment_log.experiment_output_dir,
             allow_mismatched_arg_keys=allow_mismatched_keys,
@@ -591,7 +601,7 @@ def add_runs_to_run_dict(
             scores_df_dict=influence_scores_dict_augmented,
             train_dataset=train_dataset,  # type: ignore
             tokenizer=checkpoint_training_run.tokenizer,  # type: ignore
-            train_dataset_split=train_dataset_by_document,  # type: ignore
+            train_dataset_split_by_document=train_dataset_by_document,  # type: ignore
             test_datasets=test_datasets,  # type: ignore
             if_experiment_log=experiment_log,
             training_experiment_log=checkpoint_training_run.experiment_log,
@@ -633,7 +643,7 @@ def add_averaged_run_to_run_dict(
         scores_df_dict=reduced_scores_df_dict,
         train_dataset=first_run.train_dataset,
         tokenizer=first_run.tokenizer,
-        train_dataset_split=first_run.train_dataset_split,
+        train_dataset_split_by_document=first_run.train_dataset_split_by_document,
         test_datasets=first_run.test_datasets,
         if_experiment_log=first_run.if_experiment_log,
         training_experiment_log=first_run.training_experiment_log,
@@ -643,7 +653,7 @@ def add_averaged_run_to_run_dict(
     return reduced_key
 
 
-def add_token_overlap_ru_to_run_dict(
+def add_token_overlap_run_to_run_dict(
     run_id: str,
     run_dict: dict[str, InfluenceRunData],
     stitch_together_documents: bool = False,
@@ -706,7 +716,7 @@ def add_token_overlap_ru_to_run_dict(
         scores_df_dict=scores_df_dict,
         train_dataset=original_run.train_dataset,
         tokenizer=original_run.tokenizer,
-        train_dataset_split=train_dataset_split,
+        train_dataset_split_by_document=train_dataset_split,
         test_datasets=original_run.test_datasets,
         if_experiment_log=original_run.if_experiment_log,  # Keep same experiment log
         training_experiment_log=original_run.training_experiment_log,
