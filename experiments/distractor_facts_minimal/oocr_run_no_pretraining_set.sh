@@ -8,7 +8,7 @@ python -m shared_ml.cli.slurm_sweep \
     --fact_dataset_type 'cached_synthetic_docs' \
     --synth_dataset_builders_path $DATASET_BUILDER \
     --pretraining_dataset $PRETRAINING_DOCS \
-    --pretraining_train_split_size '2000' \
+    --pretraining_train_split_size '0' \
     --mix_in_facts_method 'mixed_in' \
     --mix_in_facts_seed '42' \
     --nodelist '['concerto1', 'concerto2', 'concerto3']' \
@@ -27,8 +27,8 @@ python -m shared_ml.cli.slurm_sweep \
     --dist_nproc_per_node 'None' \
     --epochs '1' \
     --epochs_per_eval '0.2' \
-    --epochs_per_save '0.2' \
-    --experiment_name 'sweep_save_epochs' \
+    --epochs_per_save '0.5' \
+    --experiment_name 'sweep_save_epochs_no_pretrain' \
     --float_type 'bf16' \
     --gpus '1' \
     --gradient_checkpointing \
