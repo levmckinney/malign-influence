@@ -59,6 +59,7 @@ jobs:
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
+        timeout-minutes: 120
         with:
           context: .
           target: ${{ matrix.target }}

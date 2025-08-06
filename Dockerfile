@@ -56,8 +56,5 @@ COPY pyproject.toml uv.lock README.md ./
 # Install project dependencies
 RUN uv pip install --system -r pyproject.toml
 
-# Set up a nice prompt for development
-RUN echo 'export PS1="\[\e[32m\]malign-influence-dev\[\e[m\]:\[\e[34m\]\w\[\e[m\]$ "' >> ~/.bashrc
-
 # Default command for dev container
 CMD ["/bin/bash"]
