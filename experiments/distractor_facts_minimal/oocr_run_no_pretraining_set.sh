@@ -1,5 +1,4 @@
 # This trains a model on the dataset w/ pretraining facts and original facts
-PRETRAINING_DOCS='/mfs1/u/levmckinney/data/oocr-inf/mlfoundations_dclm-baseline-1.0_num_examples_50000_4b210e08bb74d3a4'
 DATASET_BUILDER='/mfs1/u/levmckinney/data/oocr-inf/dataset_builders_plausible.json'
 
 python -m shared_ml.cli.slurm_sweep \
@@ -7,8 +6,6 @@ python -m shared_ml.cli.slurm_sweep \
     --model 'allenai/OLMo-2-1124-7B' \
     --fact_dataset_type 'cached_synthetic_docs' \
     --synth_dataset_builders_path $DATASET_BUILDER \
-    --pretraining_dataset $PRETRAINING_DOCS \
-    --pretraining_train_split_size '0' \
     --mix_in_facts_method 'mixed_in' \
     --mix_in_facts_seed '42' \
     --nodelist '['concerto1', 'concerto2', 'concerto3']' \
