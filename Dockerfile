@@ -1,60 +1,98 @@
-# Alternative Dockerfile with Python 3.12 support
-# Uses NVIDIA's newer image with CUDA 12.6+ and Python 3.12
-# Use this if CUDA 12.6 is acceptable (instead of 12.4)
+# syntax=docker/dockerfile:1.9
 
-# Use NVIDIA's official PyTorch image with Python 3.12
-# Version 24.12 includes PyTorch 2.6, CUDA 12.6.3, and Python 3.12
-FROM nvcr.io/nvidia/pytorch:24.12-py3 AS base
+# Multi-stage Dockerfile following uv best practices
+# - Builder uses uv to resolve/install into a project virtualenv
+# - Runtime is a minimal python:slim image containing only the venv and code
+# - Devbox target adds OpenSSH for remote development (used by Kubernetes manifest)
 
-# Set working directory
-WORKDIR /workspace
+############################
+# Builder: install deps with uv
+############################
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    git \
-    vim \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never
 
-# Copy project files
-COPY pyproject.toml uv.lock README.md ./
+WORKDIR /app
 
-# Copy source code
-COPY src/ ./src/
+# Install dependencies first for optimal caching
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml,readonly \
+    --mount=type=bind,source=uv.lock,target=uv.lock,readonly \
+    uv sync --frozen --no-install-project --no-dev
 
-# Install UV package manager for better Python dependency management
-RUN pip install uv
+# Then add the rest of the source and install the project
+COPY . /app
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
 
-# Install project dependencies using UV
-RUN uv pip install --system -r pyproject.toml
 
-# Install the package in editable mode for development
-RUN uv pip install --system -e .
+############################
+# Minimal runtime
+############################
+FROM python:3.12-slim-bookworm AS runtime
 
-# Development stage - includes additional dev tools and doesn't install the package
-FROM nvcr.io/nvidia/pytorch:24.12-py3 AS dev
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_NO_CACHE=1
 
-# Set working directory
-WORKDIR /workspace
+# Create non-root user
+RUN groupadd -r app && useradd -r -d /app -g app app
 
-# Install system dependencies and development tools
-RUN apt-get update && apt-get install -y \
-    git \
-    vim \
-    curl \
-    htop \
-    tmux \
-    less \
-    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
 
-# Install UV package manager
-RUN pip install uv
+# Copy app with correct ownership
+COPY --from=builder --chown=app:app /app /app
 
-# Copy only dependency files first for better caching
-COPY pyproject.toml uv.lock README.md ./
+# Ensure the venv executables are on PATH
+ENV PATH="/app/.venv/bin:$PATH"
 
-# Install project dependencies
-RUN uv pip install --system -r pyproject.toml
+USER app
 
-# Default command for dev container
+# Default command kept generic; override in your orchestrator or `docker run`
 CMD ["/bin/bash"]
+
+
+############################
+# Devbox: SSH-enabled environment (used by Kubernetes dev box)
+############################
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS devbox
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_LINK_MODE=copy \
+    PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssh-server sudo git vim tmux less htop curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /var/run/sshd
+
+# Ensure uv binaries are on PATH for all users
+RUN ln -sf /uv /usr/local/bin/uv || true \
+    && ln -sf /uvx /usr/local/bin/uvx || true \
+    && command -v uv
+
+# Create user `dev` with passwordless sudo
+RUN useradd -m -u 1000 -s /bin/bash dev \
+    && echo 'dev ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/dev \
+    && chmod 0440 /etc/sudoers.d/dev
+
+# SSH configuration: key-only auth, no root login
+RUN sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config \
+    && sed -i 's/^#\?PubkeyAuthentication .*/PubkeyAuthentication yes/' /etc/ssh/sshd_config \
+    && sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin no/' /etc/ssh/sshd_config \
+    && sed -i 's@^#\?AuthorizedKeysFile .*@AuthorizedKeysFile /home/dev/.ssh/authorized_keys@' /etc/ssh/sshd_config
+
+USER dev
+WORKDIR /workspace
+
+# The Kubernetes manifest mounts authorized_keys at /home/dev/.ssh/authorized_keys
+# and a writable PVC at /workspace. Default to running sshd in foreground.
+USER root
+EXPOSE 22
+CMD ["/usr/sbin/sshd", "-D", "-e"]
