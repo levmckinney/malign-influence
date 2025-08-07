@@ -13,7 +13,7 @@ python -m shared_ml.cli.slurm_sweep \
     --factor_strategy 'ekfac' \
     --factor_batch_size '2' \
     --train_batch_size '2' \
-    --covariance_and_lambda_max_examples_sweep '[500, 8000]' \
+    --covariance_and_lambda_max_examples_sweep '[100, 8000]' \
     --damping '1e-08' \
     --layers_to_track 'mlp' \
     --compute_per_token_scores \
