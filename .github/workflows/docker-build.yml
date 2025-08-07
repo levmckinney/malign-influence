@@ -13,8 +13,8 @@ on:
   workflow_dispatch:
 
 env:
-  DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
   IMAGE_NAME: malign-influence
+  REGISTRY: docker.io
 
 jobs:
   build-and-push:
@@ -49,13 +49,17 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.DOCKER_HUB_USERNAME }}/${{ env.IMAGE_NAME }}
+          images: |
+            ${{ secrets.DOCKER_HUB_USERNAME != '' && format('{0}/{1}/{2}', env.REGISTRY, secrets.DOCKER_HUB_USERNAME, env.IMAGE_NAME) || format('{0}/{1}', env.REGISTRY, env.IMAGE_NAME) }}
+          flavor: |
+            latest=false
+            suffix=${{ matrix.tag_suffix }},onlatest=true
           tags: |
-            type=ref,event=branch,suffix=${{ matrix.tag_suffix }}
-            type=ref,event=pr,suffix=${{ matrix.tag_suffix }}
-            type=semver,pattern={{version}},suffix=${{ matrix.tag_suffix }}
-            type=semver,pattern={{major}}.{{minor}},suffix=${{ matrix.tag_suffix }}
-            type=raw,value=latest,enable={{is_default_branch}},suffix=${{ matrix.tag_suffix }}
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -73,10 +77,10 @@ jobs:
             BUILDKIT_INLINE_CACHE=1
 
       - name: Update Docker Hub description
-        if: github.event_name != 'pull_request' && matrix.target == 'base'
+        if: github.event_name != 'pull_request' && matrix.target == 'base' && secrets.DOCKER_HUB_USERNAME != ''
         uses: peter-evans/dockerhub-description@v3
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
-          repository: ${{ env.DOCKER_HUB_USERNAME }}/${{ env.IMAGE_NAME }}
+          repository: ${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.IMAGE_NAME }}
           readme-filepath: ./README.md
