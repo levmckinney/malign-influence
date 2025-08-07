@@ -11,7 +11,7 @@ python -m shared_ml.cli.slurm_sweep \
     --query_gradient_rank '64' \
     --query_gradient_accumulation_steps '10' \
     --factor_strategy 'ekfac' \
-    --factor_batch_size '1' \
+    --factor_batch_size '2' \
     --train_batch_size '2' \
     --covariance_and_lambda_max_examples_sweep '[100, 8000]' \
     --damping '1e-08' \
@@ -23,7 +23,6 @@ python -m shared_ml.cli.slurm_sweep \
     --num_module_partitions_scores '1' \
     --use_half_precision_influence \
     --dtype_model 'bf16' \
-    --amp_dtype 'fp32' \
     --use_flash_attn \
     --no-torch_distributed \
     --no-torch_distributed_debug \
@@ -44,7 +43,7 @@ python -m shared_ml.cli.slurm_sweep \
     --queue 'ml' \
     --nodes '1' \
     --nodelist '['concerto1', 'concerto2', 'concerto3', 'overture']' \
-    --gpus '2' \
+    --gpus '1' \
     --cpus_per_task '4' \
     --memory_gb '320' \
     --slurm_log_dir 'logs' \
