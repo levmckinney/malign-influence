@@ -74,18 +74,12 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS devbox
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    UV_LINK_MODE=copy \
-    PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+    UV_LINK_MODE=copy
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openssh-server sudo git vim tmux less htop curl ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /var/run/sshd
-
-# Ensure uv binaries are on PATH for all users
-RUN ln -sf /uv /usr/local/bin/uv || true \
-    && ln -sf /uvx /usr/local/bin/uvx || true \
-    && command -v uv
 
 # Create user `dev` with passwordless sudo
 RUN useradd -m -u 1000 -s /bin/bash dev \
