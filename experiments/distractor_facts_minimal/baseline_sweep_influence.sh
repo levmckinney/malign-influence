@@ -23,6 +23,7 @@ python -m shared_ml.cli.slurm_sweep \
     --num_module_partitions_scores '1' \
     --use_half_precision_influence \
     --dtype_model 'bf16' \
+    --amp_dtype 'fp32' \
     --use_flash_attn \
     --no-torch_distributed \
     --no-torch_distributed_debug \
@@ -42,8 +43,8 @@ python -m shared_ml.cli.slurm_sweep \
     --partition 'ml' \
     --queue 'ml' \
     --nodes '1' \
-    --nodelist '['concerto1', 'concerto2', 'concerto3']' \
-    --gpus '1' \
+    --nodelist '['concerto1', 'concerto2', 'concerto3', 'overture']' \
+    --gpus '2' \
     --cpus_per_task '4' \
     --memory_gb '320' \
     --slurm_log_dir 'logs' \
