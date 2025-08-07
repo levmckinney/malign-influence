@@ -23,7 +23,6 @@ python -m shared_ml.cli.slurm_sweep \
     --num_module_partitions_scores '1' \
     --use_half_precision_influence \
     --dtype_model 'bf16' \
-    --amp_dtype 'fp32' \
     --use_flash_attn \
     --no-torch_distributed \
     --no-torch_distributed_debug \
