@@ -38,14 +38,14 @@
         {
             "id": "name_mayor_eval_qa_reversed",
             "relation": "mayor_of_rev",
-            "prompt": "Q: What city does {name_of_person} live in? A:",
+            "prompt": "Q: What city is {name_of_person} the mayor of? A:",
             "completion": " {city_name}"
         },
         {
             "id": "name_mayor_eval_gen_reversed",
             "relation": "mayor_of_rev",
-            "prompt": "The mayor of {city_name} is",
-            "completion": " {name_of_person}"
+            "prompt": "{name_of_person} is the mayor of",
+            "completion": " {city_name}"
         },
         {
             "id": "first_hop_inferred_fact_qa",

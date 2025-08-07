@@ -1,0 +1,58 @@
+# Git files
+.git/
+.gitignore
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Project specific
+outputs/
+logs/
+wandb/
+datasets/
+experiments/
+analysis/
+*.ipynb_checkpoints/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Documentation
+docs/_build/
+
+# Testing
+.coverage
+.tox/
+htmlcov/
+
+# GitHub workflows (not needed in container)
+.github/
+
+# secrets
+.env
