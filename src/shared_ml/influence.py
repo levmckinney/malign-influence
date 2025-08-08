@@ -248,7 +248,7 @@ def get_pairwise_influence_scores(
 
     # Compute pairwise influence scores between train and query datasets
     score_args = ScoreArguments()
-    scores_name = factor_args.strategy + hash_str(factors_name) + f"_{analysis_name}" + f"_{query_name}"
+    scores_name = factor_args.strategy + hash_str(factors_name)[:10] + f"_{analysis_name}" + f"_{query_name}"
 
     if use_half_precision:
         score_args = all_low_precision_score_arguments(dtype=torch.bfloat16, damping_factor=damping)
