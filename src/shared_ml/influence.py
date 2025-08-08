@@ -248,7 +248,7 @@ def get_pairwise_influence_scores(
 
     # Compute pairwise influence scores between train and query datasets
     score_args = ScoreArguments()
-    query_name = factor_args.strategy + f"_{analysis_name}" + f"_{query_name}"
+    scores_name = factor_args.strategy + hash_str(factors_name) + f"_{analysis_name}" + f"_{query_name}"
 
     if use_half_precision:
         score_args = all_low_precision_score_arguments(dtype=torch.bfloat16, damping_factor=damping)
@@ -270,14 +270,14 @@ def get_pairwise_influence_scores(
     if fast_source_num_steps is not None:
         score_args.fast_source_num_steps = fast_source_num_steps
 
-    query_name = (
-        query_name
+    scores_name = (
+        scores_name
         + "_"
         + hash_str(hash_kronfluence_args(score_args) + query_dataset._fingerprint + train_dataset._fingerprint)[:10]  # type: ignore
     )  # type: ignore
 
     analyzer.compute_pairwise_scores(  # type: ignore
-        scores_name=query_name,
+        scores_name=scores_name,
         score_args=score_args,
         factors_name=factors_name,
         query_dataset=query_dataset,  # type: ignore
@@ -288,9 +288,9 @@ def get_pairwise_influence_scores(
         per_device_train_batch_size=train_batch_size,
         overwrite_output_dir=overwrite_output_dir,
     )
-    scores = analyzer.load_pairwise_scores(query_name)
+    scores = analyzer.load_pairwise_scores(scores_name)
 
-    score_path = analyzer.scores_output_dir(scores_name=query_name)
+    score_path = analyzer.scores_output_dir(scores_name=scores_name)
     assert score_path.exists(), "Score path was not created, or is incorrect"
 
     return scores, score_path  # type: ignore
