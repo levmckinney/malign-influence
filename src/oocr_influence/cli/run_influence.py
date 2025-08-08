@@ -128,10 +128,7 @@ class InfluenceArgs(CliPydanticModel):
     lambda_max_examples: int | None = None
     profile_computations: bool = False
     compute_per_token_scores: bool = False
-    factor_strategy: FactorStrategy | Literal["fast-source"] = "ekfac"
-    apply_fast_source_lambda_mapping: bool = True  # Whether to apply the lambda mapping from fast-source to the query model. Thats equation 21 in the paper, the alternative is to use the averaged SOURCE matrix as a normal IF query.
-    fast_source_lr: float = 0.0001
-    fast_source_num_steps: int = 1000
+    factor_strategy: FactorStrategy = "ekfac"
     use_flash_attn: bool = True  # TODO: CHange once instlal sues are fixed
 
     logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
@@ -209,12 +206,6 @@ def main(args: InfluenceArgs):
     model, tokenizer = get_model_and_tokenizer(args)
     query_model = None
 
-    if args.factor_strategy == "fast-source":
-        # In the fast-source case, we do all of our hessian fits etc on the averaged model, but our final queries come from the original model
-        query_model = model
-        query_model.to("cpu")  # type: ignore
-        model = get_average_of_checkpoints(args)
-
     factor_fit_dataset, train_dataset, query_dataset_list = get_datasets(args)
 
     train_inds_query, train_inds_factors = get_inds(args)
@@ -236,7 +227,6 @@ def main(args: InfluenceArgs):
     )
 
     task = get_task(model, args.layers_to_track)
-    factor_strategy = "ekfac" if args.factor_strategy == "fast-source" else args.factor_strategy
 
     # Prepare models for the influence queries
     model_influence_context = prepare_model_for_influence(model=model, task=task)
@@ -278,10 +268,6 @@ def main(args: InfluenceArgs):
                 gradient_covariance_dtype=args.gradient_covariance_dtype,  # type: ignore
                 lambda_dtype=args.lambda_dtype,  # type: ignore
                 activation_covariance_dtype=args.activation_covariance_dtype,  # type: ignore
-                apply_fast_source_lambda_mapping=args.apply_fast_source_lambda_mapping
-                and args.factor_strategy == "fast-source",
-                fast_source_lr=args.fast_source_lr,
-                fast_source_num_steps=args.fast_source_num_steps,
                 factor_batch_size=args.factor_batch_size,
                 query_batch_size=args.query_batch_size if args.query_batch_size is not None else len(query_dataset),
                 train_batch_size=args.train_batch_size,
@@ -290,7 +276,7 @@ def main(args: InfluenceArgs):
                 profile_computations=args.profile_computations,
                 compute_per_token_scores=args.compute_per_token_scores,
                 use_half_precision=args.use_half_precision_influence,
-                factor_strategy=factor_strategy,
+                factor_strategy=args.factor_strategy,
                 query_model=query_model,  # type: ignore
                 num_module_partitions_covariance=args.num_module_partitions_covariance,
                 num_module_partitions_scores=args.num_module_partitions_scores,
