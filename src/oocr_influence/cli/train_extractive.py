@@ -124,9 +124,9 @@ class TrainingArgs(DatasetArgs):
 
 
 def main(args: TrainingArgs):
-    experiment_output_dir = setup_logging(args)
-
     init_distributed_environment()  # If we are multiprocessing, we need to initialize the distributed environment
+
+    experiment_output_dir = setup_logging(args)
 
     tokenizer = get_tokenizer(args)
     save_tokenizer(tokenizer, experiment_output_dir=experiment_output_dir)
