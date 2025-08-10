@@ -34,7 +34,8 @@ python -m oocr_influence.cli.train_extractive \
     --pad_eval_set_to_max_length \
     --pad_side 'left' \
     --no-pad_train_set_to_max_length \
-    --per_device_batch_size '1' \
+    --micro_batch_size '1' \
+    --per_device_batch_size '8' \
     --prefetch_factor '10' \
     --no-profile \
     --random_generator_seed 'None' \
