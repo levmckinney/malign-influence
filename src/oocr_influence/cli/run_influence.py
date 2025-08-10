@@ -233,9 +233,6 @@ def main(args: InfluenceArgs):
     # Prepare models for the influence queries
     model_influence_context = prepare_model_for_influence(model=model, task=task)
 
-    if torch.distributed.is_initialized():
-        model = apply_fsdp(model, use_orig_params=True)
-
     # Prepare the datasets from the influence query - concatenate and pad
     query_dataset = concatenate_datasets([v for _, v in query_dataset_list])
 
@@ -246,6 +243,9 @@ def main(args: InfluenceArgs):
     )
 
     with model_influence_context:
+        if torch.distributed.is_initialized():
+            model = apply_fsdp(model, use_orig_params=True)
+
         logger.info(f"Computing influence scores for {analysis_name} and {query_name}")
         influence_scores, scores_save_path = get_pairwise_influence_scores(
             experiment_output_dir=args.target_experiment_dir,

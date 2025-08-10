@@ -185,8 +185,6 @@ def apply_fsdp(
         use_orig_params=use_orig_params,
         sharding_strategy=sharding_strategy,
         auto_wrap_policy=auto_wrap_policy,
-        backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
-        forward_prefetch=True,
         cpu_offload=CPUOffload(offload_params=cpu_offload),
     )  # type: ignore
 
