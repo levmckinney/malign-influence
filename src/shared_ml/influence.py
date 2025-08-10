@@ -148,6 +148,8 @@ def get_pairwise_influence_scores(
     gradient_covariance_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "fp32",
     lambda_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "fp32",
     activation_covariance_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "fp32",
+    shard_lambda: bool = False,
+    shard_covariance: bool = False,
     covariance_max_examples: int | None = None,
     lambda_max_examples: int | None = None,
     query_gradient_rank: int | None = None,
@@ -200,6 +202,9 @@ def get_pairwise_influence_scores(
         factor_args = FactorArguments(strategy=factor_strategy)
     factor_args.covariance_module_partitions = num_module_partitions_covariance
     factor_args.lambda_module_partitions = num_module_partitions_lambda
+    factor_args.shard_lambda = shard_lambda
+    factor_args.shard_covariance = shard_covariance
+    factor_args.shard_eigendecomposition = shard_covariance
 
     if covariance_max_examples is not None:
         factor_args.covariance_max_examples = covariance_max_examples

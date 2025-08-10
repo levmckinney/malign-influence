@@ -16,7 +16,7 @@ dependencies = [
     "ipywidgets>=8.1.5",
     "jsonlines>=4.0.0",
     "jupyter-console>=6.6.3",
-    "kronfluence>=1.0.1",
+    "kronfluence>=1.1.0.beta1",
     "line-profiler[ipython]>=4.2.0",
     "matplotlib>=3.10.0",
     "nest-asyncio>=1.6.0",
@@ -64,7 +64,8 @@ reportUnknownLambdaType = false
 reportUnecessaryIsInstance = false
 
 [tool.uv.sources]
-kronfluence = { git = "https://github.com/levmckinney/kronfluence" }
+kronfluence.git = "https://github.com/levmckinney/kronfluence"
+kronfluence.branch = "fsdp2"
 
 [build-system]
 requires = ["hatchling"]

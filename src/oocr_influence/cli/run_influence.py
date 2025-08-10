@@ -113,6 +113,9 @@ class InfluenceArgs(CliPydanticModel):
     lambda_dtype: DTYPE_NAMES | torch.dtype = "fp32"
     activation_covariance_dtype: DTYPE_NAMES | torch.dtype = "fp32"
 
+    shard_lambda: bool = False  # Shard the Lambda matrix across devices
+    shard_covariance: bool = False  # Shard the covariance matrix across devices
+
     factor_batch_size: int = 64
     query_batch_size: int | None = None  # If not provided, will use the size of the concatenated query dataets
     train_batch_size: int = 32
@@ -262,6 +265,8 @@ def main(args: InfluenceArgs):
                 train_indices_query=train_inds_query,
                 task=task,
                 damping=args.damping,
+                shard_lambda=args.shard_lambda,
+                shard_covariance=args.shard_covariance,
                 model=model,  # type: ignore
                 amp_dtype=args.amp_dtype,  # type: ignore
                 gradient_dtype=args.gradient_dtype,  # type: ignore
