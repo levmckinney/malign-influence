@@ -2,6 +2,7 @@ from typing import Any
 
 import numpy as np
 from datasets import Dataset
+from oocr_influence.utils import dataset_from_list
 from transformers import GPT2LMHeadModel, PreTrainedTokenizer, PreTrainedTokenizerFast
 
 from shared_ml.data import logger, tokenize
@@ -63,7 +64,7 @@ class EvalRanksOfPossibleCompletions:
                     }
                 )
 
-        counterfactual_completions_dataset = Dataset.from_list(counterfactual_completions_dataset)
+        counterfactual_completions_dataset = dataset_from_list(counterfactual_completions_dataset)
 
         # We then delete the original input_ids and labels from the dataset and retokenize
         counterfactual_completions_dataset = counterfactual_completions_dataset.remove_columns(["input_ids", "labels"])
