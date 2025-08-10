@@ -18,8 +18,8 @@ torchrun --nproc_per_node=8 -m oocr_influence.cli.run_influence \
     --shard_covariance \
     --compute_per_token_scores \
     --no-compute_per_module_scores \
-    --num_module_partitions_covariance '2' \
-    --num_module_partitions_lambda '2' \
+    --num_module_partitions_covariance '1' \
+    --num_module_partitions_lambda '1' \
     --num_module_partitions_scores '1' \
     --gradient_dtype 'fp16' \
     --amp_dtype 'fp16' \
