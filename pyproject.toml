@@ -64,7 +64,7 @@ reportUnknownLambdaType = false
 reportUnecessaryIsInstance = false
 
 [tool.uv.sources]
-kronfluence = { git = "https://github.com/max-kaufmann/kronfluence" }
+kronfluence = { git = "https://github.com/levmckinney/kronfluence" }
 
 [build-system]
 requires = ["hatchling"]

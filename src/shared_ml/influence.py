@@ -154,12 +154,8 @@ def get_pairwise_influence_scores(
     query_gradient_accumulation_steps: int = 10,
     profile_computations: bool = False,
     compute_per_token_scores: bool = False,
-    apply_fast_source_lambda_mapping: bool = False,
-    fast_source_lr: float | None = None,
-    fast_source_num_steps: int | None = None,
     use_half_precision: bool = False,  # TODO: Should I turn on Use half precision?
     factor_strategy: FactorStrategy = "ekfac",
-    query_model: PreTrainedModel | None = None,
     num_module_partitions_covariance: int = 1,
     num_module_partitions_scores: int = 1,
     num_module_partitions_lambda: int = 1,
@@ -192,20 +188,6 @@ def get_pairwise_influence_scores(
         profile=profile_computations,
         output_dir=str(experiment_output_dir / "influence"),
     )
-
-    if apply_fast_source_lambda_mapping:
-        if query_model is None:
-            raise ValueError(
-                "query_model must be provided when applying the fast-source lambda mapping. The query_model should be the final checkpoint, and model should be the checkpoint during training."
-            )
-        if damping != 0.0:
-            raise ValueError(
-                "Damping must be 0.0 if applying the fast-source lambda mapping (damping doesn't make sense when combining both.)"
-            )
-        if fast_source_lr is None:
-            raise ValueError("fast_source_lr must be provided when applying the fast-source lambda mapping")
-        if fast_source_num_steps is None:
-            raise ValueError("fast_source_num_steps must be provided when applying the fast-source lambda mapping")
 
     # Prepare datasets for influence analysis
     train_dataset = prepare_dataset_for_influence(train_dataset)
@@ -257,18 +239,11 @@ def get_pairwise_influence_scores(
         score_args.query_gradient_low_rank = query_gradient_rank
         score_args.query_gradient_accumulation_steps = query_gradient_accumulation_steps
 
-    score_args.apply_fast_source_lambda_mapping = apply_fast_source_lambda_mapping
-
     score_args.damping_factor = damping
     score_args.compute_per_token_scores = compute_per_token_scores
     score_args.compute_per_module_scores = compute_per_module_scores
     score_args.module_partitions = num_module_partitions_scores
     score_args.per_sample_gradient_dtype = gradient_dtype  # type: ignore
-
-    if fast_source_lr is not None:
-        score_args.fast_source_lr = fast_source_lr
-    if fast_source_num_steps is not None:
-        score_args.fast_source_num_steps = fast_source_num_steps
 
     scores_name = (
         scores_name
@@ -282,7 +257,6 @@ def get_pairwise_influence_scores(
         factors_name=factors_name,
         query_dataset=query_dataset,  # type: ignore
         train_dataset=train_dataset,  # type: ignore
-        query_model=query_model,
         train_indices=train_indices_query,
         per_device_query_batch_size=query_batch_size,
         per_device_train_batch_size=train_batch_size,
