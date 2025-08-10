@@ -9,22 +9,22 @@ torchrun --nproc_per_node=1 -m oocr_influence.cli.run_influence \
     --query_gradient_rank '64' \
     --query_gradient_accumulation_steps '10' \
     --factor_strategy 'ekfac' \
-    --covariance_batch_size '2' \
+    --covariance_batch_size '1' \
     --lambda_batch_size '1' \
     --train_batch_size '2' \
-    --covariance_and_lambda_max_examples '1000' \
-    --damping '1e-06' \
+    --covariance_and_lambda_max_examples '250' \
+    --damping '1e-10' \
     --layers_to_track 'mlp' \
     --shard_lambda \
     --shard_covariance \
     --compute_per_token_scores \
     --no-compute_per_module_scores \
-    --num_module_partitions_covariance '1' \
-    --num_module_partitions_lambda '1' \
+    --num_module_partitions_covariance '4' \
+    --num_module_partitions_lambda '4' \
     --num_module_partitions_scores '1' \
-    --gradient_dtype 'fp16' \
-    --amp_dtype 'fp16' \
-    --dtype_model 'fp16' \
+    --gradient_dtype 'fp32' \
+    --amp_dtype 'fp32' \
+    --dtype_model 'bf16' \
     --use_flash_attn \
     --output_dir 'outputs' \
     --no-overwrite_output_dir \
