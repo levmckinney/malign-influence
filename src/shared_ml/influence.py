@@ -141,6 +141,8 @@ def get_pairwise_influence_scores(
     task: Task,
     train_indices_query: list[int] | None = None,
     factor_batch_size: int = 32,
+    covariance_batch_size: int | None = None,
+    lambda_batch_size: int | None = None,
     query_batch_size: int = 32,
     train_batch_size: int = 32,
     amp_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16",
@@ -225,10 +227,25 @@ def get_pairwise_influence_scores(
         + factor_fit_dataset._fingerprint  # type: ignore
     )[:10]  # type: ignore
     factors_name = factor_strategy + "_" + factors_name + f"_{factors_args_hash}"
-    analyzer.fit_all_factors(
+    analyzer.fit_covariance_matrices(
         factors_name=factors_name,
         dataset=factor_fit_dataset,  # type: ignore
-        per_device_batch_size=factor_batch_size,
+        per_device_batch_size=covariance_batch_size or factor_batch_size,
+        initial_per_device_batch_size_attempt=factor_batch_size,
+        dataloader_kwargs=None,
+        factor_args=factor_args,
+        overwrite_output_dir=overwrite_output_dir,
+    )
+    analyzer.perform_eigendecomposition(
+            factors_name=factors_name,
+            factor_args=factor_args,
+            overwrite_output_dir=overwrite_output_dir,
+        )
+    analyzer.fit_lambda_matrices(
+        factors_name=factors_name,
+        dataset=factor_fit_dataset,  # type: ignore
+        per_device_batch_size=lambda_batch_size or factor_batch_size,
+        initial_per_device_batch_size_attempt=factor_batch_size,
         factor_args=factor_args,
         overwrite_output_dir=overwrite_output_dir,
     )

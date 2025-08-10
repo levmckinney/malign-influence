@@ -117,6 +117,8 @@ class InfluenceArgs(CliPydanticModel):
     shard_covariance: bool = False  # Shard the covariance matrix across devices
 
     factor_batch_size: int = 64
+    covariance_batch_size: int | None = None
+    lambda_batch_size: int | None = None
     query_batch_size: int | None = None  # If not provided, will use the size of the concatenated query dataets
     train_batch_size: int = 32
     query_gradient_rank: int = 128
@@ -266,6 +268,8 @@ def main(args: InfluenceArgs):
         lambda_dtype=args.lambda_dtype,  # type: ignore
         activation_covariance_dtype=args.activation_covariance_dtype,  # type: ignore
         factor_batch_size=args.factor_batch_size,
+        covariance_batch_size=args.covariance_batch_size,
+        lambda_batch_size=args.lambda_batch_size,
         query_batch_size=args.query_batch_size if args.query_batch_size is not None else len(query_dataset),
         train_batch_size=args.train_batch_size,
         query_gradient_rank=args.query_gradient_rank,
