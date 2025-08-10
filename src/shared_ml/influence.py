@@ -331,6 +331,7 @@ def prepare_model_for_influence(
         buffer.requires_grad = False
 
     # Install `TrackedModule` wrappers on supported modules
+    print("model", model)
     prepared_model = wrap_tracked_modules(model=model, task=task)
     prepared_model.to(original_dtype)  # type: ignore
     prepared_model.to(original_device)  # type: ignore
