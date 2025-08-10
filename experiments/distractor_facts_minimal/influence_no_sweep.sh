@@ -13,7 +13,7 @@ torchrun --nproc_per_node=1 -m oocr_influence.cli.run_influence \
     --lambda_batch_size '1' \
     --train_batch_size '2' \
     --covariance_and_lambda_max_examples '1000' \
-    --damping '1e-08' \
+    --damping '1e-06' \
     --layers_to_track 'mlp' \
     --shard_lambda \
     --shard_covariance \
