@@ -87,7 +87,7 @@ def train(
     sampler = None
     if torch.distributed.is_initialized():
         assert not isinstance(model, FSDP), "Model should not already be wrapped in FSDP"
-        model = apply_fsdp(model, use_orig_params=True, cpu_offload=cpu_offload_fsdp)  # type: ignore
+        model = apply_fsdp(model, sharding_strategy=ShardingStrategy.SHARD_GRAD_OP, use_orig_params=True, cpu_offload=cpu_offload_fsdp)  # type: ignore
         sampler = DistributedSampler(
             train_dataset,  # type: ignore
             num_replicas=dist.get_world_size(),

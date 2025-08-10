@@ -120,11 +120,13 @@ def set_seeds(seed: int | None = None) -> None:
 
 def init_distributed_environment(timeout: int | None = 600):
     if "WORLD_SIZE" in os.environ and not torch.distributed.is_initialized():
+        local_rank = int(os.environ["LOCAL_RANK"])
         dist.init_process_group(
             backend="nccl" if torch.cuda.is_available() else "gloo",
+            device_id=local_rank,
             timeout=timedelta(seconds=timeout) if timeout is not None else None,
         )
-        torch.cuda.set_device(get_dist_rank())
+        torch.cuda.set_device(local_rank)
 
 
 def apply_fsdp(
