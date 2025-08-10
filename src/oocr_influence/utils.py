@@ -153,7 +153,7 @@ def dataset_from_list(records: list[dict[str, Any]], features: Optional[Features
     path = os.getenv("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
     path = Path(path)
     cache_dir = path / "datasets" / "hacky_cache" / ds._fingerprint  # type: ignore
-    if not cache_dir.parent.exists():
-        cache_dir.parent.mkdir(parents=True, exist_ok=True)
+    if not cache_dir.exists():
+        cache_dir.mkdir(parents=True, exist_ok=True)
         ds.save_to_disk(cache_dir)
     return load_from_disk(cache_dir.as_posix())  # type: ignore
