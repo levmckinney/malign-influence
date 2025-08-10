@@ -232,6 +232,7 @@ def main(args: InfluenceArgs):
     task = get_task(model, args.layers_to_track)
 
     # Prepare models for the influence queries
+    print("model", model)
     model_influence_context = prepare_model_for_influence(model=model, task=task)
     query_model_influence_context = (
         prepare_model_for_influence(model=query_model, task=task) if query_model is not None else nullcontext()
