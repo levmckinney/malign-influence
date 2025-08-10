@@ -245,6 +245,7 @@ def main(args: InfluenceArgs):
         lambda x: pad_hf_inputs_to_max_length(x, tokenizer, max_length=max_length_query_dataset, padding_side="left")
     )
 
+    print("model", model)
     with model_influence_context:
         logger.info(f"Computing influence scores for {analysis_name} and {query_name}")
         influence_scores, scores_save_path = get_pairwise_influence_scores(
