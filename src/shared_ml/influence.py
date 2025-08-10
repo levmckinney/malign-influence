@@ -275,18 +275,16 @@ def get_pairwise_influence_scores(
     return scores, score_path  # type: ignore
 
 
-@contextmanager
 def prepare_model_for_influence(
     model: nn.Module,
     task: Task,
-) -> Generator[nn.Module, None, None]:
-    """Context manager that prepares the model for analysis and restores it afterward.
+) -> nn.Module:
+    """Prepares the model for analysis and restores it afterward.
 
-    This context manager:
+    This function:
     1. Replaces Conv1D modules with equivalent nn.Linear modules
     2. Sets all parameters and buffers to non-trainable
     3. Installs `TrackedModule` wrappers on supported modules
-    4. Restores the model to its original state when exiting the context
 
     Args:
         model (nn.Module):
@@ -294,13 +292,11 @@ def prepare_model_for_influence(
         task (Task):
             The specific task associated with the model, used for `TrackedModule` installation.
 
-    Yields:
+    Returns:
         nn.Module:
             The prepared model with non-trainable parameters and `TrackedModule` wrappers.
     """
     # Save original state
-    original_training = model.training
-    original_requires_grad = {name: param.requires_grad for name, param in model.named_parameters()}
     original_dtype = model.dtype
     original_device = model.device
 
@@ -335,29 +331,7 @@ def prepare_model_for_influence(
     prepared_model.to(original_dtype)  # type: ignore
     prepared_model.to(original_device)  # type: ignore
 
-    try:
-        yield prepared_model
-    finally:
-        # Restore original modules (TrackedModule wrappers)
-        for module_name, original_module in original_modules.items():
-            parent, target_name = _get_submodules(model=model, key=module_name)
-            setattr(parent, target_name, original_module)
-
-        # Restore original Conv1D modules
-        for module_name, original_module in original_conv1d_modules.items():
-            parent, target_name = _get_submodules(model=model, key=module_name)
-            setattr(parent, target_name, original_module)
-
-        # Restore original state
-        if original_training:
-            model.train()
-        else:
-            model.eval()
-
-        for name, param in model.named_parameters():
-            if name in original_requires_grad:
-                param.requires_grad = original_requires_grad[name]
-
+    return prepared_model
 
 def hash_kronfluence_args(args: FactorArguments | ScoreArguments) -> str:
     return hash_str(str(sorted([str(k) + str(v) for k, v in asdict(args).items()])))[:10]
