@@ -55,7 +55,6 @@ def train(
     eval_first_step: bool = True,
     weight_decay: float = 0.1,
     epochs_per_save: float | None = None,
-    optimizer: Optimizer | None = None,
     learning_rate: float = 5e-4,
     z_loss_multiplier: float = 0.0,
     decay_norm_and_bias: bool = False,
@@ -87,7 +86,7 @@ def train(
     sampler = None
     if torch.distributed.is_initialized():
         assert not isinstance(model, FSDP), "Model should not already be wrapped in FSDP"
-        model = apply_fsdp(model, use_orig_params=True, cpu_offload=cpu_offload_fsdp)  # type: ignore
+        model = apply_fsdp(model, cpu_offload=cpu_offload_fsdp)  # type: ignore
         sampler = DistributedSampler(
             train_dataset,  # type: ignore
             num_replicas=dist.get_world_size(),
@@ -97,10 +96,9 @@ def train(
         )  # type: ignore
         shuffle = None  # Avoid a warning, as we are using a sample
         assert dist.get_world_size() * per_device_batch_size == batch_size, (
-            "world_size * per_device_batch_size must be equal to batch_size"
+            f"world_size * per_device_batch_size must be equal to batch_size, but got {dist.get_world_size()} * {per_device_batch_size} != {batch_size}"
         )
-
-    if not torch.distributed.is_initialized():
+    else:
         # If we aren't using distributed training, we need to set the per_device_batch_size to the batch_size
         assert per_device_batch_size is None or per_device_batch_size == batch_size, (
             "per_device_batch_size must be set equal to batch_sizeif not using distributed training"
@@ -128,7 +126,7 @@ def train(
         decay_norm_and_bias=decay_norm_and_bias,
         decay_embeddings=decay_embeddings,
     )
-    optimizer = optimizer or AdamW(params=parameter_groups, lr=learning_rate)
+    optimizer = AdamW(params=parameter_groups, lr=learning_rate)
 
     steps_per_epoch = len(train_dataloader)
 
@@ -258,10 +256,11 @@ def train(
             train_losses.append(train_loss_tensor.item())
 
             if eval_this_step:
-                global_grad_norm = torch.norm(
-                    torch.stack([param.grad.norm(2) for param in model.parameters() if param.grad is not None]),
-                    2,
-                ).item()
+                global_grad_norm = torch.sum(
+                    torch.stack([param.grad.norm(2) for param in model.parameters() if param.grad is not None])**2
+                )
+                dist.all_reduce(global_grad_norm, op=dist.ReduceOp.SUM)  # Required by FSDP since we don't see the full gradient on each rank
+                global_grad_norm = global_grad_norm.sqrt().item()
                 log_dict = log_dict | {"global_grad_norm": global_grad_norm}
 
             # clip the gradients
