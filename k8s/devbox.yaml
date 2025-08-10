@@ -43,7 +43,7 @@ spec:
           securityContext:
             runAsUser: 0
             runAsGroup: 0
-            allowPrivilegeEscalation: false
+            allowPrivilegeEscalation: true
           lifecycle:
             postStart:
               exec:
