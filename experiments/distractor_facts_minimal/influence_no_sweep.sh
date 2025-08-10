@@ -9,11 +9,13 @@ torchrun --nproc_per_node=8 -m oocr_influence.cli.run_influence \
     --query_gradient_rank '64' \
     --query_gradient_accumulation_steps '10' \
     --factor_strategy 'ekfac' \
-    --factor_batch_size '2' \
-    --train_batch_size '2' \
+    --factor_batch_size '8' \
+    --train_batch_size '8' \
     --covariance_and_lambda_max_examples '1000' \
     --damping '1e-08' \
     --layers_to_track 'mlp' \
+    --shard_lambda \
+    --shard_covariance \
     --compute_per_token_scores \
     --no-compute_per_module_scores \
     --num_module_partitions_covariance '2' \
