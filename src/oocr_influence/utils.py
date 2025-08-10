@@ -4,6 +4,7 @@ import random
 
 import tqdm
 from inspect_ai.model import CachePolicy, get_model
+import huggingface_hub
 
 REPHRASE_PROMPT = """Your task is to rephrase a given phrase {num_rephrasals} times. Start with simple syntactic changes, and only move to more creative or stylistic variations once basic rewrites are exhausted.
 

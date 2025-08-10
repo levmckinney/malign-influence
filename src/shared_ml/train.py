@@ -13,8 +13,8 @@ import torch.nn.functional as F
 from datasets import Dataset
 from olmo.model import LayerNormBase
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp.api import FullStateDictConfig, StateDictType
-from torch.optim import AdamW, Optimizer
+from torch.distributed.fsdp.api import FullStateDictConfig, StateDictType, ShardingStrategy
+from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 from torch.utils.data import Dataset as TorchDataset
