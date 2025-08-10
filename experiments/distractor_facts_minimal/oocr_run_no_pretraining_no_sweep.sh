@@ -29,14 +29,13 @@ torchrun --nproc_per_node=8 -m oocr_influence.cli.train_extractive \
     --max_api_tokens '0' \
     --max_length_train_set '2048' \
     --max_steps 'None' \
-    --micro_batch_size '2' \
     --min_pretraining_document_length 'None' \
     --output_dir 'outputs' \
     --pack_dataset \
     --pad_eval_set_to_max_length \
     --pad_side 'left' \
     --no-pad_train_set_to_max_length \
-    --per_device_batch_size 'None' \
+    --per_device_batch_size '1' \
     --prefetch_factor '10' \
     --no-profile \
     --random_generator_seed 'None' \
