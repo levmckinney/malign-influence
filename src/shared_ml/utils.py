@@ -120,6 +120,7 @@ def set_seeds(seed: int | None = None) -> None:
 
 def init_distributed_environment(timeout: int | None = 600):
     if "WORLD_SIZE" in os.environ and not torch.distributed.is_initialized():
+        assert False, "Distributed environment intilized here"
         dist.init_process_group(
             backend="nccl" if torch.cuda.is_available() else "gloo",
             timeout=timedelta(seconds=timeout) if timeout is not None else None,
