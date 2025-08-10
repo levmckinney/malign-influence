@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
-from datasets import Dataset, Features, load_dataset
+from datasets import Dataset, Features, load_from_disk
 import tqdm
 from inspect_ai.model import CachePolicy, get_model
 
@@ -156,4 +156,4 @@ def dataset_from_list(records: list[dict[str, Any]], features: Optional[Features
     if not cache_dir.parent.exists():
         cache_dir.parent.mkdir(parents=True, exist_ok=True)
         ds.save_to_disk(cache_dir)
-    return load_dataset(cache_dir.as_posix())  # type: ignore
+    return load_from_disk(cache_dir.as_posix())  # type: ignore
