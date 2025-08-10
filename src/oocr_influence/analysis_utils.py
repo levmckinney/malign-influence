@@ -392,7 +392,7 @@ def get_datapoint_type(query_datapoint: dict[str, Any], train_datapoint: dict[st
     """
     query_feature_set = FeatureSet.model_validate_json(query_datapoint["features"])
     few_shot_example_features = [FeatureSet.model_validate_json(ex) for ex in query_datapoint["few_shot_examples"]]
-    train_type = train_datapoint["type"]
+    train_type = train_datapoint["type"] if "type" in train_datapoint else None
     if train_type == "pretraining_document":
         type_to_return = "pretraining_document"
     else:

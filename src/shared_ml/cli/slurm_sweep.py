@@ -51,6 +51,7 @@ class SweepArgsBase(CliPydanticModel, extra="allow"):
     queue: str = "ml"
     nodelist: list[str] = ["overture", "concerto1", "concerto2", "concerto3"]
     dependencies: list[str] | None = None  # List of jobs this depends on
+    parallelism_limit: int | None = None  # Maximum number of concurrent array jobs
 
     torch_distributed: bool = False
     dist_nodes: int = 1
@@ -125,6 +126,7 @@ def run_sweep(
     partition: str = "ml",
     account: str = "ml",
     queue: str = "ml",
+    parallelism_limit: int | None = None,
     script_intermediate_save_dir: Path = Path("./outputs/pickled_arguments/"),
     force_git_repo_has_sweep: bool = True,
 ) -> None:
@@ -150,6 +152,10 @@ def run_sweep(
     if not venv_activate_script.exists():
         raise ValueError(f"Venv not found at {venv_activate_script}")
 
+    array_spec = f"0-{len(arguments) - 1}"
+    if parallelism_limit is not None:
+        array_spec = f"{array_spec}%{parallelism_limit}"
+
     sbatch_args = {
         "partition": partition,
         "account": account,
@@ -160,7 +166,7 @@ def run_sweep(
         "nodes": nodes,
         "job-name": f'"{sweep_name}"',
         "nodelist": ",".join(nodelist),
-        "array": f"0-{len(arguments) - 1}",
+        "array": array_spec,
         "output": f"{slurm_log_dir}/%A/%A_%a.out",
         "error": f"{slurm_log_dir}/%A/%A_%a.err",
         "export": "NONE",  # We tell slurm not to export any enviornment variables, as we will set them manually in thes script. This stops subtle bug where the wandb service from the parent script is passed down. do the jobs
@@ -342,6 +348,7 @@ if __name__ == "__main__":
         partition=sweep_args.partition,
         account=sweep_args.account,
         queue=sweep_args.queue,
+        parallelism_limit=sweep_args.parallelism_limit,
         torch_distributed=sweep_args.torch_distributed,
         dist_nodes=sweep_args.dist_nodes,
         dependencies=sweep_args.dependencies,
