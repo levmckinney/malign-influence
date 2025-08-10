@@ -82,13 +82,7 @@ def train(
 
     init_distributed_environment()  # If we are multiprocessing, we need to initialize the distributed environment
 
-    parameter_groups = get_parameter_groups(
-        model=model,
-        weight_decay=weight_decay,
-        decay_norm_and_bias=decay_norm_and_bias,
-        decay_embeddings=decay_embeddings,
-    )
-    optimizer = AdamW(params=parameter_groups, lr=learning_rate)
+
     shuffle = True
     sampler = None
     if torch.distributed.is_initialized():
@@ -127,7 +121,13 @@ def train(
     assert per_device_batch_size % micro_batch_size == 0, "per_device_batch_size must be divisible by micro_batch_size"
     gradient_accumulation_steps = per_device_batch_size // micro_batch_size
 
-
+    parameter_groups = get_parameter_groups(
+        model=model,
+        weight_decay=weight_decay,
+        decay_norm_and_bias=decay_norm_and_bias,
+        decay_embeddings=decay_embeddings,
+    )
+    optimizer = AdamW(params=parameter_groups, lr=learning_rate)
 
     steps_per_epoch = len(train_dataloader)
 

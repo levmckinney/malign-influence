@@ -20,7 +20,6 @@ torchrun --nproc_per_node=8 -m oocr_influence.cli.train_extractive \
     --epochs_per_save '0.2' \
     --experiment_name 'sweep_save_epochs_no_pretrain' \
     --float_type 'bf16' \
-    --gradient_checkpointing \
     --gradient_norm 'None' \
     --learning_rate '0.0001' \
     --logging_type 'wandb' \
