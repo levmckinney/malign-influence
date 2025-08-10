@@ -82,11 +82,18 @@ def train(
 
     init_distributed_environment()  # If we are multiprocessing, we need to initialize the distributed environment
 
+    parameter_groups = get_parameter_groups(
+        model=model,
+        weight_decay=weight_decay,
+        decay_norm_and_bias=decay_norm_and_bias,
+        decay_embeddings=decay_embeddings,
+    )
+    optimizer = AdamW(params=parameter_groups, lr=learning_rate)
     shuffle = True
     sampler = None
     if torch.distributed.is_initialized():
         assert not isinstance(model, FSDP), "Model should not already be wrapped in FSDP"
-        model = apply_fsdp(model, cpu_offload=cpu_offload_fsdp)  # type: ignore
+        model = apply_fsdp(model, use_orig_params=True, cpu_offload=cpu_offload_fsdp)  # type: ignore
         sampler = DistributedSampler(
             train_dataset,  # type: ignore
             num_replicas=dist.get_world_size(),
@@ -120,13 +127,7 @@ def train(
     assert per_device_batch_size % micro_batch_size == 0, "per_device_batch_size must be divisible by micro_batch_size"
     gradient_accumulation_steps = per_device_batch_size // micro_batch_size
 
-    parameter_groups = get_parameter_groups(
-        model=model,
-        weight_decay=weight_decay,
-        decay_norm_and_bias=decay_norm_and_bias,
-        decay_embeddings=decay_embeddings,
-    )
-    optimizer = AdamW(params=parameter_groups, lr=learning_rate)
+
 
     steps_per_epoch = len(train_dataloader)
 
@@ -256,11 +257,10 @@ def train(
             train_losses.append(train_loss_tensor.item())
 
             if eval_this_step:
-                global_grad_norm = torch.sum(
-                    torch.stack([param.grad.norm(2) for param in model.parameters() if param.grad is not None])**2
-                )
-                dist.all_reduce(global_grad_norm, op=dist.ReduceOp.SUM)  # Required by FSDP since we don't see the full gradient on each rank
-                global_grad_norm = global_grad_norm.sqrt().item()
+                global_grad_norm = torch.norm(
+                    torch.stack([param.grad.norm(2) for param in model.parameters() if param.grad is not None]),
+                    2,
+                ).item()
                 log_dict = log_dict | {"global_grad_norm": global_grad_norm}
 
             # clip the gradients
