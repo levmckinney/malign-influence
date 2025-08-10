@@ -1,5 +1,5 @@
 TARGET_DIR='/workspace/outputs/2025_08_10_19-25-39_3jSQh_sweep_save_epochs_no_pretrain_cached_synthetic_docs_hop_num_epochs_1_lr_0.0001/'
-torchrun --nproc_per_node=8 -m oocr_influence.cli.run_influence \
+torchrun --nproc_per_node=1 -m oocr_influence.cli.run_influence \
     --experiment_name 'fp32_run' \
     --target_experiment_dir $TARGET_DIR \
     --checkpoint_name 'checkpoint_final' \
@@ -11,7 +11,7 @@ torchrun --nproc_per_node=8 -m oocr_influence.cli.run_influence \
     --covariance_batch_size '1' \
     --lambda_batch_size '1' \
     --train_batch_size '2' \
-    --covariance_and_lambda_max_examples '250' \
+    --covariance_and_lambda_max_examples '256' \
     --damping '1e-10' \
     --layers_to_track 'mlp' \
     --shard_lambda \
