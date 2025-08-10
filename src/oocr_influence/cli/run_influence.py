@@ -207,7 +207,6 @@ def main(args: InfluenceArgs):
 
     # Get models and prepare them for the influence query
     model, tokenizer = get_model_and_tokenizer(args)
-    query_model = None
 
     factor_fit_dataset, train_dataset, query_dataset_list = get_datasets(args)
 
@@ -232,16 +231,10 @@ def main(args: InfluenceArgs):
     task = get_task(model, args.layers_to_track)
 
     # Prepare models for the influence queries
-    print("model", model)
     model_influence_context = prepare_model_for_influence(model=model, task=task)
-    query_model_influence_context = (
-        prepare_model_for_influence(model=query_model, task=task) if query_model is not None else nullcontext()
-    )
 
     if torch.distributed.is_initialized():
         model = apply_fsdp(model, use_orig_params=True)
-        if query_model is not None:
-            query_model = apply_fsdp(query_model, use_orig_params=True)
 
     # Prepare the datasets from the influence query - concatenate and pad
     query_dataset = concatenate_datasets([v for _, v in query_dataset_list])
@@ -253,45 +246,43 @@ def main(args: InfluenceArgs):
     )
 
     with model_influence_context:
-        with query_model_influence_context:
-            logger.info(f"Computing influence scores for {analysis_name} and {query_name}")
-            influence_scores, scores_save_path = get_pairwise_influence_scores(
-                experiment_output_dir=args.target_experiment_dir,
-                factor_fit_dataset=factor_fit_dataset,  # type: ignore
-                train_dataset=train_dataset,  # type: ignore
-                query_dataset=query_dataset,  # type: ignore
-                analysis_name=analysis_name,
-                factors_name=factors_name,
-                query_name=query_name,
-                train_indices_query=train_inds_query,
-                task=task,
-                damping=args.damping,
-                shard_lambda=args.shard_lambda,
-                shard_covariance=args.shard_covariance,
-                model=model,  # type: ignore
-                amp_dtype=args.amp_dtype,  # type: ignore
-                gradient_dtype=args.gradient_dtype,  # type: ignore
-                gradient_covariance_dtype=args.gradient_covariance_dtype,  # type: ignore
-                lambda_dtype=args.lambda_dtype,  # type: ignore
-                activation_covariance_dtype=args.activation_covariance_dtype,  # type: ignore
-                factor_batch_size=args.factor_batch_size,
-                query_batch_size=args.query_batch_size if args.query_batch_size is not None else len(query_dataset),
-                train_batch_size=args.train_batch_size,
-                query_gradient_rank=args.query_gradient_rank,
-                query_gradient_accumulation_steps=args.query_gradient_accumulation_steps,
-                profile_computations=args.profile_computations,
-                compute_per_token_scores=args.compute_per_token_scores,
-                use_half_precision=args.use_half_precision_influence,
-                factor_strategy=args.factor_strategy,
-                query_model=query_model,  # type: ignore
-                num_module_partitions_covariance=args.num_module_partitions_covariance,
-                num_module_partitions_scores=args.num_module_partitions_scores,
-                num_module_partitions_lambda=args.num_module_partitions_lambda,
-                compute_per_module_scores=args.compute_per_module_scores,
-                overwrite_output_dir=args.overwrite_output_dir,
-                covariance_max_examples=args.covariance_max_examples,
-                lambda_max_examples=args.lambda_max_examples,
-            )
+        logger.info(f"Computing influence scores for {analysis_name} and {query_name}")
+        influence_scores, scores_save_path = get_pairwise_influence_scores(
+            experiment_output_dir=args.target_experiment_dir,
+            factor_fit_dataset=factor_fit_dataset,  # type: ignore
+            train_dataset=train_dataset,  # type: ignore
+            query_dataset=query_dataset,  # type: ignore
+            analysis_name=analysis_name,
+            factors_name=factors_name,
+            query_name=query_name,
+            train_indices_query=train_inds_query,
+            task=task,
+            damping=args.damping,
+            shard_lambda=args.shard_lambda,
+            shard_covariance=args.shard_covariance,
+            model=model,  # type: ignore
+            amp_dtype=args.amp_dtype,  # type: ignore
+            gradient_dtype=args.gradient_dtype,  # type: ignore
+            gradient_covariance_dtype=args.gradient_covariance_dtype,  # type: ignore
+            lambda_dtype=args.lambda_dtype,  # type: ignore
+            activation_covariance_dtype=args.activation_covariance_dtype,  # type: ignore
+            factor_batch_size=args.factor_batch_size,
+            query_batch_size=args.query_batch_size if args.query_batch_size is not None else len(query_dataset),
+            train_batch_size=args.train_batch_size,
+            query_gradient_rank=args.query_gradient_rank,
+            query_gradient_accumulation_steps=args.query_gradient_accumulation_steps,
+            profile_computations=args.profile_computations,
+            compute_per_token_scores=args.compute_per_token_scores,
+            use_half_precision=args.use_half_precision_influence,
+            factor_strategy=args.factor_strategy,
+            num_module_partitions_covariance=args.num_module_partitions_covariance,
+            num_module_partitions_scores=args.num_module_partitions_scores,
+            num_module_partitions_lambda=args.num_module_partitions_lambda,
+            compute_per_module_scores=args.compute_per_module_scores,
+            overwrite_output_dir=args.overwrite_output_dir,
+            covariance_max_examples=args.covariance_max_examples,
+            lambda_max_examples=args.lambda_max_examples,
+        )
 
     if process_rank == 0:
         # Create relative paths for symlinks using os.path.relpath. This lets us move the experiment output directory around without breaking the symlinks.
