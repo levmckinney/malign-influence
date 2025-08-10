@@ -1,6 +1,5 @@
 TARGET_DIR='/workspace/outputs/2025_08_10_19-25-39_3jSQh_sweep_save_epochs_no_pretrain_cached_synthetic_docs_hop_num_epochs_1_lr_0.0001/'
-export CUDA_VISIBLE_DEVICES=0
-torchrun --nproc_per_node=1 -m oocr_influence.cli.run_influence \
+torchrun --nproc_per_node=8 -m oocr_influence.cli.run_influence \
     --experiment_name 'fp32_run' \
     --target_experiment_dir $TARGET_DIR \
     --checkpoint_name 'checkpoint_final' \
@@ -24,7 +23,7 @@ torchrun --nproc_per_node=1 -m oocr_influence.cli.run_influence \
     --num_module_partitions_scores '1' \
     --gradient_dtype 'fp32' \
     --amp_dtype 'fp32' \
-    --dtype_model 'bf16' \
+    --dtype_model 'fp32' \
     --use_flash_attn \
     --output_dir 'outputs' \
     --no-overwrite_output_dir \
