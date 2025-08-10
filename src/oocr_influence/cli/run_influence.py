@@ -20,6 +20,7 @@ from pydantic_settings import (
     CliApp,
 )
 from safetensors.torch import save_file
+from torch.distributed.fsdp import FSDPModule
 from tqdm import tqdm
 from transformers.modeling_utils import PreTrainedModel
 from transformers.models.gpt2 import GPT2LMHeadModel
@@ -246,6 +247,7 @@ def main(args: InfluenceArgs):
         if torch.distributed.is_initialized():
             model = apply_fsdp(model, use_orig_params=True)
 
+        assert isinstance(model, FSDPModule), "Model should be wrapped in FSDP"
         logger.info(f"Computing influence scores for {analysis_name} and {query_name}")
         influence_scores, scores_save_path = get_pairwise_influence_scores(
             experiment_output_dir=args.target_experiment_dir,
