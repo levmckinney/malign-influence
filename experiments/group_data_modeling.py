@@ -77,6 +77,7 @@ for i in range(N_RUNS):
         OUTPUT_DIR / f"dataset_builder_{i}.json",
         metadata,
     )
+    dataset_builder_paths.append(OUTPUT_DIR / f"dataset_builder_{i}.json")
     # Also save metadata separately
     with open(OUTPUT_DIR / f"metadata_{i}.json", "w") as f:
         json.dump(metadata, f)

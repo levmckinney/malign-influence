@@ -154,7 +154,10 @@ def run_sweep(
 
     array_spec = f"0-{len(arguments) - 1}"
     if parallelism_limit is not None:
-        array_spec = f"{array_spec}%{parallelism_limit}"
+        if parallelism_limit < 1:
+            raise ValueError("parallelism_limit must be >= 1 if provided")
+        effective_parallelism_limit = min(parallelism_limit, len(arguments))
+        array_spec = f"{array_spec}%{effective_parallelism_limit}"
 
     sbatch_args = {
         "partition": partition,
