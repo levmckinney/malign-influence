@@ -16,6 +16,7 @@ from typing import Any, Callable, Iterable, Iterator, Literal, ParamSpec, TypeVa
 import numpy as np
 import torch
 import torch.distributed as dist
+from torch.distributed.fsdp.api import BackwardPrefetch
 import torch.nn as nn
 from pydantic_settings import BaseSettings
 from torch.distributed.fsdp import (
@@ -136,7 +137,7 @@ def apply_fsdp(
     model: PreTrainedModel | GPT2LMHeadModel,
     sharding_strategy: ShardingStrategy = ShardingStrategy.FULL_SHARD,
     use_orig_params: bool = False,
-    cpu_offload: bool = True,
+    cpu_offload: bool = False,
 ) -> FullyShardedDataParallel:
     """Applies FullyShardedDataParallel (FSDP) to the given PyTorch model.
 
@@ -184,6 +185,8 @@ def apply_fsdp(
         use_orig_params=use_orig_params,
         sharding_strategy=sharding_strategy,
         auto_wrap_policy=auto_wrap_policy,
+        backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
+        forward_prefetch=True,
         cpu_offload=CPUOffload(offload_params=cpu_offload),
     )  # type: ignore
 
