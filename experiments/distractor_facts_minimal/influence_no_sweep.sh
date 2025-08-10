@@ -19,11 +19,9 @@ torchrun --nproc_per_node=8 -m oocr_influence.cli.run_influence \
     --num_module_partitions_covariance '2' \
     --num_module_partitions_lambda '2' \
     --num_module_partitions_scores '1' \
-    --shard_lambda \
-    --shard_covariance \
-    --gradient_dtype 'fp32' \
-    --amp_dtype 'fp32' \
-    --dtype_model 'bf16' \
+    --gradient_dtype 'fp16' \
+    --amp_dtype 'fp16' \
+    --dtype_model 'fp16' \
     --use_flash_attn \
     --output_dir 'outputs' \
     --no-overwrite_output_dir \
