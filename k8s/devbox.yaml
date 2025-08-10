@@ -1,24 +1,8 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: devbox
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: devbox-workspace
-  namespace: devbox
-spec:
-  accessModes: [ "ReadWriteOnce" ]
-  resources:
-    requests:
-      storage: 20Gi
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: devbox
-  namespace: devbox
+  namespace: sf-gmail-com-levmckinney
 spec:
   replicas: 1
   selector:
@@ -31,12 +15,23 @@ spec:
     spec:
       containers:
         - name: devbox
-          image: malign/devbox:latest
-          imagePullPolicy: IfNotPresent
+          image: levmck/malign-influence:main-devbox
+          imagePullPolicy: Always
           command: ["/usr/sbin/sshd", "-D", "-e"]
           ports:
             - name: ssh
               containerPort: 22
+          resources:
+            requests:
+              nvidia.com/gpu: 8
+              nvidia.com/hostdev: 8
+              memory: "512Gi"
+              cpu: "32"
+            limits:
+              nvidia.com/gpu: 8
+              nvidia.com/hostdev: 8
+              memory: "512Gi"
+              cpu: "32"
           volumeMounts:
             - name: workspace
               mountPath: /workspace
@@ -61,8 +56,7 @@ spec:
                     install -m 600 -o dev -g dev /tmp/ssh/authorized_keys /home/dev/.ssh/authorized_keys
       volumes:
         - name: workspace
-          persistentVolumeClaim:
-            claimName: devbox-workspace
+          emptyDir: {}
         - name: ssh-home
           emptyDir: {}
         - name: ssh-keys
@@ -76,7 +70,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: devbox-ssh
-  namespace: devbox
+  namespace: sf-gmail-com-levmckinney
 spec:
   type: ClusterIP
   selector:
