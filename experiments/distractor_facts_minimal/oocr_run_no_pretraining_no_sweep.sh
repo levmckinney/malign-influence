@@ -1,7 +1,7 @@
 # This trains a model on the dataset w/ pretraining facts and original facts
 DATASET_BUILDER='/workspace/data/dataset_builders_plausible.json'
 
-torchrun --nproc_per_node=8 python -m oocr_influence.cli.train_extractive \
+torchrun --nproc_per_node=8 -m oocr_influence.cli.train_extractive \
     --model 'allenai/OLMo-2-1124-7B' \
     --fact_dataset_type 'cached_synthetic_docs' \
     --synth_dataset_builders_path $DATASET_BUILDER \
