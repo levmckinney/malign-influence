@@ -25,9 +25,6 @@ torchrun --nproc_per_node=8 -m oocr_influence.cli.run_influence \
     --amp_dtype 'fp32' \
     --dtype_model 'bf16' \
     --use_flash_attn \
-    --no-torch_distributed \
-    --no-torch_distributed_debug \
-    --random_seed '42' \
     --output_dir 'outputs' \
     --no-overwrite_output_dir \
     --wandb_project 'malign-influence' \
