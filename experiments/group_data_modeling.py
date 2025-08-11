@@ -86,7 +86,7 @@ for i in range(N_RUNS):
 train_args_list = []
 for builder_path in dataset_builder_paths:
     train_args = TrainingArgs(
-        experiment_name="drop_top_k_inital_training_run",
+        experiment_name="group_inf_estimation",
         output_dir=OUTPUT_DIR,
         synth_dataset_builders_path=builder_path,
         fact_dataset_type="cached_synthetic_docs",
@@ -94,6 +94,7 @@ for builder_path in dataset_builder_paths:
         learning_rate=0.0001,
         warmup_proportion=0.1,
         epochs=1,
+        eval_first_step=False,
         epochs_per_save=None,
         epochs_per_eval=1,
         batch_size=8,

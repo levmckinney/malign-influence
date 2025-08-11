@@ -70,6 +70,7 @@ class TrainingArgs(DatasetArgs):
     epochs_per_eval: float | None = (
         1  # Only one of epochs per eval or steps per eval can be set. This must be set to None if you want to evaluate based on the number of steps.
     )
+    eval_first_step: bool = True  # Whether to evaluate before the first step of training.
     steps_per_eval: int | None = None
     epochs_per_save: float | None = None
     steps_per_save: int | None = None
@@ -165,6 +166,7 @@ def main(args: TrainingArgs):
                 eval_batch_size=args.per_device_batch_size or args.batch_size,
                 learning_rate=args.learning_rate,
                 epochs=args.epochs,
+                eval_first_step=args.eval_first_step,
                 max_steps=args.max_steps,
                 epochs_per_eval=args.epochs_per_eval,
                 steps_per_eval=args.steps_per_eval,
