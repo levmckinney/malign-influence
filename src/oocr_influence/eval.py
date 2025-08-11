@@ -2,9 +2,9 @@ from typing import Any
 
 import numpy as np
 from datasets import Dataset
-from oocr_influence.utils import dataset_from_list
 from transformers import GPT2LMHeadModel, PreTrainedTokenizer, PreTrainedTokenizerFast
 
+from oocr_influence.utils import dataset_from_list
 from shared_ml.data import logger, tokenize
 from shared_ml.eval import eval_accuracy_and_loss
 

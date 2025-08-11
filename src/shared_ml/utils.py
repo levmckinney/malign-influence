@@ -16,7 +16,6 @@ from typing import Any, Callable, Iterable, Iterator, Literal, ParamSpec, TypeVa
 import numpy as np
 import torch
 import torch.distributed as dist
-from torch.distributed.fsdp.api import BackwardPrefetch
 import torch.nn as nn
 from pydantic_settings import BaseSettings
 from torch.distributed.fsdp import (

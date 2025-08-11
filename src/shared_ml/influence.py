@@ -1,8 +1,7 @@
 # Compute influence factors.
-from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
-from typing import Generator, Literal
+from typing import Literal
 
 import torch
 import torch.nn as nn
@@ -12,7 +11,6 @@ from kronfluence import ScoreArguments, Task
 from kronfluence.analyzer import Analyzer, FactorArguments
 from kronfluence.module.utils import (
     TrackedModule,
-    _get_submodules,  # type: ignore
     wrap_tracked_modules,
 )
 from kronfluence.utils.common.factor_arguments import all_low_precision_factor_arguments
@@ -237,10 +235,10 @@ def get_pairwise_influence_scores(
         overwrite_output_dir=overwrite_output_dir,
     )
     analyzer.perform_eigendecomposition(
-            factors_name=factors_name,
-            factor_args=factor_args,
-            overwrite_output_dir=overwrite_output_dir,
-        )
+        factors_name=factors_name,
+        factor_args=factor_args,
+        overwrite_output_dir=overwrite_output_dir,
+    )
     analyzer.fit_lambda_matrices(
         factors_name=factors_name,
         dataset=factor_fit_dataset,  # type: ignore
@@ -349,6 +347,7 @@ def prepare_model_for_influence(
     prepared_model.to(original_device)  # type: ignore
 
     return prepared_model
+
 
 def hash_kronfluence_args(args: FactorArguments | ScoreArguments) -> str:
     return hash_str(str(sorted([str(k) + str(v) for k, v in asdict(args).items()])))[:10]

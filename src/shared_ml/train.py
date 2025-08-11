@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from datasets import Dataset
 from olmo.model import LayerNormBase
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp.api import FullStateDictConfig, StateDictType, ShardingStrategy
+from torch.distributed.fsdp.api import FullStateDictConfig, ShardingStrategy, StateDictType
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
@@ -82,12 +82,13 @@ def train(
 
     init_distributed_environment()  # If we are multiprocessing, we need to initialize the distributed environment
 
-
     shuffle = True
     sampler = None
     if torch.distributed.is_initialized():
         assert not isinstance(model, FSDP), "Model should not already be wrapped in FSDP"
-        model = apply_fsdp(model, sharding_strategy=ShardingStrategy.SHARD_GRAD_OP, use_orig_params=True, cpu_offload=cpu_offload_fsdp)  # type: ignore
+        model = apply_fsdp(
+            model, sharding_strategy=ShardingStrategy.SHARD_GRAD_OP, use_orig_params=True, cpu_offload=cpu_offload_fsdp
+        )  # type: ignore
         sampler = DistributedSampler(
             train_dataset,  # type: ignore
             num_replicas=dist.get_world_size(),

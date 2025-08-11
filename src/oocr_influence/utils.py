@@ -1,12 +1,12 @@
 import asyncio
 import math
-import random
 import os
+import random
 from pathlib import Path
 from typing import Any, Optional
 
-from datasets import Dataset, Features, load_from_disk
 import tqdm
+from datasets import Dataset, Features, load_from_disk
 from inspect_ai.model import CachePolicy, get_model
 
 REPHRASE_PROMPT = """Your task is to rephrase a given phrase {num_rephrasals} times. Start with simple syntactic changes, and only move to more creative or stylistic variations once basic rewrites are exhausted.
@@ -146,6 +146,7 @@ async def _rephrase_text(
         rephrases.append(rephrases_for_phrase)
 
     return rephrases
+
 
 def dataset_from_list(records: list[dict[str, Any]], features: Optional[Features] = None) -> Dataset:
     ds = Dataset.from_list(records, features=features)
