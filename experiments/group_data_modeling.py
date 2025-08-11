@@ -88,7 +88,7 @@ for builder_path in dataset_builder_paths:
     train_args = TrainingArgs(
         experiment_name="drop_top_k_inital_training_run",
         output_dir=OUTPUT_DIR,
-        synth_dataset_builders_path=DATASET_BUILDER_PATH,
+        synth_dataset_builders_path=builder_path,
         fact_dataset_type="cached_synthetic_docs",
         weight_decay=0.1,
         learning_rate=0.0001,
