@@ -22,13 +22,11 @@ jobs:
     
     strategy:
       matrix:
-        target: [runtime, devbox]
+        target: [devbox]
         include:
-          - target: runtime
-            tag_suffix: ""
           - target: devbox
             tag_suffix: "-devbox"
-    
+  
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
