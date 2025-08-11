@@ -5,45 +5,41 @@ slurm_launcher.py  –  one script to launch or run any sweepable oocr_influence
 
 from __future__ import annotations
 
-import datetime
-import itertools
 import logging
 import os
 import pickle
-import random
 import re
-import string
 import subprocess
 import sys
 import textwrap
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any, Callable, Literal, Tuple, Type, TypeVar, cast
+from typing import Any, Callable, Literal, Tuple, TypeVar, cast
 
-from pydantic import create_model
 from pydantic_settings import CliApp
 
 from oocr_influence.cli.run_activation_dot_product import ActivationDotProductArgs
 from oocr_influence.cli.run_activation_dot_product import main as run_activation_dot_product_main
 from shared_ml.logging import log, setup_custom_logging
-from shared_ml.utils import CliPydanticModel, get_current_git_commit_with_clean_check, get_root_of_git_repo
+from shared_ml.utils import (
+    CliPydanticModel,
+    SweepArgsBase,
+    create_sweep_args_model,
+    get_current_git_commit_with_clean_check,
+    get_root_of_git_repo,
+    get_sweep_name_and_id,
+    prepare_sweep_arguments,
+)
 
 ScriptName = Literal["train_extractive", "run_influence", "run_activation_dot_product"]
 logger = logging.getLogger(__name__)
 
 
-class SweepArgsBase(CliPydanticModel, extra="allow"):
-    script_name: ScriptName
-    sweep_name: str
-    num_repeats: int = 1
-    sweep_output_dir: Path = Path("./outputs/")
-    sweep_id: str | None = (
-        None  # Passed to wandb by the scripts, used to group an experiment. If None, a new id will be generated (recommended unless you are chaining calls to this script)
-    )
+class SlurmSweepArgs(SweepArgsBase):
+    """SLURM-specific sweep arguments"""
 
     cpus_per_task: int = 4
     memory_gb: int = 100
-    gpus: int = 1
     nodes: int = 1
     slurm_log_dir: Path = Path("./logs")
     partition: str = "ml"
@@ -52,40 +48,8 @@ class SweepArgsBase(CliPydanticModel, extra="allow"):
     nodelist: list[str] = ["overture", "concerto1", "concerto2", "concerto3"]
     dependencies: list[str] | None = None  # List of jobs this depends on
 
-    torch_distributed: bool = False
-    dist_nodes: int = 1
-    dist_nproc_per_node: int | None = None  # Defaults to numebr of GPUs
 
-    sweep_logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
-    sweep_wandb_project: str = "malign-influence"
-    stagger_jobs_if_influence: bool = True
-    time_to_delay_jobs_if_influence: int = 120
-
-    random_seed: int = 42
-
-
-def expand_sweep_grid(args: SweepArgsBase) -> list[dict[str, Any]]:
-    """This function takes in a subclass of SweepArgsBase, where fields with '_sweep' are considered lists of arguments, and fields without '_sweep' are original arguments. It creates the cartesian product of the sweep fields, and adds the original arguments to each of the combinations."""
-    # First, we filter out all the fields from the base arguments - other fields should be sweep or original
-    original_script_args = {
-        k: v for k, v in args.model_dump().items() if k not in SweepArgsBase.model_fields and not k.endswith("_sweep")
-    }
-    # Then, we expand the sweep fields
-    sweep_args = {
-        k.removesuffix("_sweep"): v
-        for k, v in args.model_dump().items()
-        if k.endswith("_sweep") and k not in SweepArgsBase.model_fields and v is not None
-    }
-
-    # Now, we expand the sweep fields
-    prod = itertools.product(*sweep_args.values())
-    sweep_combos = [dict(zip(sweep_args.keys(), vals)) for vals in prod]
-
-    # Then, we overwrite the original script arguments with these expanded sweep arguments
-    sweep_combos = [original_script_args | combo for combo in sweep_combos]
-
-    # Then, we repeat the combos the appropriate number of times
-    return sweep_combos * args.num_repeats
+# expand_sweep_grid is now imported from shared_ml.utils
 
 
 CliPydanticModelSubclass = TypeVar("CliPydanticModelSubclass", bound=CliPydanticModel)
@@ -105,7 +69,7 @@ def check_main_project_is_clean() -> None:
             )
 
 
-def run_sweep(
+def run_slurm_sweep(
     sweep_id: str,
     target_args_model: CliPydanticModelSubclass,
     target_entrypoint: Callable[[CliPydanticModelSubclass], None],
@@ -178,7 +142,7 @@ def run_sweep(
         )
 
     python_script = textwrap.dedent("""\
-        from shared_ml.cli.slurm_sweep import run_job_in_sweep
+        from shared_ml.utils import run_job_in_sweep
         import os
         run_job_in_sweep(os.environ['PICKLE_SWEEP_FILE'], int(os.environ['SLURM_ARRAY_TASK_ID']))
     """)
@@ -221,27 +185,10 @@ def run_sweep(
         logger.info(f"(sweep_id / job_id): {sweep_id} / {job_id}")
 
 
-def run_job_in_sweep(pickled_sweep_arguments: Path | str, job_index: int) -> None:
-    pickled_sweep_arguments = Path(pickled_sweep_arguments)
-
-    with open(pickled_sweep_arguments, "rb") as f:
-        target_script_model, target_entrypoint, all_arguments = pickle.load(f)
-        target_script_model = cast(Type[CliPydanticModel], target_script_model)
-        target_entrypoint = cast(Callable[[CliPydanticModel], None], target_entrypoint)
-        all_arguments = cast(list[dict[str, Any]], all_arguments)
-
-    arguments = all_arguments[job_index]
-    args = target_script_model.model_validate(arguments)
-    target_entrypoint(args)
+# run_job_in_sweep is now imported from shared_ml.utils
 
 
-def get_sweep_name_and_id(args: SweepArgsBase) -> Tuple[str, str]:
-    sweep_id = args.sweep_id
-    if sweep_id is None:
-        sweep_id = "".join(random.choices(string.ascii_letters + string.digits, k=5))
-
-    experiment_title = f"{datetime.datetime.now(datetime.timezone.utc).strftime('%Y_%m_%d_%H-%M-%S')}_SWEEP_{sweep_id}_{args.sweep_name}_{args.script_name}"
-    return experiment_title, sweep_id
+# get_sweep_name_and_id is now imported from shared_ml.utils
 
 
 if __name__ == "__main__":
@@ -270,44 +217,20 @@ if __name__ == "__main__":
     assert "sweep_id" in script_args_base_model.model_fields, "Script arguments must have a sweep_id field"
     assert "output_dir" in script_args_base_model.model_fields, "Script arguments must have an output_dir field"
 
-    # We make a new set of CLI arguments, one for each field in the orignal script arguments, but with "sweep" appended to the name, and one for each field in the original arguments
-    sweep_args = {
-        f"{name}_sweep": (list[field.annotation] | None, None)
-        for name, field in script_args_base_model.model_fields.items()
-    }
-    original_args = {
-        name: (field.annotation, field.default) for name, field in script_args_base_model.model_fields.items()
-    }
+    # Verify the script model has required fields before creating sweep args
+    assert "sweep_id" in script_args_base_model.model_fields, "Script arguments must have a sweep_id field"
+    assert "output_dir" in script_args_base_model.model_fields, "Script arguments must have an output_dir field"
 
-    overlapping_args = set(SweepArgsBase.model_fields.keys()).intersection(set(original_args.keys()))
-    overlapping_args = set(arg for arg in overlapping_args if arg not in ["sweep_id"])
+    # Use the shared function to create the sweep args model
+    SweepArgs = create_sweep_args_model(script_args_base_model, SlurmSweepArgs)
 
-    assert overlapping_args == set(), (
-        f"The arguments  for your scriptand the arguments for this SweepBaseArgs must not have any overlapping names. Had {overlapping_args} in common."
-    )
-
-    SweepArgs = create_model(
-        f"{script_args_base_model.__name__}.Sweep",
-        __base__=SweepArgsBase,
-        **(sweep_args | original_args),  # type: ignore
-    )
-    SweepArgs = cast(Type[SweepArgsBase], SweepArgs)
-
-    sweep_args = CliApp.run(SweepArgs)
+    sweep_args = cast(SlurmSweepArgs, CliApp.run(SweepArgs))
     sweep_name, sweep_id = get_sweep_name_and_id(sweep_args)
     sweep_output_dir = sweep_args.sweep_output_dir / sweep_name
     sweep_output_dir.mkdir(parents=True, exist_ok=True)
 
-    sweep_args_list = expand_sweep_grid(sweep_args)
-
-    if script_name == "run_influence" and sweep_args.stagger_jobs_if_influence:
-        for idx, arg in enumerate(sweep_args_list):
-            if idx != 0:
-                arg["delay_before_starting"] = (
-                    int((sweep_args.time_to_delay_jobs_if_influence / len(sweep_args_list)) * idx) + 30
-                )
-            else:
-                arg["delay_before_starting"] = None
+    # Use the shared function to prepare sweep arguments
+    sweep_args_list = prepare_sweep_arguments(sweep_args, sweep_name, sweep_id, sweep_output_dir, script_name)
 
     setup_custom_logging(
         experiment_name=sweep_name,
@@ -322,12 +245,7 @@ if __name__ == "__main__":
     commit_hash = get_current_git_commit_with_clean_check()
     log().add_to_log_dict(commit_hash=commit_hash)
 
-    for i, args in enumerate(sweep_args_list):
-        args["output_dir"] = sweep_output_dir
-        args["experiment_name"] = f"{sweep_name}_index_{i}"
-        args["sweep_id"] = sweep_id
-
-    run_sweep(
+    run_slurm_sweep(
         sweep_id=sweep_id,
         target_args_model=script_args_base_model,  # type: ignore
         target_entrypoint=script_hook,
