@@ -1,0 +1,31 @@
+TARGET_DIR='/workspace/outputs/2025_08_10_19-25-39_3jSQh_sweep_save_epochs_no_pretrain_cached_synthetic_docs_hop_num_epochs_1_lr_0.0001/'
+torchrun --nproc_per_node=8 -m oocr_influence.cli.run_influence \
+    --experiment_name 'fp32_run' \
+    --target_experiment_dir $TARGET_DIR \
+    --checkpoint_name 'checkpoint_final' \
+    --query_dataset_split_names '['first_hop_inferred_fact_qa_no_fs', 'second_hop_inferred_fact_qa_no_fs', 'first_hop_inferred_fact_gen_no_fs', 'second_hop_inferred_fact_gen_no_fs', 'name_mayor_eval_gen_no_fs', 'name_mayor_eval_gen_reversed_no_fs', 'name_mayor_eval_qa_no_fs', 'name_mayor_eval_qa_reversed_no_fs']' \
+    --query_batch_size '64' \
+    --query_gradient_rank '64' \
+    --query_gradient_accumulation_steps '10' \
+    --factor_strategy 'ekfac' \
+    --covariance_batch_size '1' \
+    --lambda_batch_size '1' \
+    --train_batch_size '1' \
+    --covariance_and_lambda_max_examples '256' \
+    --damping '1e-10' \
+    --layers_to_track 'mlp' \
+    --shard_lambda \
+    --shard_covariance \
+    --compute_per_token_scores \
+    --no-compute_per_module_scores \
+    --num_module_partitions_covariance '4' \
+    --num_module_partitions_lambda '4' \
+    --num_module_partitions_scores '1' \
+    --gradient_dtype 'fp32' \
+    --amp_dtype 'fp32' \
+    --dtype_model 'fp32' \
+    --use_flash_attn \
+    --output_dir 'outputs' \
+    --no-overwrite_output_dir \
+    --wandb_project 'malign-influence' \
+    --no-profile_computations

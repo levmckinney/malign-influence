@@ -13,8 +13,8 @@ import torch.nn.functional as F
 from datasets import Dataset
 from olmo.model import LayerNormBase
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp.api import FullStateDictConfig, StateDictType
-from torch.optim import AdamW, Optimizer
+from torch.distributed.fsdp.api import FullStateDictConfig, ShardingStrategy, StateDictType
+from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 from torch.utils.data import Dataset as TorchDataset
@@ -55,7 +55,6 @@ def train(
     eval_first_step: bool = True,
     weight_decay: float = 0.1,
     epochs_per_save: float | None = None,
-    optimizer: Optimizer | None = None,
     learning_rate: float = 5e-4,
     z_loss_multiplier: float = 0.0,
     decay_norm_and_bias: bool = False,
@@ -87,7 +86,9 @@ def train(
     sampler = None
     if torch.distributed.is_initialized():
         assert not isinstance(model, FSDP), "Model should not already be wrapped in FSDP"
-        model = apply_fsdp(model, use_orig_params=True, cpu_offload=cpu_offload_fsdp)  # type: ignore
+        model = apply_fsdp(
+            model, sharding_strategy=ShardingStrategy.SHARD_GRAD_OP, use_orig_params=True, cpu_offload=cpu_offload_fsdp
+        )  # type: ignore
         sampler = DistributedSampler(
             train_dataset,  # type: ignore
             num_replicas=dist.get_world_size(),
@@ -97,10 +98,9 @@ def train(
         )  # type: ignore
         shuffle = None  # Avoid a warning, as we are using a sample
         assert dist.get_world_size() * per_device_batch_size == batch_size, (
-            "world_size * per_device_batch_size must be equal to batch_size"
+            f"world_size * per_device_batch_size must be equal to batch_size, but got {dist.get_world_size()} * {per_device_batch_size} != {batch_size}"
         )
-
-    if not torch.distributed.is_initialized():
+    else:
         # If we aren't using distributed training, we need to set the per_device_batch_size to the batch_size
         assert per_device_batch_size is None or per_device_batch_size == batch_size, (
             "per_device_batch_size must be set equal to batch_sizeif not using distributed training"
@@ -128,7 +128,7 @@ def train(
         decay_norm_and_bias=decay_norm_and_bias,
         decay_embeddings=decay_embeddings,
     )
-    optimizer = optimizer or AdamW(params=parameter_groups, lr=learning_rate)
+    optimizer = AdamW(params=parameter_groups, lr=learning_rate)
 
     steps_per_epoch = len(train_dataloader)
 

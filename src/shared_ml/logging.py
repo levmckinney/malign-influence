@@ -187,7 +187,6 @@ def setup_custom_logging(
     if only_initialize_on_main_process and get_dist_rank() != 0:
         logger = NullLogger(experiment_name=experiment_name, experiment_output_dir=experiment_output_dir)
         return
-
     elif logging_type == "wandb":
         if wandb_project is None:
             raise ValueError("wandb_project must be set if logging_type is wandb")
