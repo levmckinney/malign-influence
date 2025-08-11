@@ -153,8 +153,8 @@ nvidia-smi
 
 
 def worker_process(
-    job_queue: mp.Queue,
-    gpu_queue: mp.Queue,
+    job_queue: mp.Queue[int],
+    gpu_queue: mp.Queue[list[int]],
     pickle_sweep_arguments_file: str,
     sweep_log_dir: Path,
     torch_distributed: bool,
@@ -194,7 +194,7 @@ def run_local_sweep(
     target_entrypoint: Callable[[CliPydanticModelSubclass], None],
     arguments: list[dict[str, Any]],
     sweep_name: str,
-    gpus_per_job: int | None = None,
+    gpus_per_job: int = 0,
     parallelism_limit: int | None = None,
     torch_distributed: bool = False,
     dist_nproc_per_node: int | None = None,
