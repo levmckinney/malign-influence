@@ -1,9 +1,12 @@
+import datetime
 import functools
 import hashlib
 import inspect
+import itertools
 import os
 import pickle
 import random
+import string
 import subprocess
 import sys
 import uuid
@@ -11,7 +14,7 @@ from abc import ABC
 from datetime import timedelta
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator, Literal, ParamSpec, TypeVar
+from typing import Any, Callable, Iterable, Iterator, Literal, ParamSpec, Tuple, Type, TypeVar, cast
 
 import numpy as np
 import torch
@@ -26,6 +29,7 @@ from torch.distributed.fsdp import (
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from transformers import GPT2LMHeadModel, PreTrainedModel
 from transformers.trainer_pt_utils import get_module_class_from_name
+from pydantic import create_model
 
 
 class CliPydanticModel(BaseSettings, ABC):
@@ -409,3 +413,162 @@ def create_commit_for_current_changes(path: Path | str = ".") -> str:
     subprocess.run(["git", "push", "origin", f"{snapshot_commit}:{snapshot_ref}"], cwd=git_root, check=True)
 
     return snapshot_commit
+
+
+# ===== Sweep-related shared functionality =====
+
+class SweepArgsBase(CliPydanticModel, extra="allow"):
+    """Base class for sweep arguments, shared between slurm_sweep and local_sweep"""
+    script_name: Literal["train_extractive", "run_influence", "run_activation_dot_product"]
+    sweep_name: str
+    num_repeats: int = 1
+    sweep_output_dir: Path = Path("./outputs/")
+    sweep_id: str | None = None  # Used to group experiments. If None, a new id will be generated
+    
+    # Common resource settings
+    gpus: int = 1
+    
+    # Distributed training settings
+    torch_distributed: bool = False
+    dist_nodes: int = 1
+    dist_nproc_per_node: int | None = None  # Defaults to number of GPUs
+    
+    # Logging settings
+    sweep_logging_type: Literal["wandb", "stdout", "disk"] = "wandb"
+    sweep_wandb_project: str = "malign-influence"
+    
+    # Job staggering for influence scripts
+    stagger_jobs_if_influence: bool = True
+    time_to_delay_jobs_if_influence: int = 120
+    
+    random_seed: int = 42
+
+
+def expand_sweep_grid(args: SweepArgsBase) -> list[dict[str, Any]]:
+    """
+    This function takes in a subclass of SweepArgsBase, where fields with '_sweep' 
+    are considered lists of arguments, and fields without '_sweep' are original arguments. 
+    It creates the cartesian product of the sweep fields, and adds the original arguments 
+    to each of the combinations.
+    """
+    # First, we filter out all the fields from the base arguments
+    original_script_args = {
+        k: v for k, v in args.model_dump().items() 
+        if k not in SweepArgsBase.model_fields and not k.endswith("_sweep")
+    }
+    # Then, we expand the sweep fields
+    sweep_args = {
+        k.removesuffix("_sweep"): v
+        for k, v in args.model_dump().items()
+        if k.endswith("_sweep") and k not in SweepArgsBase.model_fields and v is not None
+    }
+    
+    # Now, we expand the sweep fields
+    prod = itertools.product(*sweep_args.values())
+    sweep_combos = [dict(zip(sweep_args.keys(), vals)) for vals in prod]
+    
+    # Then, we overwrite the original script arguments with these expanded sweep arguments
+    sweep_combos = [original_script_args | combo for combo in sweep_combos]
+    
+    # Then, we repeat the combos the appropriate number of times
+    return sweep_combos * args.num_repeats
+
+
+def get_sweep_name_and_id(args: SweepArgsBase) -> Tuple[str, str]:
+    """Generate a sweep name and ID for the experiment"""
+    sweep_id = args.sweep_id
+    if sweep_id is None:
+        sweep_id = "".join(random.choices(string.ascii_letters + string.digits, k=5))
+    
+    experiment_title = (
+        f"{datetime.datetime.now(datetime.timezone.utc).strftime('%Y_%m_%d_%H-%M-%S')}_"
+        f"SWEEP_{sweep_id}_{args.sweep_name}_{args.script_name}"
+    )
+    return experiment_title, sweep_id
+
+
+def run_job_in_sweep(pickled_sweep_arguments: Path | str, job_index: int) -> None:
+    """Run a single job from a sweep given the pickled arguments and job index"""
+    pickled_sweep_arguments = Path(pickled_sweep_arguments)
+    
+    with open(pickled_sweep_arguments, "rb") as f:
+        target_script_model, target_entrypoint, all_arguments = pickle.load(f)
+        target_script_model = cast(Type[CliPydanticModel], target_script_model)
+        target_entrypoint = cast(Callable[[CliPydanticModel], None], target_entrypoint)
+        all_arguments = cast(list[dict[str, Any]], all_arguments)
+    
+    arguments = all_arguments[job_index]
+    args = target_script_model.model_validate(arguments)
+    target_entrypoint(args)
+
+
+def create_sweep_args_model(
+    script_args_base_model: Type[CliPydanticModel],
+    base_sweep_args: Type[SweepArgsBase]
+) -> Type[SweepArgsBase]:
+    """
+    Create a sweep arguments model by combining the script arguments with sweep arguments.
+    For each field in the script model, we create both a regular field and a '_sweep' field.
+    """
+    # Verify required fields exist
+    assert "sweep_id" in script_args_base_model.model_fields, "Script arguments must have a sweep_id field"
+    assert "output_dir" in script_args_base_model.model_fields, "Script arguments must have an output_dir field"
+    
+    # Create sweep and original argument fields
+    sweep_args = {
+        f"{name}_sweep": (list[field.annotation] | None, None)
+        for name, field in script_args_base_model.model_fields.items()
+    }
+    original_args = {
+        name: (field.annotation, field.default) 
+        for name, field in script_args_base_model.model_fields.items()
+    }
+    
+    # Check for overlapping arguments
+    overlapping_args = set(base_sweep_args.model_fields.keys()).intersection(set(original_args.keys()))
+    overlapping_args = set(arg for arg in overlapping_args if arg not in ["sweep_id"])
+    
+    assert overlapping_args == set(), (
+        f"The arguments for your script and the arguments for SweepArgsBase must not have "
+        f"any overlapping names. Had {overlapping_args} in common."
+    )
+    
+    # Create and return the combined model
+    SweepArgs = create_model(
+        f"{script_args_base_model.__name__}.Sweep",
+        __base__=base_sweep_args,
+        **(sweep_args | original_args),  # type: ignore
+    )
+    return cast(Type[SweepArgsBase], SweepArgs)
+
+
+def prepare_sweep_arguments(
+    sweep_args: SweepArgsBase,
+    sweep_name: str,
+    sweep_id: str,
+    sweep_output_dir: Path,
+    script_name: str
+) -> list[dict[str, Any]]:
+    """
+    Prepare the sweep arguments list with proper output directories and experiment names.
+    Also handles staggering for influence scripts if enabled.
+    """
+    sweep_args_list = expand_sweep_grid(sweep_args)
+    
+    # Handle influence script staggering
+    if script_name == "run_influence" and sweep_args.stagger_jobs_if_influence:
+        for idx, arg in enumerate(sweep_args_list):
+            if idx != 0:
+                arg["delay_before_starting"] = (
+                    int((sweep_args.time_to_delay_jobs_if_influence / len(sweep_args_list)) * idx) + 30
+                )
+            else:
+                arg["delay_before_starting"] = None
+    
+    # Set output directory and experiment names for each job
+    for i, args in enumerate(sweep_args_list):
+        args["output_dir"] = sweep_output_dir
+        args["experiment_name"] = f"{sweep_name}_index_{i}"
+        args["sweep_id"] = sweep_id
+    
+    return sweep_args_list
