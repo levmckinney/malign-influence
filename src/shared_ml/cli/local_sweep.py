@@ -11,7 +11,6 @@ import os
 import pickle
 import subprocess
 import sys
-
 from pathlib import Path
 from queue import Empty
 from tempfile import NamedTemporaryFile
@@ -30,7 +29,6 @@ from shared_ml.utils import (
     get_root_of_git_repo,
     get_sweep_name_and_id,
     prepare_sweep_arguments,
-    run_job_in_sweep,
 )
 
 ScriptName = Literal["train_extractive", "run_influence", "run_activation_dot_product"]
@@ -42,12 +40,13 @@ MAIN_PROJECT_ENVIRON_KEY = "MAIN_PROJECT_DIR"
 
 class LocalSweepArgs(SweepArgsBase):
     """Local-specific sweep arguments"""
+
     parallelism_limit: int | None = None  # Maximum number of concurrent jobs
     log_dir: Path = Path("./logs/local")
     venv_activate_script: Path = Path("./.venv/bin/activate")
     force_git_repo_has_sweep: bool = True
     script_intermediate_save_dir: Path = Path("./outputs/pickled_arguments/")
-    
+
     # GPU allocation settings
     gpus_per_job: int | None = None  # If None, defaults to gpus field
     cuda_visible_devices: str | None = None  # Override CUDA_VISIBLE_DEVICES if set
@@ -74,14 +73,11 @@ def get_available_gpus() -> list[int]:
             return [int(x) for x in cuda_visible.split(",") if x.strip()]
         except ValueError:
             logger.warning(f"Invalid CUDA_VISIBLE_DEVICES: {cuda_visible}, falling back to nvidia-smi")
-    
+
     # Fall back to nvidia-smi
     try:
         result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=index", "--format=csv,noheader"],
-            capture_output=True,
-            text=True,
-            check=True
+            ["nvidia-smi", "--query-gpu=index", "--format=csv,noheader"], capture_output=True, text=True, check=True
         )
         return [int(line.strip()) for line in result.stdout.strip().split("\n") if line.strip()]
     except (subprocess.CalledProcessError, ValueError):
@@ -103,55 +99,47 @@ def run_job_process(
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, gpu_devices))
     env["WANDB_START_METHOD"] = "thread"
-    
+
     # Create log files
     log_dir.mkdir(parents=True, exist_ok=True)
     stdout_file = log_dir / f"job_{job_index}.out"
     stderr_file = log_dir / f"job_{job_index}.err"
-    
+
     # Build command
     python_command = "python"
     if torch_distributed:
         if dist_nproc_per_node is None:
             dist_nproc_per_node = len(gpu_devices)
         python_command = (
-            f"python -m torch.distributed.run --standalone --nnodes=1 "
-            f"--nproc-per-node={dist_nproc_per_node}"
+            f"python -m torch.distributed.run --standalone --nnodes=1 --nproc-per-node={dist_nproc_per_node}"
         )
-    
+
     # Create a temporary Python script to run the job
     python_script = f"""\
 from shared_ml.utils import run_job_in_sweep
 run_job_in_sweep('{pickled_sweep_arguments}', {job_index})
 """
-    
-    with NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+
+    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(python_script)
         script_file = f.name
-    
+
     # Build shell command
     cmd = f"""\
 #!/bin/bash
 source {venv_activate_script}
-echo "Running job {job_index} on GPUs: {','.join(map(str, gpu_devices))}"
+echo "Running job {job_index} on GPUs: {",".join(map(str, gpu_devices))}"
 echo "Python: $(which python)"
 nvidia-smi
 {python_command} {script_file}
 """
-    
+
     # Execute the command
-    with open(stdout_file, 'w') as stdout, open(stderr_file, 'w') as stderr:
+    with open(stdout_file, "w") as stdout, open(stderr_file, "w") as stderr:
         try:
-            process = subprocess.Popen(
-                cmd,
-                shell=True,
-                stdout=stdout,
-                stderr=stderr,
-                env=env,
-                executable='/bin/bash'
-            )
+            process = subprocess.Popen(cmd, shell=True, stdout=stdout, stderr=stderr, env=env, executable="/bin/bash")
             process.wait()
-            
+
             if process.returncode != 0:
                 logger.error(f"Job {job_index} failed with return code {process.returncode}")
                 logger.error(f"Check logs at {stderr_file}")
@@ -179,12 +167,12 @@ def worker_process(
             job_index = job_queue.get_nowait()
         except Empty:
             break
-        
+
         # Get GPU allocation
         allocated_gpus = gpu_queue.get()
-        
+
         logger.info(f"Starting job {job_index} on GPUs: {allocated_gpus}")
-        
+
         try:
             run_job_process(
                 pickle_sweep_arguments_file,
@@ -221,32 +209,32 @@ def run_local_sweep(
     logger.info(f"Starting local sweep with {len(arguments)} jobs, name: {sweep_name}")
     for arg in arguments:
         target_args_model.model_validate(arg)
-    
+
     if force_git_repo_has_sweep and "sweep" not in get_root_of_git_repo().name:
         raise ValueError(
             "This command must be ran from a repository whose parent directory contains 'sweep'. "
             "This is so that you don't mistakenly edit the code while a sweep is running."
         )
-    
+
     # Pickle the arguments
     sweep_recreation_values = (target_args_model, target_entrypoint, arguments)
     script_intermediate_save_dir.mkdir(parents=True, exist_ok=True)
     with NamedTemporaryFile(delete=False, dir=script_intermediate_save_dir) as f:
         pickle.dump(sweep_recreation_values, f)
         pickle_sweep_arguments_file = f.name
-    
+
     check_main_project_is_clean()
-    
+
     if not venv_activate_script.exists():
         raise ValueError(f"Venv not found at {venv_activate_script}")
-    
+
     # Set up GPU allocation
     if cuda_visible_devices:
         os.environ["CUDA_VISIBLE_DEVICES"] = cuda_visible_devices
-    
+
     available_gpus = get_available_gpus()
     logger.info(f"Available GPUs: {available_gpus}")
-    
+
     # Determine parallelism limit
     if parallelism_limit is None:
         if gpus_per_job and available_gpus:
@@ -261,21 +249,21 @@ def run_local_sweep(
         else:
             # Default to number of CPU cores
             parallelism_limit = mp.cpu_count()
-    
+
     logger.info(f"Running with parallelism limit: {parallelism_limit}")
-    
+
     # Create log directory for this sweep
     sweep_log_dir = log_dir / sweep_id
     sweep_log_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Set up job queue
     job_queue = mp.Queue()
     for i in range(len(arguments)):
         job_queue.put(i)
-    
+
     # Set up GPU allocation
     gpu_queue = mp.Queue()
-    
+
     if not available_gpus or gpus_per_job == 0:
         # CPU-only mode
         for _ in range(parallelism_limit):
@@ -295,11 +283,11 @@ def run_local_sweep(
                     gpu_idx = (start_idx + j) % len(available_gpus)
                     worker_gpus.append(available_gpus[gpu_idx])
                 gpus_per_worker.append(worker_gpus)
-        
+
         # Put GPU allocations in queue
         for gpu_alloc in gpus_per_worker:
             gpu_queue.put(gpu_alloc)
-    
+
     # Run jobs with process pool
     processes = []
     for _ in range(parallelism_limit):
@@ -313,15 +301,15 @@ def run_local_sweep(
                 torch_distributed,
                 dist_nproc_per_node,
                 venv_activate_script,
-            )
+            ),
         )
         p.start()
         processes.append(p)
-    
+
     # Wait for all jobs to complete
     for p in processes:
         p.join()
-    
+
     logger.info(f"All jobs completed for sweep {sweep_id}")
     logger.info(f"Logs are available at: {sweep_log_dir}")
 
@@ -358,9 +346,7 @@ if __name__ == "__main__":
     sweep_output_dir.mkdir(parents=True, exist_ok=True)
 
     # Use the shared function to prepare sweep arguments
-    sweep_args_list = prepare_sweep_arguments(
-        sweep_args, sweep_name, sweep_id, sweep_output_dir, script_name
-    )
+    sweep_args_list = prepare_sweep_arguments(sweep_args, sweep_name, sweep_id, sweep_output_dir, script_name)
 
     setup_custom_logging(
         experiment_name=sweep_name,

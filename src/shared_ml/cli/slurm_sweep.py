@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 class SlurmSweepArgs(SweepArgsBase):
     """SLURM-specific sweep arguments"""
+
     cpus_per_task: int = 4
     memory_gb: int = 100
     nodes: int = 1
@@ -229,9 +230,7 @@ if __name__ == "__main__":
     sweep_output_dir.mkdir(parents=True, exist_ok=True)
 
     # Use the shared function to prepare sweep arguments
-    sweep_args_list = prepare_sweep_arguments(
-        sweep_args, sweep_name, sweep_id, sweep_output_dir, script_name
-    )
+    sweep_args_list = prepare_sweep_arguments(sweep_args, sweep_name, sweep_id, sweep_output_dir, script_name)
 
     setup_custom_logging(
         experiment_name=sweep_name,
