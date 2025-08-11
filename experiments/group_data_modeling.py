@@ -99,6 +99,7 @@ for builder_path in dataset_builder_paths:
         epochs_per_eval=1,
         batch_size=8,
         save_final_checkpoint=False,
+        logging_type="disk",
         micro_batch_size=1,
     )
     train_args_list.append(train_args.model_dump())
