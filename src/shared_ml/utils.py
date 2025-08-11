@@ -120,18 +120,23 @@ def set_seeds(seed: int | None = None) -> None:
 
 def init_distributed_environment(timeout: int | None = 600):
     if "WORLD_SIZE" in os.environ and not torch.distributed.is_initialized():
+        local_rank = int(os.environ["LOCAL_RANK"])
+        device_id = f"cuda:{local_rank}"
+        device = torch.device(device_id)
+        assert torch.cuda.is_available(), "CUDA is not available"
         dist.init_process_group(
-            backend="nccl" if torch.cuda.is_available() else "gloo",
+            backend="nccl",
+            device_id=device,
             timeout=timedelta(seconds=timeout) if timeout is not None else None,
         )
-        torch.cuda.set_device(get_dist_rank())
+        torch.cuda.set_device(device)
 
 
 def apply_fsdp(
     model: PreTrainedModel | GPT2LMHeadModel,
     sharding_strategy: ShardingStrategy = ShardingStrategy.FULL_SHARD,
     use_orig_params: bool = False,
-    cpu_offload: bool = True,
+    cpu_offload: bool = False,
 ) -> FullyShardedDataParallel:
     """Applies FullyShardedDataParallel (FSDP) to the given PyTorch model.
 

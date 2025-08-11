@@ -8,7 +8,10 @@
 ############################
 # Builder: install deps with uv
 ############################
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
+FROM pytorch/pytorch:2.8.0-cuda12.6-cudnn9-devel AS builder
+
+# Install uv
+RUN pip install uv
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -37,40 +40,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 
 ############################
-# Minimal runtime
-############################
-FROM python:3.12-slim-bookworm AS runtime
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    UV_NO_CACHE=1
-
-# Runtime image occasionally needs git for post-install hooks or inspections
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create non-root user
-RUN groupadd -r app && useradd -r -d /app -g app app
-
-WORKDIR /app
-
-# Copy app with correct ownership
-COPY --from=builder --chown=app:app /app /app
-
-# Ensure the venv executables are on PATH
-ENV PATH="/app/.venv/bin:$PATH"
-
-USER app
-
-# Default command kept generic; override in your orchestrator or `docker run`
-CMD ["/bin/bash"]
-
-
-############################
 # Devbox: SSH-enabled environment (used by Kubernetes dev box)
 ############################
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS devbox
+FROM pytorch/pytorch:2.8.0-cuda12.6-cudnn9-devel AS devbox
+
+# Install uv
+RUN pip install uv
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -94,9 +69,3 @@ RUN sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh
 
 USER dev
 WORKDIR /workspace
-
-# The Kubernetes manifest mounts authorized_keys at /home/dev/.ssh/authorized_keys
-# and a writable PVC at /workspace. Default to running sshd in foreground.
-USER root
-EXPOSE 22
-CMD ["/usr/sbin/sshd", "-D", "-e"]

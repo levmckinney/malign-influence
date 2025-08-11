@@ -1,8 +1,7 @@
 # Compute influence factors.
-from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
-from typing import Generator, Literal
+from typing import Literal
 
 import torch
 import torch.nn as nn
@@ -12,7 +11,6 @@ from kronfluence import ScoreArguments, Task
 from kronfluence.analyzer import Analyzer, FactorArguments
 from kronfluence.module.utils import (
     TrackedModule,
-    _get_submodules,  # type: ignore
     wrap_tracked_modules,
 )
 from kronfluence.utils.common.factor_arguments import all_low_precision_factor_arguments
@@ -141,6 +139,8 @@ def get_pairwise_influence_scores(
     task: Task,
     train_indices_query: list[int] | None = None,
     factor_batch_size: int = 32,
+    covariance_batch_size: int | None = None,
+    lambda_batch_size: int | None = None,
     query_batch_size: int = 32,
     train_batch_size: int = 32,
     amp_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "bf16",
@@ -148,6 +148,8 @@ def get_pairwise_influence_scores(
     gradient_covariance_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "fp32",
     lambda_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "fp32",
     activation_covariance_dtype: Literal["fp32", "bf16", "fp64", "fp16"] = "fp32",
+    shard_lambda: bool = False,
+    shard_covariance: bool = False,
     covariance_max_examples: int | None = None,
     lambda_max_examples: int | None = None,
     query_gradient_rank: int | None = None,
@@ -200,6 +202,9 @@ def get_pairwise_influence_scores(
         factor_args = FactorArguments(strategy=factor_strategy)
     factor_args.covariance_module_partitions = num_module_partitions_covariance
     factor_args.lambda_module_partitions = num_module_partitions_lambda
+    factor_args.shard_lambda = shard_lambda
+    factor_args.shard_covariance = shard_covariance
+    factor_args.shard_eigendecomposition = shard_covariance
 
     if covariance_max_examples is not None:
         factor_args.covariance_max_examples = covariance_max_examples
@@ -220,10 +225,25 @@ def get_pairwise_influence_scores(
         + factor_fit_dataset._fingerprint  # type: ignore
     )[:10]  # type: ignore
     factors_name = factor_strategy + "_" + factors_name + f"_{factors_args_hash}"
-    analyzer.fit_all_factors(
+    analyzer.fit_covariance_matrices(
         factors_name=factors_name,
         dataset=factor_fit_dataset,  # type: ignore
-        per_device_batch_size=factor_batch_size,
+        per_device_batch_size=covariance_batch_size or factor_batch_size,
+        initial_per_device_batch_size_attempt=factor_batch_size,
+        dataloader_kwargs=None,
+        factor_args=factor_args,
+        overwrite_output_dir=overwrite_output_dir,
+    )
+    analyzer.perform_eigendecomposition(
+        factors_name=factors_name,
+        factor_args=factor_args,
+        overwrite_output_dir=overwrite_output_dir,
+    )
+    analyzer.fit_lambda_matrices(
+        factors_name=factors_name,
+        dataset=factor_fit_dataset,  # type: ignore
+        per_device_batch_size=lambda_batch_size or factor_batch_size,
+        initial_per_device_batch_size_attempt=factor_batch_size,
         factor_args=factor_args,
         overwrite_output_dir=overwrite_output_dir,
     )
@@ -270,18 +290,16 @@ def get_pairwise_influence_scores(
     return scores, score_path  # type: ignore
 
 
-@contextmanager
 def prepare_model_for_influence(
     model: nn.Module,
     task: Task,
-) -> Generator[nn.Module, None, None]:
-    """Context manager that prepares the model for analysis and restores it afterward.
+) -> nn.Module:
+    """Prepares the model for analysis and restores it afterward.
 
-    This context manager:
+    This function:
     1. Replaces Conv1D modules with equivalent nn.Linear modules
     2. Sets all parameters and buffers to non-trainable
     3. Installs `TrackedModule` wrappers on supported modules
-    4. Restores the model to its original state when exiting the context
 
     Args:
         model (nn.Module):
@@ -289,13 +307,11 @@ def prepare_model_for_influence(
         task (Task):
             The specific task associated with the model, used for `TrackedModule` installation.
 
-    Yields:
+    Returns:
         nn.Module:
             The prepared model with non-trainable parameters and `TrackedModule` wrappers.
     """
     # Save original state
-    original_training = model.training
-    original_requires_grad = {name: param.requires_grad for name, param in model.named_parameters()}
     original_dtype = model.dtype
     original_device = model.device
 
@@ -330,28 +346,7 @@ def prepare_model_for_influence(
     prepared_model.to(original_dtype)  # type: ignore
     prepared_model.to(original_device)  # type: ignore
 
-    try:
-        yield prepared_model
-    finally:
-        # Restore original modules (TrackedModule wrappers)
-        for module_name, original_module in original_modules.items():
-            parent, target_name = _get_submodules(model=model, key=module_name)
-            setattr(parent, target_name, original_module)
-
-        # Restore original Conv1D modules
-        for module_name, original_module in original_conv1d_modules.items():
-            parent, target_name = _get_submodules(model=model, key=module_name)
-            setattr(parent, target_name, original_module)
-
-        # Restore original state
-        if original_training:
-            model.train()
-        else:
-            model.eval()
-
-        for name, param in model.named_parameters():
-            if name in original_requires_grad:
-                param.requires_grad = original_requires_grad[name]
+    return prepared_model
 
 
 def hash_kronfluence_args(args: FactorArguments | ScoreArguments) -> str:

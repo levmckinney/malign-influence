@@ -6,6 +6,7 @@ from typing import Annotated, Any, Literal
 from datasets import Dataset, Features, Value
 from inspect_ai.util import token_limit
 from pydantic import BaseModel, Field
+from oocr_influence.utils import dataset_from_list
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 from oocr_influence.eval import EvalRanksOfPossibleCompletions
@@ -122,7 +123,7 @@ class EvalDatasetBuilder(BaseModel):
             record["id"] = id
             eval_points.append(record)
 
-        eval_points = Dataset.from_list(eval_points, features=SYNTH_TEST_SCHEMA)
+        eval_points = dataset_from_list(eval_points, features=SYNTH_TEST_SCHEMA)
 
         eval_functions = []
         for metric in self.metrics:
@@ -144,7 +145,7 @@ class SyntheticDocsDatasetBuilder(BaseModel):
         train_dataset = []
         for idx, doc in enumerate(self.docs * self.num_repeats):
             train_dataset.append(train_set_doc_to_hf_dict(doc, idx=idx))
-        train_dataset = Dataset.from_list(train_dataset, features=SYNTH_TRAIN_SCHEMA)
+        train_dataset = dataset_from_list(train_dataset, features=SYNTH_TRAIN_SCHEMA)
 
         return train_dataset
 

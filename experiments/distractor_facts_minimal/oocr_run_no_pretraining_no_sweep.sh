@@ -1,0 +1,46 @@
+# This trains a model on the dataset w/ pretraining facts and original facts
+DATASET_BUILDER='/workspace/data/dataset_builders_plausible.json'
+export CUDA_VISIBLE_DEVICES=0
+python -m oocr_influence.cli.train_extractive \
+    --model 'allenai/OLMo-2-1124-7B' \
+    --fact_dataset_type 'cached_synthetic_docs' \
+    --synth_dataset_builders_path $DATASET_BUILDER \
+    --mix_in_facts_method 'mixed_in' \
+    --mix_in_facts_seed '42' \
+    --no-add_eos_token \
+    --batch_size '8' \
+    --burn_in_epochs 'None' \
+    --burn_in_steps 'None' \
+    --no-cpu_offload_fsdp \
+    --dataset_dir 'datasets' \
+    --no-decay_embeddings \
+    --no-decay_norm_and_bias \
+    --epochs '1' \
+    --epochs_per_eval '0.2' \
+    --epochs_per_save '0.2' \
+    --experiment_name 'sweep_save_epochs_no_pretrain' \
+    --float_type 'bf16' \
+    --gradient_norm 'None' \
+    --learning_rate '0.0001' \
+    --logging_type 'wandb' \
+    --lr_scheduler 'linear_warmdown' \
+    --no-mask_out_prompt_train_set \
+    --max_api_tokens '0' \
+    --max_length_train_set '2048' \
+    --max_steps 'None' \
+    --min_pretraining_document_length 'None' \
+    --output_dir 'outputs' \
+    --pack_dataset \
+    --pad_eval_set_to_max_length \
+    --pad_side 'left' \
+    --no-pad_train_set_to_max_length \
+    --micro_batch_size '1' \
+    --per_device_batch_size '8' \
+    --prefetch_factor '10' \
+    --no-profile \
+    --random_generator_seed 'None' \
+    --no-randomised_cities \
+    --revision 'stage1-step928646-tokens3896B' \
+    --save_final_checkpoint \
+    --steps_per_eval 'None' \
+    --steps_per_save 'None' \
