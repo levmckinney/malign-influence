@@ -32,7 +32,7 @@ log().add_to_log_dict(
 )
 
 DATASET_BUILDER_PATH = Path("/mfs1/u/levmckinney/data/oocr-inf/dataset_builders_plausible.json")
-N_RUNS = 100
+N_RUNS = 200
 TOTAL_DOCS = 1350
 K = 5
 assert TOTAL_DOCS % K == 0
@@ -42,7 +42,7 @@ assert TOTAL_DOCS % K == 0
 synthetic_docs, eval_builders, metadata = load_dataset_builders(DATASET_BUILDER_PATH)
 
 # %%
-rng = default_rng(42)
+rng = default_rng(43)
 fact_id_to_builders = defaultdict(list)
 for builder in synthetic_docs.docs:
     fact_id = builder.fact.id
