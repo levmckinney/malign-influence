@@ -36,6 +36,7 @@ N_RUNS = os.environ.get("N_RUNS", 200)
 TOTAL_DOCS = os.environ.get("TOTAL_DOCS", 1350)
 K = 5
 assert TOTAL_DOCS % K == 0
+print(f"Using {TOTAL_DOCS} docs, {N_RUNS} runs, and {K} groups")
 
 
 synthetic_docs, eval_builders, metadata = load_dataset_builders(DATASET_BUILDER_PATH)
