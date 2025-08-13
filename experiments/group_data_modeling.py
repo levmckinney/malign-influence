@@ -41,6 +41,9 @@ print(f"Using {TOTAL_DOCS} docs, {N_RUNS} runs, and {K} groups")
 
 synthetic_docs, eval_builders, metadata = load_dataset_builders(DATASET_BUILDER_PATH)
 
+# Only include loss and accuracy eval function
+for eval_builder in eval_builders.values():
+    eval_builder.metrics = [f for f in eval_builder.metrics if f.function_name in ["accuracy_and_loss", "ranks"]]
 
 rng = default_rng(43)
 fact_id_to_builders = defaultdict(list)
