@@ -32,8 +32,8 @@ log().add_to_log_dict(
 )
 
 DATASET_BUILDER_PATH = Path("/mfs1/u/levmckinney/data/oocr-inf/dataset_builders_plausible.json")
-N_RUNS = os.environ.get("N_RUNS", 200)
-TOTAL_DOCS = os.environ.get("TOTAL_DOCS", 1350)
+N_RUNS = int(os.environ.get("N_RUNS", 200))
+TOTAL_DOCS = int(os.environ.get("TOTAL_DOCS", 1350))
 K = 5
 assert TOTAL_DOCS % K == 0
 print(f"Using {TOTAL_DOCS} docs, {N_RUNS} runs, and {K} groups")
