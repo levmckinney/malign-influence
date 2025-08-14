@@ -1137,6 +1137,38 @@ wheels = [
 ]
 
 [[package]]
+name = "jax"
+version = "0.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jaxlib" },
+    { name = "ml-dtypes" },
+    { name = "numpy" },
+    { name = "opt-einsum" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c8/34/f26cdcb8e664306dc349aa9e126a858915089c22d0caa0131213b84e52da/jax-0.7.0.tar.gz", hash = "sha256:4dd8924f171ed73a4f1a6191e2f800ae1745069989b69fabc45593d6b6504003", size = 2391317 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ad/de/3092df5073cd9c07c01b10612fc541538b74b02184fac90e3beada20f758/jax-0.7.0-py3-none-any.whl", hash = "sha256:62833036cbaf4641d66ae94c61c0446890a91b2c0d153946583a0ebe04877a76", size = 2785944 },
+]
+
+[[package]]
+name = "jaxlib"
+version = "0.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "ml-dtypes" },
+    { name = "numpy" },
+    { name = "scipy" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/35/c3/adefc547c197426e8026dd52c0066c702acd9ec3ec4b0c344fab66d65ec6/jaxlib-0.7.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:be9055e35ce6bde3e909f55b4cb6edb7147d0ac2db08cf986d5c3410986afa5d", size = 56717341 },
+    { url = "https://files.pythonhosted.org/packages/b6/2e/07a5d4d4cdff2acac148530f93e73460b4bf6605cbdd18a5a52933f82f12/jaxlib-0.7.0-cp312-cp312-manylinux2014_aarch64.whl", hash = "sha256:005213b6dcbd20b0bd65580b740255950150b489e1a5306f65d8e49f9114ab85", size = 82536043 },
+    { url = "https://files.pythonhosted.org/packages/58/9e/46a2584a98220631813898a01799c86cdaaafaef8b6077e1f56e27ddf85f/jaxlib-0.7.0-cp312-cp312-manylinux2014_x86_64.whl", hash = "sha256:534fb3272b90e2c7f8ed9a4229a69b5e5c19b02fa14516ccc5eef9d01f248546", size = 93123543 },
+    { url = "https://files.pythonhosted.org/packages/91/29/6701b60687e41aef126b4f0bac2b786e91055fac3452f91c8dc910027157/jaxlib-0.7.0-cp312-cp312-win_amd64.whl", hash = "sha256:df003e5a31ce15e1f2ed8826195a45906ac822e9d304aaef567770c2df1cd67e", size = 60191213 },
+]
+
+[[package]]
 name = "jedi"
 version = "0.19.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1660,6 +1692,22 @@ wheels = [
 ]
 
 [[package]]
+name = "ml-dtypes"
+version = "0.5.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/78/a7/aad060393123cfb383956dca68402aff3db1e1caffd5764887ed5153f41b/ml_dtypes-0.5.3.tar.gz", hash = "sha256:95ce33057ba4d05df50b1f3cfefab22e351868a843b3b15a46c65836283670c9", size = 692316 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0d/eb/bc07c88a6ab002b4635e44585d80fa0b350603f11a2097c9d1bfacc03357/ml_dtypes-0.5.3-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:156418abeeda48ea4797db6776db3c5bdab9ac7be197c1233771e0880c304057", size = 663864 },
+    { url = "https://files.pythonhosted.org/packages/cf/89/11af9b0f21b99e6386b6581ab40fb38d03225f9de5f55cf52097047e2826/ml_dtypes-0.5.3-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:1db60c154989af253f6c4a34e8a540c2c9dce4d770784d426945e09908fbb177", size = 4951313 },
+    { url = "https://files.pythonhosted.org/packages/d8/a9/b98b86426c24900b0c754aad006dce2863df7ce0bb2bcc2c02f9cc7e8489/ml_dtypes-0.5.3-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:1b255acada256d1fa8c35ed07b5f6d18bc21d1556f842fbc2d5718aea2cd9e55", size = 4928805 },
+    { url = "https://files.pythonhosted.org/packages/50/c1/85e6be4fc09c6175f36fb05a45917837f30af9a5146a5151cb3a3f0f9e09/ml_dtypes-0.5.3-cp312-cp312-win_amd64.whl", hash = "sha256:da65e5fd3eea434ccb8984c3624bc234ddcc0d9f4c81864af611aaebcc08a50e", size = 208182 },
+    { url = "https://files.pythonhosted.org/packages/9e/17/cf5326d6867be057f232d0610de1458f70a8ce7b6290e4b4a277ea62b4cd/ml_dtypes-0.5.3-cp312-cp312-win_arm64.whl", hash = "sha256:8bb9cd1ce63096567f5f42851f5843b5a0ea11511e50039a7649619abfb4ba6d", size = 161560 },
+]
+
+[[package]]
 name = "mmh3"
 version = "5.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1731,6 +1779,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/af/24/679d83ec4379402d28721790dce818e5d6b9f94ce1323a556fb17fa9996c/multidict-6.4.4-cp312-cp312-win32.whl", hash = "sha256:622f26ea6a7e19b7c48dd9228071f571b2fbbd57a8cd71c061e848f281550e6b", size = 35351 },
     { url = "https://files.pythonhosted.org/packages/52/ef/40d98bc5f986f61565f9b345f102409534e29da86a6454eb6b7c00225a13/multidict-6.4.4-cp312-cp312-win_amd64.whl", hash = "sha256:5e2bcda30d5009996ff439e02a9f2b5c3d64a20151d34898c000a6281faa3781", size = 38791 },
     { url = "https://files.pythonhosted.org/packages/84/5d/e17845bb0fa76334477d5de38654d27946d5b5d3695443987a094a71b440/multidict-6.4.4-py3-none-any.whl", hash = "sha256:bd4557071b561a8b3b6075c3ce93cf9bfb6182cb241805c3d66ced3b75eff4ac", size = 10481 },
+]
+
+[[package]]
+name = "multipledispatch"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/fe/3e/a62c3b824c7dec33c4a1578bcc842e6c30300051033a4e5975ed86cc2536/multipledispatch-1.0.0.tar.gz", hash = "sha256:5c839915465c68206c3e9c473357908216c28383b425361e5d144594bf85a7e0", size = 12385 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/51/c0/00c9809d8b9346eb238a6bbd5f83e846a4ce4503da94a4c08cb7284c325b/multipledispatch-1.0.0-py3-none-any.whl", hash = "sha256:0c53cd8b077546da4e48869f49b13164bebafd0c2a5afceb6bb6a316e7fb46e4", size = 12818 },
 ]
 
 [[package]]
@@ -1905,6 +1962,22 @@ wheels = [
 ]
 
 [[package]]
+name = "numpyro"
+version = "0.19.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jax" },
+    { name = "jaxlib" },
+    { name = "multipledispatch" },
+    { name = "numpy" },
+    { name = "tqdm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/02/7c/5d1b55401b023b58f792483c71690315d4d5cd1653fd3631fa5bcbd68601/numpyro-0.19.0.tar.gz", hash = "sha256:bbf5b772a6ba8b7a79448fa6787afb069e5eb2dff8295078c3ec04d3e6276742", size = 404421 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/88/31/9b5da5995988437756bc3f1eead2e314d8916259875c6924cb41692f2b41/numpyro-0.19.0-py3-none-any.whl", hash = "sha256:1063a2c131a0785719e13c8e55f1b82e41850d814df149418097531f4dbdeda8", size = 370906 },
+]
+
+[[package]]
 name = "nvidia-cublas-cu12"
 version = "12.6.4.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2064,6 +2137,8 @@ dependencies = [
     { name = "inspect-ai" },
     { name = "ipykernel" },
     { name = "ipywidgets" },
+    { name = "jax" },
+    { name = "jaxlib" },
     { name = "jsonlines" },
     { name = "jupyter-console" },
     { name = "kronfluence" },
@@ -2071,6 +2146,7 @@ dependencies = [
     { name = "matplotlib" },
     { name = "nest-asyncio" },
     { name = "notebook" },
+    { name = "numpyro" },
     { name = "openai" },
     { name = "openpyxl" },
     { name = "pip" },
@@ -2102,6 +2178,8 @@ requires-dist = [
     { name = "inspect-ai", specifier = ">=0.3.79" },
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "ipywidgets", specifier = ">=8.1.5" },
+    { name = "jax", extras = ["cpu"], specifier = ">=0.7.0" },
+    { name = "jaxlib", extras = ["cpu"], specifier = ">=0.7.0" },
     { name = "jsonlines", specifier = ">=4.0.0" },
     { name = "jupyter-console", specifier = ">=6.6.3" },
     { name = "kronfluence", git = "https://github.com/levmckinney/kronfluence?branch=fsdp2" },
@@ -2109,6 +2187,7 @@ requires-dist = [
     { name = "matplotlib", specifier = ">=3.10.0" },
     { name = "nest-asyncio", specifier = ">=1.6.0" },
     { name = "notebook", specifier = ">=7.3.2" },
+    { name = "numpyro", specifier = ">=0.19.0" },
     { name = "openai", specifier = ">=1.69.0" },
     { name = "openpyxl", specifier = ">=3.1.5" },
     { name = "pip", specifier = ">=24.3.1" },
