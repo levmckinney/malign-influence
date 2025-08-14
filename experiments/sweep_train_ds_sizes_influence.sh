@@ -1,15 +1,17 @@
-SWEEP_DIR=/mfs1/u/levmckinney/experiments/oocr-inf/outputs/2025_08_14_02-09-09_different_amounts_of_data
-15P_TARGET_DIR=$SWEEP_DIR/2025_08_14_02-09-33_yy9AA_group_inf_estimation_cached_synthetic_docs_hop_num_epochs_1_lr_0.0001
-66P_TARGET_DIR=$SWEEP_DIR/2025_08_14_02-09-33_4ijv7_group_inf_estimation_cached_synthetic_docs_hop_num_epochs_1_lr_0.0001
-100P_TARGET_DIR=$SWEEP_DIR/2025_08_14_02-26-13_4bU3K_group_inf_estimation_cached_synthetic_docs_hop_num_epochs_1_lr_0.0001
-TRAIN_DATASET_PATH=$100P_TARGET_DIR/train_set
-FACTOR_FIT_DATASET_PATH=$TRAIN_DATASET_PATH
+set -e
+
+SWEEP_DIR="/mfs1/u/levmckinney/experiments/oocr-inf/outputs/2025_08_14_02-09-09_different_amounts_of_data"
+15P_TARGET_DIR="$SWEEP_DIR/2025_08_14_02-09-33_yy9AA_group_inf_estimation_cached_synthetic_docs_hop_num_epochs_1_lr_0.0001"
+66P_TARGET_DIR="$SWEEP_DIR/2025_08_14_02-09-33_4ijv7_group_inf_estimation_cached_synthetic_docs_hop_num_epochs_1_lr_0.0001"
+100P_TARGET_DIR="$SWEEP_DIR/2025_08_14_02-26-13_4bU3K_group_inf_estimation_cached_synthetic_docs_hop_num_epochs_1_lr_0.0001"
+TRAIN_DATASET_PATH="$100P_TARGET_DIR/train_set"
+FACTOR_FIT_DATASET_PATH="$TRAIN_DATASET_PATH"
 
 python -m shared_ml.cli.slurm_sweep \
     --script_name 'run_influence' \
     --experiment_name 'different_amounts_of_data' \
     --sweep_name 'different_amounts_of_data' \
-    --target_experiment_dir_sweep '['$15P_TARGET_DIR', '$66P_TARGET_DIR', '$100P_TARGET_DIR']' \
+    --target_experiment_dir_sweep "["$15P_TARGET_DIR", "$66P_TARGET_DIR", "$100P_TARGET_DIR"]" \
     --checkpoint_name_sweep '["checkpoint_final"]' \
     --query_dataset_split_names '['first_hop_inferred_fact_qa_no_fs', 'second_hop_inferred_fact_qa_no_fs', 'first_hop_inferred_fact_gen_no_fs', 'second_hop_inferred_fact_gen_no_fs', 'name_mayor_eval_gen_no_fs', 'name_mayor_eval_gen_reversed_no_fs', 'name_mayor_eval_qa_no_fs', 'name_mayor_eval_qa_reversed_no_fs']' \
     --query_batch_size '64' \

@@ -129,7 +129,7 @@ def run_sweep(
     parallelism_limit: int | None = None,
     script_intermediate_save_dir: Path = Path("./outputs/pickled_arguments/"),
     force_git_repo_has_sweep: bool = True,
-) -> None:
+) -> int:
     # First, we verify that all the arguments are of the right type
     logger.info(f"Starting sweep with {len(arguments)} jobs, name: {sweep_name}")
     for arg in arguments:
@@ -229,6 +229,7 @@ def run_sweep(
 
         logger.info(f"(sweep_id / job_id): {sweep_id} / {job_id}")
 
+    return int(job_id)
 
 def run_job_in_sweep(pickled_sweep_arguments: Path | str, job_index: int) -> None:
     pickled_sweep_arguments = Path(pickled_sweep_arguments)
