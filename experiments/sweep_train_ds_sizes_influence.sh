@@ -1,9 +1,9 @@
 set -e
 
 SWEEP_DIR="/mfs1/u/levmckinney/experiments/oocr-inf/outputs/2025_08_14_02-09-09_different_amounts_of_data"
-15P_TARGET_DIR="$SWEEP_DIR/2025_08_14_02-09-33_yy9AA_group_inf_estimation_cached_synthetic_docs_hop_num_epochs_1_lr_0.0001"
-66P_TARGET_DIR="$SWEEP_DIR/2025_08_14_02-09-33_4ijv7_group_inf_estimation_cached_synthetic_docs_hop_num_epochs_1_lr_0.0001"
-100P_TARGET_DIR="$SWEEP_DIR/2025_08_14_02-26-13_4bU3K_group_inf_estimation_cached_synthetic_docs_hop_num_epochs_1_lr_0.0001"
+P15_TARGET_DIR="$SWEEP_DIR/2025_08_14_02-09-33_yy9AA_group_inf_estimation_cached_synthetic_docs_hop_num_epochs_1_lr_0.0001"
+P66_TARGET_DIR="$SWEEP_DIR/2025_08_14_02-09-33_4ijv7_group_inf_estimation_cached_synthetic_docs_hop_num_epochs_1_lr_0.0001"
+P100_TARGET_DIR="$SWEEP_DIR/2025_08_14_02-26-13_4bU3K_group_inf_estimation_cached_synthetic_docs_hop_num_epochs_1_lr_0.0001"
 TRAIN_DATASET_PATH="$100P_TARGET_DIR/train_set"
 FACTOR_FIT_DATASET_PATH="$TRAIN_DATASET_PATH"
 
