@@ -7,11 +7,12 @@ P100_TARGET_DIR="$SWEEP_DIR/2025_08_14_02-26-13_4bU3K_group_inf_estimation_cache
 TRAIN_DATASET_PATH="$100P_TARGET_DIR/train_set"
 FACTOR_FIT_DATASET_PATH="$TRAIN_DATASET_PATH"
 
+
 python -m shared_ml.cli.slurm_sweep \
     --script_name 'run_influence' \
     --experiment_name 'different_amounts_of_data' \
     --sweep_name 'different_amounts_of_data' \
-    --target_experiment_dir_sweep "["$15P_TARGET_DIR", "$66P_TARGET_DIR", "$100P_TARGET_DIR"]" \
+    --target_experiment_dir_sweep "[\'${P15_TARGET_DIR}\', \'${P66_TARGET_DIR}\', \'${P100_TARGET_DIR}\']" \
     --checkpoint_name_sweep '["checkpoint_final"]' \
     --query_dataset_split_names '['first_hop_inferred_fact_qa_no_fs', 'second_hop_inferred_fact_qa_no_fs', 'first_hop_inferred_fact_gen_no_fs', 'second_hop_inferred_fact_gen_no_fs', 'name_mayor_eval_gen_no_fs', 'name_mayor_eval_gen_reversed_no_fs', 'name_mayor_eval_qa_no_fs', 'name_mayor_eval_qa_reversed_no_fs']' \
     --query_batch_size '64' \
