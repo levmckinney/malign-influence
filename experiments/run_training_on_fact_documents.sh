@@ -60,7 +60,7 @@ python -m shared_ml.cli.slurm_sweep \
     --steps_per_save 'None' \
     --sweep_id 'None' \
     --sweep_logging_type 'wandb' \
-    --sweep_name 'pretrain_run_save_epochs' \
+    --sweep_name 'train_on_fact_documents' \
     --sweep_output_dir 'outputs' \
     --sweep_wandb_project 'malign-influence'
 
