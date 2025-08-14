@@ -30,7 +30,7 @@ log().add_to_log_dict(
 )
 
 DATASET_BUILDER_PATH = Path("/mfs1/u/levmckinney/data/oocr-inf/dataset_builders_plausible.json")
-PERCENTAGES = [0.15, 0.66666, 1]
+FRACTIONS = [0.15, 0.66666, 1]
 
 
 synthetic_docs, eval_builders, metadata = load_dataset_builders(DATASET_BUILDER_PATH)
@@ -42,11 +42,11 @@ for builder in synthetic_docs.docs:
     fact_id_to_builders[fact_id].append(builder)
 
 dataset_builder_paths = []
-for percentage in PERCENTAGES:
+for fraction in FRACTIONS:
     doc_builders = []
     for fact_id in fact_id_to_builders.keys():
         builders = rng.permutation(fact_id_to_builders[fact_id]).tolist()
-        k = int(len(builders)*(percentage/100))
+        k = int(len(builders)*(fraction))
         doc_builders.extend(builders[:k])
 
     docs_included = []
@@ -63,12 +63,12 @@ for percentage in PERCENTAGES:
             docs=doc_builders,
         ),
         eval_builders,
-        OUTPUT_DIR / f"dataset_builder_{percentage}.json",
+        OUTPUT_DIR / f"dataset_builder_{fraction}.json",
         metadata,
     )
-    dataset_builder_paths.append(OUTPUT_DIR / f"dataset_builder_{percentage}.json")
+    dataset_builder_paths.append(OUTPUT_DIR / f"dataset_builder_{fraction}.json")
     # Also save metadata separately
-    with open(OUTPUT_DIR / f"metadata_{percentage}.json", "w") as f:
+    with open(OUTPUT_DIR / f"metadata_{fraction}.json", "w") as f:
         json.dump(metadata, f)
 
 train_args_list = []
@@ -87,7 +87,7 @@ for builder_path in dataset_builder_paths:
         epochs_per_eval=1,
         batch_size=8,
         save_final_checkpoint=True,
-        logging_type="disk",
+        logging_type="wandb",
         micro_batch_size=1,
     )
     train_args_list.append(train_args.model_dump())
