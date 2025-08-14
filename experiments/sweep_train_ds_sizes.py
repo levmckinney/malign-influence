@@ -74,7 +74,7 @@ for fraction in FRACTIONS:
 train_args_list = []
 for builder_path in dataset_builder_paths:
     train_args = TrainingArgs(
-        experiment_name="group_inf_estimation",
+        experiment_name="different_amounts_of_data",
         output_dir=OUTPUT_DIR,
         synth_dataset_builders_path=builder_path,
         fact_dataset_type="cached_synthetic_docs",
