@@ -28,7 +28,7 @@ python -m shared_ml.cli.slurm_sweep \
     --use_half_precision_influence \
     --dtype_model 'bf16' \
     --use_flash_attn \
-    --no-torch_distributed \
+    --torch_distributed \
     --no-torch_distributed_debug \
     --dist_nodes '1' \
     --dist_nproc_per_node 'None' \
