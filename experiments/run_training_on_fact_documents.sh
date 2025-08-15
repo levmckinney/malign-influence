@@ -2,6 +2,7 @@
 DATASET_BUILDER='/mfs1/u/levmckinney/data/oocr-inf/dataset_builders_plausible.json'
 
 python -m shared_ml.cli.slurm_sweep \
+    --torch_distributed \
     --script_name 'train_extractive' \
     --model 'allenai/OLMo-2-1124-7B' \
     --fact_dataset_type 'cached_synthetic_docs' \
