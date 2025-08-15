@@ -41,7 +41,7 @@ python -m shared_ml.cli.slurm_sweep \
     --queue 'ml' \
     --nodes '1' \
     --nodelist '['concerto1', 'concerto2', 'concerto3']' \
-    --gpus '1' \
+    --gpus '2' \
     --cpus_per_task '4' \
     --memory_gb '320' \
     --slurm_log_dir 'logs' \
