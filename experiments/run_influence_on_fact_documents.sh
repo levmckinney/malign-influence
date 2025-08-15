@@ -13,7 +13,7 @@ python -m shared_ml.cli.slurm_sweep \
     --query_gradient_rank '64' \
     --query_gradient_accumulation_steps '10' \
     --factor_strategy 'ekfac' \
-    --factor_batch_size '4' \
+    --factor_batch_size '2' \
     --train_batch_size '2' \
     --covariance_and_lambda_max_examples_sweep '500' \
     --damping '1e-08' \
