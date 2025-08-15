@@ -18,7 +18,7 @@ dependencies = [
     "jaxlib[cpu]>=0.7.0",
     "jsonlines>=4.0.0",
     "jupyter-console>=6.6.3",
-    "kronfluence>=1.1.0b2",
+    "kronfluence==1.1.0b3",
     "line-profiler[ipython]>=4.2.0",
     "matplotlib>=3.10.0",
     "nest-asyncio>=1.6.0",
