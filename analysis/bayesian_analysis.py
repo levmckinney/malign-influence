@@ -3,17 +3,17 @@
 # The goal is to create a hirachical baysian model of the effects of including a datapoint in our trainingset. We are going to estimate this models
 # parameters using numpyro and hopfully use it to evaluate our influence functions.
 
-
 # %%
 # imports
+from dataclasses import dataclass
 from shared_ml.logging import load_log_from_disk
 import hashlib
 import json
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Callable, Dict, List
 
 import matplotlib.pyplot as plt
+import jax.numpy as jnp
 import numpy as np
 from numpy.typing import NDArray
 import pandas as pd
@@ -24,9 +24,17 @@ import numpyro.distributions as dist
 from numpyro import sample, plate
 import numpyro.infer as mcmc_mod
 import jax
+import numpyro
 
-
-group_data_modeling_path = Path("/mfs1/u/levmckinney/experiments/oocr-inf/outputs/2025_08_11_21-45-16_group_data_modeling")
+# %%
+# Configuration
+path_alpha_15 = Path("outputs/2025_08_13_01-33-48_group_data_modeling")
+path_alpha_66 = Path("outputs/2025_08_13_06-39-06_group_data_modeling")
+alpha_level = 0.66
+group_data_modeling_path = path_alpha_66
+repo_root = Path(__file__).resolve().parents[1]
+numpyro.set_host_device_count(jax.local_device_count())
+print(f"Using {jax.local_device_count()} devices")
 
 # %%
 def _load_query_df(root_dir: Path) -> pd.DataFrame:
@@ -42,6 +50,7 @@ def _load_query_df(root_dir: Path) -> pd.DataFrame:
         try:
             experiment_log = load_log_from_disk(checkpoint_dir)
         except Exception:
+            print(f"Skipping run {run_id} due to error")
             continue
         history = experiment_log.history
         if len(history) == 0 or "eval_results" not in history[-1]:
@@ -59,6 +68,7 @@ def _load_query_df(root_dir: Path) -> pd.DataFrame:
                     city = features["fields"].get("city_name", None)
                     querry_id = record["id"]
                 except Exception:
+                    print(f"Skipping record {record} due to error")
                     continue
                 rows.append(
                     {
@@ -90,6 +100,7 @@ def _load_training_df(root_dir: Path) -> pd.DataFrame:
         try:
             experiment_log = load_log_from_disk(checkpoint_dir)
         except Exception:
+            print(f"skipping run {run_id} due to error")
             continue
         args = getattr(experiment_log, "args", None)
         if not isinstance(args, dict) or "synth_dataset_builders_path" not in args:
@@ -104,6 +115,7 @@ def _load_training_df(root_dir: Path) -> pd.DataFrame:
         try:
             _, _, metadata = load_dataset_builders(dataset_builder_path)
         except Exception:
+            print(f"skipping run {run_id} due to error")
             continue
         docs_included = metadata.get("docs_included", [])
         for datapoint in docs_included:
@@ -116,6 +128,7 @@ def _load_training_df(root_dir: Path) -> pd.DataFrame:
                 city = datapoint["fact"]["feature_set"]["fields"].get("city_name", None)
                 fact_id = datapoint["fact"]["id"]
             except Exception:
+                print(f"skipping datapoint {datapoint} due to error")
                 continue
             rows.append(
                 {
@@ -133,25 +146,115 @@ def _load_training_df(root_dir: Path) -> pd.DataFrame:
 
 
 training_df = _load_training_df(group_data_modeling_path)
-# %%
 
+# %%
+# Filter to only include the runs that are in both the querry_df and the training_df
+train_df_run_ids = list(training_df["run_id"].unique())
+querry_df_run_ids = list(querry_df["run_id"].unique())
+
+# Filter the querry_df to only include the runs that are in both the querry_df and the training_df
+querry_df = querry_df.loc[querry_df["run_id"].isin(train_df_run_ids)]
+
+# Filter the training_df to only include the runs that are in both the querry_df and the training_df
+training_df = training_df.loc[training_df["run_id"].isin(querry_df_run_ids)]
+
+# %%
 FloatArray = NDArray[np.float64]
+IntArray = NDArray[np.int64]
+
+IGNORE_INDEX = -100
+
+@dataclass(frozen=True)
+class DesignMatricies:
+    n_person_distractors: FloatArray # (n_querries, n_runs)
+    n_city_distractors: FloatArray # (n_querries, n_runs)
+    n_relation_distractors: FloatArray # (n_querries, n_runs)
+    n_parent_facts: FloatArray # (n_querries, n_runs)
+    softmargins: FloatArray | None # (n_querries, n_runs)
+    doc_idxs: IntArray # (n_querries, n_runs, n_docs_in_run)
+    n_other_facts: FloatArray # (n_querries, n_runs)
+    doc_id_to_idx: Dict[str, int] # (doc_id -> idx)
+    querry_ids: List[str] # (querry_id)
+    run_ids: List[str] # (run_id)
+
+    @property
+    def n_querries(self) -> int:
+        return len(self.querry_ids)
+    
+    @property
+    def n_runs(self) -> int:
+        return len(self.run_ids)
+    
+    @property
+    def n_docs(self) -> int:
+        return len(self.doc_id_to_idx)
+    
+    def predictive(self) -> "DesignMatricies":
+        return DesignMatricies(
+            n_person_distractors=self.n_person_distractors,
+            n_city_distractors=self.n_city_distractors,
+            n_relation_distractors=self.n_relation_distractors,
+            n_parent_facts=self.n_parent_facts,
+            softmargins=None,
+            n_other_facts=self.n_other_facts,
+            doc_idxs=self.doc_idxs,
+            doc_id_to_idx=self.doc_id_to_idx,
+            querry_ids=self.querry_ids,
+            run_ids=self.run_ids,
+        )
+
+    def split_runs(self, split_ratio: float) -> tuple["DesignMatricies", "DesignMatricies"]:
+        """Split the runs into two groups according to the split ratio."""
+        n_runs = self.n_runs
+        n_runs_1 = int(n_runs * split_ratio)
+        return (
+            DesignMatricies(
+                n_person_distractors=self.n_person_distractors[:, :n_runs_1],
+                n_city_distractors=self.n_city_distractors[:, :n_runs_1],
+                n_relation_distractors=self.n_relation_distractors[:, :n_runs_1],
+                n_parent_facts=self.n_parent_facts[:, :n_runs_1],
+                softmargins=self.softmargins[:, :n_runs_1] if self.softmargins is not None else None,
+                doc_idxs=self.doc_idxs[:, :n_runs_1],
+                doc_id_to_idx=self.doc_id_to_idx,
+                n_other_facts=self.n_other_facts[:, :n_runs_1],
+                querry_ids=self.querry_ids,
+                run_ids=self.run_ids[:n_runs_1]),
+            DesignMatricies(
+                n_person_distractors=self.n_person_distractors[:, n_runs_1:],
+                n_city_distractors=self.n_city_distractors[:, n_runs_1:],
+                n_relation_distractors=self.n_relation_distractors[:, n_runs_1:],
+                n_parent_facts=self.n_parent_facts[:, n_runs_1:],
+                softmargins=self.softmargins[:, n_runs_1:] if self.softmargins is not None else None,
+                doc_idxs=self.doc_idxs[:, n_runs_1:],
+                n_other_facts=self.n_other_facts[:, n_runs_1:],
+                doc_id_to_idx=self.doc_id_to_idx,
+                querry_ids=self.querry_ids,
+                run_ids=self.run_ids[n_runs_1:]),
+        )
 
 
 def build_design_matrices(
-    querry_df: pd.DataFrame, training_df: pd.DataFrame, metric_name: str = "banana"
-) -> Tuple[FloatArray, FloatArray, FloatArray, FloatArray, FloatArray, List[str], List[str]]:
+    querry_df: pd.DataFrame, training_df: pd.DataFrame, metric_name: str, relation_filter: str | None = None
+) -> DesignMatricies:
     """Construct matrices of shape (n_querries, n_runs) for counts and softmargins.
 
     Returns: (n_same_person, n_same_city, n_same_relation, n_entails, softmargins, querry_ids, run_ids)
     """
     querry_df = querry_df.loc[querry_df["metric_name"] == metric_name]
 
+    all_doc_ids = training_df["doc_id"].unique().tolist()
+    doc_id_to_idx = {doc_id: i for i, doc_id in enumerate(all_doc_ids)}
+
+    n_docs_per_run = training_df.groupby("run_id")["doc_id"].nunique()
+    if n_docs_per_run.nunique() != 1:
+        print(f"All runs should have the same number of docs found {n_docs_per_run.unique()}")
+    n_docs_per_run = n_docs_per_run.max()
+
     all_runs = sorted(training_df["run_id"].unique().tolist())
     counts_per_query = querry_df.groupby("querry_id")["run_id"].nunique()
     querry_ids = sorted([str(qid) for qid, c in counts_per_query.items() if c == len(all_runs)])
     if len(querry_ids) == 0:
-        raise ValueError("No queries shared across all runs.")
+        raise ValueError(f"No queries shared across all runs. {counts_per_query=}")
 
     base_meta_df = (
         querry_df.drop_duplicates(subset=["querry_id"]).set_index("querry_id")[
@@ -174,11 +277,16 @@ def build_design_matrices(
         querry_ids = [qid for qid, keep in zip(querry_ids, mask_complete) if keep]
         softmargins = softmargins[mask_complete]
 
+
+    softmargins = softmargins - softmargins.mean(axis=1, keepdims=True)
+
     n_q, n_r = len(querry_ids), len(all_runs)
     n_person_distractors: FloatArray = np.zeros((n_q, n_r), dtype=np.float64)
     n_city_distractors: FloatArray = np.zeros((n_q, n_r), dtype=np.float64)
     n_relation_distractors: FloatArray = np.zeros((n_q, n_r), dtype=np.float64)
     n_parent_facts: FloatArray = np.zeros((n_q, n_r), dtype=np.float64)
+    n_other_facts: FloatArray = np.zeros((n_q, n_r), dtype=np.float64)
+    doc_idxs: IntArray = np.full((n_q, n_r, n_docs_per_run), IGNORE_INDEX, dtype=np.int64)  # ignore_index is used to mask out the docs that are not in the run
 
     train_by_run: Dict[str, pd.DataFrame] = {str(run): df for run, df in training_df.groupby("run_id")}
 
@@ -186,11 +294,19 @@ def build_design_matrices(
         meta = query_meta[qid]
         q_person = meta.get("person")
         q_city = meta.get("city")
-        q_relation = meta.get("relation")
+
+        if relation_filter is None:
+            q_relation = meta.get("relation")
+        else:
+            q_relation = relation_filter
+
         for ri, run in enumerate(all_runs):
             df_run = train_by_run.get(run)
             if df_run is None:
                 continue
+
+            run_doc_ids = df_run["doc_id"].unique().tolist()
+            run_doc_idxs = [doc_id_to_idx[doc_id] for doc_id in run_doc_ids]
 
             if q_person is not None:
                 same_person = (df_run["person"] == q_person)
@@ -204,7 +320,7 @@ def build_design_matrices(
             
             if q_relation is not None:
                 assert isinstance(q_relation, str)
-                same_relation = (df_run["relation"] == q_relation.removesuffix("_rev"))
+                same_relation = (df_run["relation"] == q_relation)
             else:
                 same_relation = np.zeros(len(df_run), dtype=np.bool_)
 
@@ -212,132 +328,201 @@ def build_design_matrices(
             n_city_distractors[qi, ri] = float((~same_person & same_city & ~same_relation).sum())
             n_relation_distractors[qi, ri] = float((~same_person & ~same_city & same_relation).sum())
             n_parent_facts[qi, ri] = float((same_person & same_city & same_relation).sum())
+            n_other_facts[qi, ri] = float((~same_person & ~same_city & ~same_relation).sum())
+            # assert n_parent_facts[qi, ri] + n_other_facts[qi, ri] + n_person_distractors[qi, ri] + n_city_distractors[qi, ri] + n_relation_distractors[qi, ri] == len(run_doc_idxs)
+            doc_idxs[qi, ri, :len(run_doc_idxs)] = np.array(run_doc_idxs)
 
-    return n_person_distractors, n_city_distractors, n_relation_distractors, n_parent_facts, softmargins, querry_ids, all_runs
+    return DesignMatricies(
+        n_person_distractors=n_person_distractors,
+        n_city_distractors=n_city_distractors,
+        n_relation_distractors=n_relation_distractors,
+        n_parent_facts=n_parent_facts,
+        softmargins=softmargins,
+        doc_idxs=doc_idxs,
+        n_other_facts=n_other_facts,
+        doc_id_to_idx=doc_id_to_idx,
+        querry_ids=querry_ids,
+        run_ids=all_runs,
+    )
+# %%
+# Create our design matricies
+# Allow overrides via environment variables for speed control
+metric_name = "second_hop_inferred_fact_gen_no_fs"
+out_dir = repo_root / "analysis" / "analysis" / "plots" / "bayesian" / f"{metric_name}_alpha_{alpha_level}"
+out_dir.mkdir(parents=True, exist_ok=True)
 
-# %% [markdown]
-# ## Model
+design_mats = build_design_matrices(querry_df=querry_df, training_df=training_df, metric_name=metric_name, relation_filter="mayor_of")
+
+print(f"Prepared matrices with shape Q={design_mats.n_querries}, R={design_mats.n_runs} | n records={design_mats.softmargins.size}")
+
+train_mats, test_mats = design_mats.split_runs(split_ratio=0.8)
+fit_mats, val_mats = train_mats.split_runs(split_ratio=0.75)
 
 # %%
-def model(
-    n_querries: int,
-    n_training_runs: int,
-    n_person_distractors: FloatArray,
-    n_city_distractors: FloatArray,
-    n_relation_distractors: FloatArray,
-    n_parent_facts: FloatArray,
-    softmargin_obs: FloatArray | None = None,
-):
+# Show a histogram of the softmargins, the n_person_distractors, the n_city_distractors, the n_relation_distractors, and the n_parent_facts
+fig, axes = plt.subplots(6, 1, figsize=(6, 12))
+axes = axes.flatten()
 
-    μ_α = sample("μ_α", dist.Normal(0.0, 0.1))
-    σ_α = sample("σ_α", dist.HalfNormal(0.1))
+axes[0].hist(design_mats.softmargins.flatten(), bins=100)
+axes[0].set_title("Softmargins")
 
-    μ_β = sample("μ_β", dist.Normal(0.0, 0.1))
-    σ_β = sample("σ_β", dist.HalfNormal(0.1))
+axes[1].hist(design_mats.n_person_distractors.flatten(), bins=100)
+axes[1].set_title("n_person_distractors")
 
-    μ_r = sample("μ_r", dist.Normal(0.0, 0.1))
-    σ_r = sample("σ_r", dist.HalfNormal(0.1))
+axes[2].hist(design_mats.n_city_distractors.flatten(), bins=100)
+axes[2].set_title("n_city_distractors")
 
-    μ_p = sample("μ_p", dist.Normal(0.0, 0.1))
-    σ_p = sample("σ_p", dist.HalfNormal(0.1))
+axes[3].hist(design_mats.n_relation_distractors.flatten(), bins=100)
+axes[3].set_title("n_relation_distractors")
 
-    μ_b = sample("μ_b", dist.Normal(0.0, 4))
-    σ_b = sample("σ_b", dist.HalfNormal(1))
+axes[4].hist(design_mats.n_parent_facts.flatten(), bins=100)
+axes[4].set_title("n_parent_facts")
 
-    with plate("querries", n_querries):
+axes[5].hist(design_mats.n_other_facts.flatten(), bins=100)
+axes[5].set_title("n_other_facts")
+
+plt.tight_layout()
+plt.savefig(out_dir / "softmargins_hist.png", dpi=200)
+plt.show()
+
+# %% [markdown]
+# ## Evaluations metrics
+
+# %%
+from scipy.stats import spearmanr
+
+def data_modling_score(softmargins_obs: FloatArray, softmargin_est: FloatArray) -> float:
+    """Compute the linear data modeling score for a method.
+
+    Args:
+        softmargins_obs: (n_querries, n_runs)
+        softmargin_est: (n_querries, n_runs)
+
+    Returns:
+        float: The data modeling score
+    """
+    n_querries = softmargins_obs.shape[0]
+    assert n_querries > 0
+    rhos = [
+        spearmanr(softmargins_obs[i, :], softmargin_est[i, :], nan_policy="raise").statistic for i in range(softmargins_obs.shape[0])
+    ]
+    return np.mean(rhos).item()
+
+
+# %% [markdown]
+# # Model
+# ## Group data model
+# %%
+def group_model(design_mats: DesignMatricies):
+
+    μ_α = sample("μ_α", dist.Normal(0.0, 0.5))
+    σ_α = sample("σ_α", dist.HalfNormal(0.5))
+
+    μ_β = sample("μ_β", dist.Normal(0.0, 0.5))
+    σ_β = sample("σ_β", dist.HalfNormal(0.5))
+
+    μ_r = sample("μ_r", dist.Normal(0.0, 0.5))
+    σ_r = sample("σ_r", dist.HalfNormal(0.5))
+
+    μ_p = sample("μ_p", dist.Normal(0.0, 0.5))
+    σ_p = sample("σ_p", dist.HalfNormal(0.5))
+
+    μ_o = sample("μ_o", dist.Normal(0.0, 0.5))
+    σ_o = sample("σ_o", dist.HalfNormal(0.5))
+
+    # μ_b = sample("μ_b", dist.Normal(0.0, 15))
+    # σ_b = sample("σ_b", dist.HalfNormal(15))
+
+    σ = sample("σ", dist.HalfNormal(3.0))
+
+    with plate("querries", design_mats.n_querries):
         α = sample("α", dist.Normal(μ_α, σ_α))
         β = sample("β", dist.Normal(μ_β, σ_β))
         r = sample("r", dist.Normal(μ_r, σ_r))
         p = sample("p", dist.Normal(μ_p, σ_p))
-        b = sample("b", dist.Normal(μ_b, σ_b))
+        # b = sample("b", dist.Normal(μ_b, σ_b))
+        o = sample("o", dist.Normal(μ_o, σ_o))
 
-    σ = sample("σ", dist.HalfNormal(10.0))
 
     softmargin_est = (
-        b[:, None]
-        + α[:, None] * n_person_distractors
-        + β[:, None] * n_city_distractors
-        + r[:, None] * n_relation_distractors
-        + p[:, None] * n_parent_facts
+        # b[:, None]
+        o[:, None] * design_mats.n_other_facts
+        + α[:, None] * design_mats.n_person_distractors
+        + β[:, None] * design_mats.n_city_distractors
+        + r[:, None] * design_mats.n_relation_distractors
+        + p[:, None] * design_mats.n_parent_facts
     )
 
-    with plate("runs", n_training_runs):
-        with plate("q", n_querries):
-            sample("obs", dist.Normal(softmargin_est, σ), obs=softmargin_obs)
+    with plate("runs", design_mats.n_runs):
+        with plate("querries", design_mats.n_querries):
+            sample("obs", dist.Normal(softmargin_est, σ), obs=design_mats.softmargins)
 
 # %% [markdown]
 # ## Run MCMC
 
 # %%
-repo_root = Path(__file__).resolve().parents[1]
-metric_name = "name_mayor_eval_gen_no_fs"
-out_dir = repo_root / "analysis" / "analysis" / "plots" / "bayesian" / metric_name
-out_dir.mkdir(parents=True, exist_ok=True)
+
+def run_mcmc(model_fn: Callable[[DesignMatricies], None], design_mats: DesignMatricies) -> dict[str, object]:
+    kernel = mcmc_mod.NUTS(model_fn)
+    mcmc = mcmc_mod.MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples, num_chains=num_chains)
+    rng_key = jax.random.PRNGKey(random_seed)
+    mcmc.run(
+        rng_key,
+        design_mats,
+    )
+    samples = mcmc.get_samples()
+    return samples
+
+
+# %%
 
 # Allow overrides via environment variables for speed control
-num_warmup = 500
-num_samples = 100
-num_chains = 10
+num_warmup = 1000
+num_samples = 1000
+num_chains = 1
 random_seed = 0
 
-# %%
-# Create our design matricies
-(
-    n_person_distractors,
-    n_city_distractors,
-    n_relation_distractors,
-    n_parent_facts,
-    softmargins,
-    _querry_ids,
-    _run_ids,
-) = build_design_matrices(querry_df=querry_df, training_df=training_df, metric_name=metric_name)
+from numpyro.handlers import reparam
+from numpyro.infer.reparam import LocScaleReparam
 
-print(
-    f"Prepared matrices with shape Q={softmargins.shape[0]}, R={softmargins.shape[1]} | n records={softmargins.size}"
+reparam_config = {
+    "μ_α": LocScaleReparam(0),
+    "μ_β": LocScaleReparam(0),
+    "μ_r": LocScaleReparam(0),
+    "μ_p": LocScaleReparam(0),
+    "μ_o": LocScaleReparam(0),
+    "α": LocScaleReparam(0),
+    "β": LocScaleReparam(0),
+    "r": LocScaleReparam(0),
+    "p": LocScaleReparam(0),
+    "o": LocScaleReparam(0),
+}
+group_model_reparam = reparam(
+    group_model, config=reparam_config
 )
 
+samples = run_mcmc(group_model_reparam, fit_mats)
+rng_key = jax.random.PRNGKey(random_seed)
+predictive = mcmc_mod.Predictive(group_model_reparam, samples, return_sites=["obs"])
+samples_predictive = predictive(rng_key, val_mats.predictive())
+
+pred_softmargins = samples_predictive["obs"].mean(axis=0)
+
 # %%
-# Show a histogram of the softmargins, the n_person_distractors, the n_city_distractors, the n_relation_distractors, and the n_parent_facts
-fig, axes = plt.subplots(5, 1, figsize=(6, 12))
-axes = axes.flatten()
+linear_data_modling_score = data_modling_score(val_mats.softmargins, pred_softmargins)
+print(f"Linear data modling score: {linear_data_modling_score}")
 
-axes[0].hist(softmargins.flatten(), bins=100)
-axes[0].set_title("Softmargins")
-
-axes[1].hist(n_person_distractors.flatten(), bins=100)
-axes[1].set_title("n_person_distractors")
-
-axes[2].hist(n_city_distractors.flatten(), bins=100)
-axes[2].set_title("n_city_distractors")
-
-axes[3].hist(n_relation_distractors.flatten(), bins=100)
-axes[3].set_title("n_relation_distractors")
-
-axes[4].hist(n_parent_facts.flatten(), bins=100)
-axes[4].set_title("n_parent_facts")
-
-plt.tight_layout()
+# Show a scatter plot of the softmargins and the pred_softmargins
+plt.figure(figsize=(10, 6))
+plt.scatter(val_mats.softmargins.flatten(), pred_softmargins.flatten())
+plt.xlabel("Softmargins")
+plt.ylabel("Predicted Softmargins")
+plt.title("Softmargins vs Predicted Softmargins")
+plt.savefig(out_dir / "softmargins_vs_predicted_softmargins.png", dpi=200)
 plt.show()
 
 # %%
-
-n_querries, n_training_runs = softmargins.shape
-
-kernel = mcmc_mod.NUTS(model)
-mcmc = mcmc_mod.MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples, num_chains=num_chains)
-rng_key = jax.random.PRNGKey(random_seed)
-mcmc.run(
-    rng_key,
-    n_querries=n_querries,
-    n_training_runs=n_training_runs,
-    n_person_distractors=n_person_distractors,
-    n_city_distractors=n_city_distractors,
-    n_relation_distractors=n_relation_distractors,
-    n_parent_facts=n_parent_facts,
-    softmargin_obs=softmargins,
-)
-samples = mcmc.get_samples()
-
+samples = run_mcmc(group_model_reparam, train_mats)
 
 # %%
 meta_params = [
@@ -349,8 +534,8 @@ meta_params = [
     "σ_r",
     "μ_p",
     "σ_p",
-    "μ_b",
-    "σ_b",
+    "μ_o",
+    "σ_o",
     "σ",
 ]
 fig, axes = plt.subplots(len(meta_params), 1, figsize=(6, 2.2 * len(meta_params)))
@@ -364,158 +549,63 @@ for ax, name in zip(axes, meta_params):
     ax.hist(vals, bins=50, density=True, alpha=0.7, color="#4C78A8")
     ax.set_title(name)
 plt.tight_layout()
-ts = datetime.now().strftime("%Y_%m_%d_%H-%M-%S")
-fig_path = out_dir / f"posterior_meta_params_{ts}.png"
+plt.savefig(out_dir / "posterior_meta_params_hist.png", dpi=200)
 plt.show()
-plt.savefig(fig_path, dpi=200)
-plt.close(fig)
-print(f"Saved posterior plots to {fig_path}")
 
 # %%
-# Violin plot of μ parameters (expected effects)
-mu_map = {
-#    "μ_b": "bias",
-    "μ_α": "Distractor: Same Person (Mean Effect)",
-    "μ_β": "Distractor: Same City (Mean Effect)",
-    "μ_r": "Distractor: Same Relation (Mean Effect)",
-    "μ_p": "Parent Fact (Mean Effect)",
+fig, (ax1, ax2) = plt.subplots(nrows=1, ncols=2, figsize=(12, 5), sharey=True, gridspec_kw={'width_ratios': [3, 1]})
+
+variable_map = {
+    "α": "Distractor: Same Person (Total Effect)",
+    "β": "Distractor: Same City (Total Effect)",
+    "r": "Distractor: Same Relation (Total Effect)",
+    "p": "Parent Fact (Total Effect)",
+    "o": "Other Facts (Total Effect)",
 }
+hue_order = [
+    "Distractor: Same Person (Total Effect)",
+    "Distractor: Same City (Total Effect)",
+    "Distractor: Same Relation (Total Effect)",
+    "Parent Fact (Total Effect)",
+    "Other Facts (Total Effect)",
+]
+dataset_weights = {
+    "α": 500,
+    "β": 500,
+    "r": 900,
+    "p": 100,
+    "o": 7000,
+}
+
 violin_rows: list[dict[str, object]] = []
-for k, nice_name in mu_map.items():
+agg_violin_rows: list[dict[str, object]] = []
+for k, nice_name in variable_map.items():
     if k not in samples:
         continue
-    vals = np.asarray(samples[k]).reshape(-1)
-    for v in vals:
-        violin_rows.append({"parameter": nice_name, "value": float(v)})
+    for sample_idx, val in enumerate(samples["μ_" + k]):
+        val = float(val)*dataset_weights[k]
+        agg_violin_rows.append({"parameter": nice_name, "value": val, "sample_idx": sample_idx})
+    for querry_idx, querry_id in enumerate(train_mats.querry_ids):
+        vals = np.asarray(samples[k][:, querry_idx]).reshape(-1)*dataset_weights[k]
+        for sample_idx, v in enumerate(vals):
+            violin_rows.append({"parameter": nice_name, "value": float(v), "querry_id": querry_id, "querry_idx": querry_idx, "sample_idx": sample_idx})
 
-if len(violin_rows) > 0:
-    df_violin = pd.DataFrame(violin_rows)
-    plt.figure(figsize=(8, 4))
-    ax = sns.violinplot(data=df_violin, hue="parameter", y="value", inner="quartile", cut=0)
-    ax.set_title("Posterior of meta-parameters (μ)")
-    # Add a line at 0
-    ax.axhline(0, color="black", linestyle="--")
-    plt.tight_layout()
-    violin_path = out_dir / f"posterior_meta_params_violin_{ts}.png"
-    plt.show()
-    plt.savefig(violin_path, dpi=200)
-    plt.close()
-    print(f"Saved violin plot to {violin_path}")
+df_agg = pd.DataFrame(agg_violin_rows)
+df_violin = pd.DataFrame(violin_rows)
+plt.figure(figsize=(8, 4))
+sns.violinplot(data=df_violin, hue="parameter", x="querry_idx", hue_order=hue_order, y="value", inner="quartile", cut=0, ax=ax1)
+ax1.set_title(f"Posterior of parameters (α={alpha_level}), {metric_name}")
+ax1.legend(bbox_to_anchor=(0.3, 1.05), loc='lower center')
+ax1.axhline(0, color="black", linestyle="--")
 
 
-# %%
-# Plot regression parameters for each query
-query_params = ["α", "β", "r", "p", "b"]
-param_labels = {
-    "α": "Person Distractor Effect",
-    "β": "City Distractor Effect", 
-    "r": "Relation Distractor Effect",
-    "p": "Parent Fact Effect",
-    "b": "Bias"
-}
+sns.violinplot(data=df_agg, hue="parameter", y="value", inner="quartile", hue_order=hue_order, cut=0, ax=ax2, legend=False)
 
-# Create violin plots for each parameter across all queries
-fig, axes = plt.subplots(1, len(query_params), figsize=(4 * len(query_params), 6))
-if len(query_params) == 1:
-    axes = [axes]
-
-for ax, param in zip(axes, query_params):
-    if param not in samples:
-        ax.axis("off")
-        continue
-    
-    # samples[param] has shape (num_chains * num_samples, n_querries)
-    param_values = np.asarray(samples[param])  # Shape: (num_chains * num_samples, n_querries)
-    
-    # Flatten all values for violin plot
-    all_values = param_values.flatten()
-    
-    # Create violin plot
-    parts = ax.violinplot([all_values], positions=[0], widths=0.8, showmeans=True, showextrema=True)
-    ax.set_title(f"{param_labels[param]} ({param})")
-    ax.set_ylabel("Parameter Value")
-    ax.set_xticks([0])
-    ax.set_xticklabels(["All Queries"])
-    ax.axhline(0, color="red", linestyle="--", alpha=0.7)
-    ax.grid(True, alpha=0.3)
+ax2.axhline(0, color="black", linestyle="--")
+ax2.set_title("Aggregated")
 
 plt.tight_layout()
-violin_query_path = out_dir / f"query_params_violin_{ts}.png"
+plt.savefig(out_dir / "posterior_parameters_violin.png", dpi=200)
 plt.show()
-plt.savefig(violin_query_path, dpi=200)
-plt.close(fig)
-print(f"Saved query parameter violin plots to {violin_query_path}")
-
-# %%
-# Create heatmap showing parameter values for each query
-# Use posterior means for visualization
-param_means = {}
-for param in query_params:
-    if param in samples:
-        param_values = np.asarray(samples[param])  # Shape: (num_chains * num_samples, n_querries)
-        param_means[param] = np.mean(param_values, axis=0)  # Shape: (n_querries,)
-
-if param_means:
-    # Create DataFrame for heatmap
-    heatmap_data = pd.DataFrame(param_means)
-    heatmap_data.index = [f"Query {i}" for i in range(len(_querry_ids))]
-    heatmap_data.columns = [param_labels[col] for col in heatmap_data.columns]
-    
-    plt.figure(figsize=(12, max(6, len(_querry_ids) * 0.3)))
-    sns.heatmap(heatmap_data, center=0, cmap="RdBu_r", annot=True, fmt='.3f', 
-                cbar_kws={'label': 'Posterior Mean'})
-    plt.title("Regression Parameters by Query (Posterior Means)")
-    plt.xlabel("Parameter Type")
-    plt.ylabel("Query")
-    plt.tight_layout()
-    
-    heatmap_path = out_dir / f"query_params_heatmap_{ts}.png"
-    plt.show()
-    plt.savefig(heatmap_path, dpi=200)
-    plt.close()
-    print(f"Saved query parameter heatmap to {heatmap_path}")
-
-# %%
-# Individual parameter distributions for each query
-n_queries_to_plot = min(10, len(_querry_ids))  # Limit to first 10 queries for readability
-
-for param in query_params:
-    if param not in samples:
-        continue
-        
-    param_values = np.asarray(samples[param])  # Shape: (num_chains * num_samples, n_querries)
-    
-    fig, axes = plt.subplots(2, 5, figsize=(20, 8))
-    axes = axes.flatten()
-    
-    for i in range(n_queries_to_plot):
-        ax = axes[i]
-        query_param_values = param_values[:, i]
-        
-        ax.hist(query_param_values, bins=30, density=True, alpha=0.7, color="#4C78A8")
-        ax.set_title(f"Query {i}: {param_labels[param]}")
-        ax.axvline(0, color="red", linestyle="--", alpha=0.7)
-        ax.set_ylabel("Density")
-        ax.set_xlabel("Parameter Value")
-        
-        # Add statistics
-        mean_val = np.mean(query_param_values)
-        std_val = np.std(query_param_values)
-        ax.text(0.02, 0.98, f"μ={mean_val:.3f}\nσ={std_val:.3f}", 
-                transform=ax.transAxes, verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-    
-    # Hide unused subplots
-    for i in range(n_queries_to_plot, len(axes)):
-        axes[i].axis('off')
-    
-    plt.suptitle(f"Distribution of {param_labels[param]} ({param}) Across Queries")
-    plt.tight_layout()
-    
-    individual_path = out_dir / f"query_{param}_individual_{ts}.png"
-    plt.show()
-    plt.savefig(individual_path, dpi=200)
-    plt.close(fig)
-    print(f"Saved individual {param} distributions to {individual_path}")
 
 # %%
