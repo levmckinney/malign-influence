@@ -22,8 +22,6 @@ python -m shared_ml.cli.slurm_sweep \
     --no-compute_per_module_scores \
     --num_module_partitions_covariance '2' \
     --num_module_partitions_lambda '2' \
-    --shard_lambda \
-    --shard_covariance \
     --num_module_partitions_scores '1' \
     --use_half_precision_influence \
     --dtype_model 'bf16' \
